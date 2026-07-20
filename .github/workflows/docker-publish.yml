@@ -1,13 +1,18 @@
 name: Build & publish sauron image
 
-# Builds the sauron fork and pushes it to Docker Hub (n00xx/sauron).
-# amd64 only: the deploy target is TrueNAS Scale, which is x86_64. This keeps
-# CI fast and the image guaranteed-correct-arch for TrueNAS.
+# Builds the sauron fork (linux/amd64 — the TrueNAS Scale arch) and publishes it.
 #
-# Required repository secrets (Settings -> Secrets and variables -> Actions):
-#   DOCKERHUB_USERNAME  -> your Docker Hub username (n00xx)
-#   DOCKERHUB_TOKEN     -> a Docker Hub access token (hub.docker.com -> Account
-#                          Settings -> Personal access tokens -> Generate)
+# Two registries:
+#   - GHCR (ghcr.io/n00xx/sauron): ALWAYS built + pushed using the built-in
+#     GITHUB_TOKEN. No setup needed — this validates the image builds and gives a
+#     working pull source. NOTE: a package from a private repo is private; make it
+#     public (repo -> Packages -> sauron -> Package settings) or give TrueNAS a
+#     pull credential if you deploy from GHCR.
+#   - Docker Hub (n00xx/sauron): pushed ONLY when these repo secrets exist
+#     (Settings -> Secrets and variables -> Actions):
+#       DOCKERHUB_USERNAME = n00xx
+#       DOCKERHUB_TOKEN    = a Docker Hub access token
+#     Until then the build still runs and lands in GHCR.
 
 on:
   push:
@@ -19,8 +24,13 @@ concurrency:
   group: docker-publish-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  packages: write
+
 env:
-  IMAGE: ${{ vars.DOCKERHUB_IMAGE || 'n00xx/sauron' }}
+  DOCKERHUB_IMAGE: n00xx/sauron
+  GHCR_IMAGE: ghcr.io/n00xx/sauron
 
 jobs:
   build:
@@ -29,8 +39,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Derive version
-        id: version
+      - name: Derive version + registry config
+        id: cfg
+        env:
+          # Read the secret via env (never interpolate a secret into the shell).
+          HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_TOKEN != '' }}
         run: |
           BASE=$(grep -m1 '^version' pyproject.toml | sed -E 's/.*"(.*)".*/\1/')
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
@@ -39,9 +52,30 @@ jobs:
             VERSION="${BASE}-sauron.$(echo "${GITHUB_SHA}" | cut -c1-7)"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Building sauron ${VERSION}"
+          echo "has_dockerhub=${HAS_DOCKERHUB}" >> "$GITHUB_OUTPUT"
+
+          # Always publish to GHCR; add Docker Hub tags only when secrets exist.
+          {
+            echo "tags<<EOF"
+            echo "${GHCR_IMAGE}:latest"
+            echo "${GHCR_IMAGE}:${VERSION}"
+            if [ "${HAS_DOCKERHUB}" = "true" ]; then
+              echo "${DOCKERHUB_IMAGE}:latest"
+              echo "${DOCKERHUB_IMAGE}:${VERSION}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "Building sauron ${VERSION} (docker hub: ${HAS_DOCKERHUB})"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
+        if: steps.cfg.outputs.has_dockerhub == 'true'
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -56,10 +90,8 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64
-          tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
+          tags: ${{ steps.cfg.outputs.tags }}
           build-args: |
-            APP_VERSION=${{ steps.version.outputs.version }}
+            APP_VERSION=${{ steps.cfg.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
