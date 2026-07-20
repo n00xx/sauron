@@ -379,6 +379,73 @@ class TestAPIInvitations:
         assert data["error"] == "Invitation not found"
 
 
+class TestAPIMaxActiveSessions:
+    """sauron fork: POST /api/invitations must accept & persist max_active_sessions.
+
+    Upstream Wizarr drops this field in the REST create handler, so the device
+    limit could only be set from the web form. These tests lock in the fork's
+    passthrough end-to-end (request -> create_invite -> Invitation -> GET echo).
+    """
+
+    def _create(self, client, api_key, server_id, payload_extra):
+        body = {"server_ids": [server_id], "duration": "30", "unlimited": False}
+        body.update(payload_extra)
+        return client.post(
+            "/api/invitations",
+            headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+            data=json.dumps(body),
+        )
+
+    def test_create_persists_and_echoes_max_active_sessions(
+        self, client, api_key, sample_data
+    ):
+        """Creating with max_active_sessions=2 stores it and echoes it back."""
+        response = self._create(
+            client, api_key, sample_data["server_id"], {"max_active_sessions": 2}
+        )
+        assert response.status_code == 201, response.get_json()
+
+        invitation = response.get_json()["invitation"]
+        assert invitation["max_active_sessions"] == 2
+
+        # And it is persisted / echoed by the GET list endpoint.
+        listing = client.get("/api/invitations", headers={"X-API-Key": api_key})
+        match = next(
+            inv
+            for inv in listing.get_json()["invitations"]
+            if inv["code"] == invitation["code"]
+        )
+        assert match["max_active_sessions"] == 2
+
+    def test_integer_payload_does_not_500(self, client, api_key, sample_data):
+        """Regression: create_invite calls .strip() on the value.
+
+        A raw JSON integer (not a string) must not crash the endpoint; the fork
+        coerces at the API boundary. Without the coercion this returns 500.
+        """
+        response = self._create(
+            client, api_key, sample_data["server_id"], {"max_active_sessions": 4}
+        )
+        assert response.status_code == 201, response.get_json()
+        assert response.get_json()["invitation"]["max_active_sessions"] == 4
+
+    def test_zero_means_unlimited_and_is_preserved(
+        self, client, api_key, sample_data
+    ):
+        """max_active_sessions=0 (Jellyfin 'unlimited') is stored as 0, not None."""
+        response = self._create(
+            client, api_key, sample_data["server_id"], {"max_active_sessions": 0}
+        )
+        assert response.status_code == 201, response.get_json()
+        assert response.get_json()["invitation"]["max_active_sessions"] == 0
+
+    def test_omitted_field_stays_none(self, client, api_key, sample_data):
+        """Backward compatible: omitting the field leaves it unset (None)."""
+        response = self._create(client, api_key, sample_data["server_id"], {})
+        assert response.status_code == 201, response.get_json()
+        assert response.get_json()["invitation"]["max_active_sessions"] is None
+
+
 class TestAPILibraries:
     """Test the API libraries endpoints."""
 

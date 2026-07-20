@@ -123,6 +123,10 @@ invitation_model = api.model(
         "uses_global_setting": fields.Boolean(
             description="Whether display name comes from global setting"
         ),
+        "max_active_sessions": fields.Integer(
+            description="Jellyfin max simultaneous streams; 0 = unlimited, null = not set",
+            allow_null=True,
+        ),
     },
 )
 
@@ -168,6 +172,10 @@ invitation_create_request = api.model(
         "wizard_bundle_id": fields.Integer(
             required=False,
             description="Wizard bundle ID to use for this invitation (omit for automatic selection)",
+        ),
+        "max_active_sessions": fields.Integer(
+            required=False,
+            description="Jellyfin max simultaneous streams for invited users; 0 = unlimited (Jellyfin servers only)",
         ),
     },
 )

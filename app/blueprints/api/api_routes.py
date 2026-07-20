@@ -684,6 +684,7 @@ class InvitationsListResource(Resource):
                         "display_name": display_info["display_name"],
                         "server_names": display_info["server_names"],
                         "uses_global_setting": display_info["uses_global_setting"],
+                        "max_active_sessions": invitation.max_active_sessions,
                     }
                 )
 
@@ -776,6 +777,14 @@ class InvitationsListResource(Resource):
                     "allow_live_tv": data.get("allow_live_tv", False),
                     "allow_mobile_uploads": data.get("allow_mobile_uploads", False),
                     "wizard_bundle_id": data.get("wizard_bundle_id"),
+                    # Jellyfin max simultaneous streams. create_invite() calls
+                    # .strip() on this, so coerce JSON ints/None to the string
+                    # contract the web form uses. 0 = unlimited.
+                    "max_active_sessions": (
+                        str(data["max_active_sessions"])
+                        if data.get("max_active_sessions") is not None
+                        else None
+                    ),
                 }
             )
 
@@ -799,6 +808,7 @@ class InvitationsListResource(Resource):
                         "display_name": server.name if server else "Unknown",
                         "server_names": [server.name] if server else [],
                         "uses_global_setting": False,
+                        "max_active_sessions": invitation.max_active_sessions,
                     },
                 }, 201
             from flask import jsonify, make_response
