@@ -1,0 +1,70 @@
+groups:
+  - name: Sauron Configuration
+    description: Timezone and identity for the sauron container
+  - name: Network Configuration
+    description: Web UI port
+  - name: Storage Configuration
+    description: Where sauron persists its data (SQLite DB, secrets, sessions)
+
+questions:
+  - variable: sauron
+    label: ""
+    group: Sauron Configuration
+    schema:
+      type: dict
+      attrs:
+        - variable: timezone
+          label: Timezone
+          schema:
+            type: string
+            default: "America/Mexico_City"
+            required: true
+
+  - variable: run_as
+    label: ""
+    group: Sauron Configuration
+    schema:
+      type: dict
+      attrs:
+        - variable: user
+          label: User ID (PUID)
+          schema:
+            type: int
+            min: 0
+            default: 568
+            required: true
+        - variable: group
+          label: Group ID (PGID)
+          schema:
+            type: int
+            min: 0
+            default: 568
+            required: true
+
+  - variable: network
+    label: ""
+    group: Network Configuration
+    schema:
+      type: dict
+      attrs:
+        - variable: web_port
+          label: Web UI Port
+          schema:
+            type: int
+            default: 5690
+            min: 1
+            max: 65535
+            required: true
+
+  - variable: storage
+    label: ""
+    group: Storage Configuration
+    schema:
+      type: dict
+      attrs:
+        - variable: data_path
+          label: Data Host Path
+          description: Existing dataset path on the host, e.g. /mnt/pool/apps/sauron/data
+          schema:
+            type: hostpath
+            required: true

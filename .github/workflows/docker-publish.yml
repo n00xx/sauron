@@ -1,0 +1,65 @@
+name: Build & publish sauron image
+
+# Builds the sauron fork and pushes it to Docker Hub (n00xx/sauron).
+# amd64 only: the deploy target is TrueNAS Scale, which is x86_64. This keeps
+# CI fast and the image guaranteed-correct-arch for TrueNAS.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   DOCKERHUB_USERNAME  -> your Docker Hub username (n00xx)
+#   DOCKERHUB_TOKEN     -> a Docker Hub access token (hub.docker.com -> Account
+#                          Settings -> Personal access tokens -> Generate)
+
+on:
+  push:
+    branches: [sauron]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ${{ vars.DOCKERHUB_IMAGE || 'n00xx/sauron' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version
+        id: version
+        run: |
+          BASE=$(grep -m1 '^version' pyproject.toml | sed -E 's/.*"(.*)".*/\1/')
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${BASE}-sauron.$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Building sauron ${VERSION}"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build & push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

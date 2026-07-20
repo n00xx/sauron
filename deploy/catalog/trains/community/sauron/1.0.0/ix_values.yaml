@@ -1,0 +1,4 @@
+images:
+  image:
+    repository: n00xx/sauron
+    tag: latest

@@ -1,0 +1,21 @@
+{# Self-contained plain-Jinja compose template (no ix_lib vendor).            #}
+{# TrueNAS injects the form answers as `values.*` and expects a rendered      #}
+{# docker-compose document. Values map from questions.yaml + ix_values.yaml.  #}
+services:
+  sauron:
+    image: {{ values.images.image.repository }}:{{ values.images.image.tag }}
+    restart: unless-stopped
+    ports:
+      - "{{ values.network.web_port }}:5690"
+    environment:
+      PUID: "{{ values.run_as.user }}"
+      PGID: "{{ values.run_as.group }}"
+      TZ: "{{ values.sauron.timezone }}"
+    volumes:
+      - "{{ values.storage.data_path }}:/data/database"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -fs http://localhost:5690/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

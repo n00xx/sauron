@@ -1,0 +1,32 @@
+# sauron — TrueNAS Scale "Custom App" compose
+# Apps -> Discover -> Custom App -> "Install via YAML", paste this file.
+#
+# Before installing:
+#   1. Create a dataset for persistent data, e.g. pool/apps/sauron/data
+#   2. Set data_dir below to its host path (starts with /mnt/...)
+#   3. Pick a host port (default 5690) that is free on the box.
+#
+# Data (SQLite DB, secrets.json, sessions/) lives under /data/database in the
+# container. That single mount is the whole app state — back it up.
+
+services:
+  sauron:
+    image: n00xx/sauron:latest
+    container_name: sauron
+    restart: unless-stopped
+    ports:
+      - "5690:5690" # host:container — change the host side if 5690 is taken
+    environment:
+      # Match these to the dataset owner so the container can write its volume.
+      PUID: "568" # TrueNAS 'apps' user (default). Adjust if your dataset differs.
+      PGID: "568"
+      TZ: "America/Mexico_City"
+    volumes:
+      # LEFT side = host dataset path on TrueNAS. Change to your dataset.
+      - /mnt/pool/apps/sauron/data:/data/database
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -fs http://localhost:5690/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
