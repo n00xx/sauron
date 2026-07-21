@@ -1,5 +1,6 @@
 import json
 
+from packaging.version import InvalidVersion
 from packaging.version import parse as vparse
 
 
@@ -20,11 +21,16 @@ def _manifest() -> dict:
 def check_update_available(current_version: str) -> bool:
     """True if a newer semantic version exists in the manifest."""
     latest = _manifest().get("latest_version")
-    if not latest:
+    if not latest or current_version == "dev":
         return False  # can't compare
-    return (
-        vparse(latest) > vparse(current_version) if current_version != "dev" else False
-    )
+    try:
+        return vparse(latest) > vparse(current_version)
+    except InvalidVersion:
+        # Fork builds use non-PEP 440 version strings (e.g.
+        # "2026.7.1-sauron.<sha>") that vparse can't compare. Without this
+        # guard the InvalidVersion propagates and 500s the /admin dashboard,
+        # the only request-path caller. Treat unparseable versions as current.
+        return False
 
 
 def get_sponsors() -> list[dict]:
