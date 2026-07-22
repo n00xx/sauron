@@ -91,3 +91,25 @@ def check_expiring(app=None):
         # Only log in development mode to avoid spam in production logs
         elif os.getenv("WIZARR_ENABLE_SCHEDULER") == "true":
             logging.info("🕒 Expiry cleanup: No expired users found.")
+
+
+def notify_streaming_expirers(app=None):
+    """Message expiring users who are currently streaming.
+
+    Scheduled counterpart to the manual admin action: on each cycle it looks
+    for users inside the expiring-this-week window who have an active playback
+    session and sends them an on-screen renewal notice (idempotent per window).
+
+    Args:
+        app: Flask application instance. If None, the notifier resolves the
+            current application context itself.
+    """
+    from app.services.expiry_notify import notify_expiring_streaming_users
+
+    summary = notify_expiring_streaming_users(app)
+    if summary.get("notified"):
+        logging.info(
+            "📩 Expiry notices: sent to %s streaming user(s).", summary["notified"]
+        )
+    elif os.getenv("WIZARR_ENABLE_SCHEDULER") == "true":
+        logging.info("📩 Expiry notices: no streaming expirers to notify.")

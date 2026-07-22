@@ -1,0 +1,21 @@
+{% if error %}
+  <div class="text-xs text-center rounded-md px-3 py-2 bg-red-50 dark:bg-red-900/40 text-red-700 dark:text-red-300">
+    ⚠️ {{ error }}
+  </div>
+{% else %}
+  <div class="text-xs text-center rounded-md px-3 py-2 bg-gray-50 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300 space-y-1">
+    {% if result.notified %}
+      <div class="font-medium text-green-700 dark:text-green-300">
+        ✅ {{ _("Notice sent to %(n)s streaming user(s).", n=result.notified) }}
+      </div>
+    {% else %}
+      <div>{{ _("No streaming users to notify right now.") }}</div>
+    {% endif %}
+    {% if result.already_notified %}
+      <div>{{ _("%(n)s already notified this cycle.", n=result.already_notified) }}</div>
+    {% endif %}
+    {% if result.errors %}
+      <div class="text-red-600 dark:text-red-400">{{ _("%(n)s could not be reached.", n=result.errors) }}</div>
+    {% endif %}
+  </div>
+{% endif %}

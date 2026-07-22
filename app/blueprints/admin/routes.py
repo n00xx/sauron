@@ -1397,6 +1397,29 @@ def expiring_users_table():
         )
 
 
+@admin_bp.route("/expiring-users/notify", methods=["POST"])
+@login_required
+def notify_expiring_streaming():
+    """Send an on-screen renewal notice to expiring users who are streaming.
+
+    Manual counterpart to the scheduled ``notify_streaming_expirers`` job:
+    matches expiring-this-week users to their live playback session and pushes
+    the Spanish renewal message (idempotent per expiry window).
+    """
+    try:
+        from app.services.expiry_notify import notify_expiring_streaming_users
+
+        result = notify_expiring_streaming_users()
+        return render_template(
+            "_partials/expiry_notify_result.html", result=result
+        )
+    except Exception as e:
+        logging.error(f"Failed to notify expiring streaming users: {e}")
+        return render_template(
+            "_partials/expiry_notify_result.html", error=str(e)
+        )
+
+
 @admin_bp.route("/hx/users/sync")
 @login_required
 def sync_users():

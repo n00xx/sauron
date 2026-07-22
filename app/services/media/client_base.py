@@ -396,6 +396,35 @@ class MediaClient(ABC):
         """
         raise NotImplementedError
 
+    def send_message(
+        self,
+        session_id: str,  # noqa: ARG002
+        text: str,  # noqa: ARG002
+        header: str = "",  # noqa: ARG002
+        timeout_ms: int = 5000,  # noqa: ARG002
+    ) -> bool:
+        """Send an on-screen message to an active playback session.
+
+        Only media servers that expose a session-messaging API (Jellyfin,
+        Emby) support this. The base implementation is a no-op that reports
+        the capability as unavailable so callers can skip unsupported servers
+        without special-casing each client type.
+
+        Args:
+            session_id: Server-native session identifier to target.
+            text: Message body shown to the user.
+            header: Optional short title/header for the message.
+            timeout_ms: How long the client should display the message.
+
+        Returns:
+            bool: True if the message was delivered, False if unsupported
+            or delivery failed.
+        """
+        logging.debug(
+            "send_message not supported for %s", self.__class__.__name__
+        )
+        return False
+
     def get_recent_items(
         self,
         library_id: str | None = None,  # noqa: ARG002

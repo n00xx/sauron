@@ -222,6 +222,11 @@ class User(db.Model, UserMixin):
     # Legacy metadata caching fields (will be phased out)
     library_access_json = db.Column(db.Text, nullable=True)
 
+    # Timestamp of the last "subscription expiring" on-screen notification sent
+    # to this user while they were streaming. Used to avoid re-notifying on
+    # every scheduler cycle for the same expiry window.
+    expiry_notified_at = db.Column(db.DateTime, nullable=True)
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 

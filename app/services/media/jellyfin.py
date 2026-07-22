@@ -863,6 +863,38 @@ class JellyfinClient(RestApiMixin):
             logging.error(f"Failed to get now playing from Jellyfin: {e}")
             return []
 
+    def send_message(
+        self,
+        session_id: str,
+        text: str,
+        header: str = "",
+        timeout_ms: int = 5000,
+    ) -> bool:
+        """Send an on-screen message to a Jellyfin playback session.
+
+        Uses the ``POST /Sessions/{id}/Message`` command, which surfaces a
+        toast/dialog inside the user's active client while they are watching.
+
+        Returns:
+            bool: True if Jellyfin accepted the command, False otherwise.
+        """
+        if not session_id or not text:
+            return False
+
+        payload = {
+            "Header": header or "",
+            "Text": text,
+            "TimeoutMs": timeout_ms,
+        }
+        try:
+            self.post(f"/Sessions/{session_id}/Message", json=payload)
+            return True
+        except Exception as e:
+            logging.error(
+                f"Failed to send message to Jellyfin session {session_id}: {e}"
+            )
+            return False
+
     def get_recent_items(
         self, library_id: str | None = None, limit: int = 10
     ) -> list[dict]:

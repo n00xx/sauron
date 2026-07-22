@@ -82,6 +82,7 @@ def init_extensions(app):
         from app.tasks.maintenance import (
             _get_expiry_check_interval,
             check_expiring,
+            notify_streaming_expirers,
         )
         from app.tasks.update_check import fetch_and_cache_manifest
 
@@ -89,6 +90,15 @@ def init_extensions(app):
         scheduler.add_job(
             id="check_expiring",
             func=lambda: check_expiring(app),
+            trigger="interval",
+            minutes=_get_expiry_check_interval(),
+            replace_existing=True,
+        )
+
+        # Notify expiring users who are actively streaming (on-screen message)
+        scheduler.add_job(
+            id="notify_streaming_expirers",
+            func=lambda: notify_streaming_expirers(app),
             trigger="interval",
             minutes=_get_expiry_check_interval(),
             replace_existing=True,
