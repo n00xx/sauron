@@ -132,6 +132,10 @@ def create_invite(form: Any) -> Invitation:
             and str(form.get("max_active_sessions")).strip().isdigit()
             else None
         ),
+        # Jellyfin transcoding toggles. Rendered checked-by-default in the modal,
+        # so an untouched invite sends "true"; unchecking omits the field (False).
+        allow_transcode_audio=bool(form.get("allow_transcode_audio")),
+        allow_transcode_video=bool(form.get("allow_transcode_video")),
     )
     db.session.add(invite)
     db.session.flush()  # so invite.id exists, but not yet committed

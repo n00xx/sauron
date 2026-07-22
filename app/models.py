@@ -142,6 +142,9 @@ class Invitation(db.Model):
 
     # Jellyfin options
     max_active_sessions = db.Column(db.Integer, nullable=True)  # 0 = unlimited/infinity
+    # Jellyfin transcoding playback toggles (default ON for all new invitations)
+    allow_transcode_audio = db.Column(db.Boolean, default=True, nullable=True)
+    allow_transcode_video = db.Column(db.Boolean, default=True, nullable=True)
 
     # LDAP integration (2025-12)
     create_ldap_user = db.Column(db.Boolean, default=False, nullable=True)

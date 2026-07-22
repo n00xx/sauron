@@ -585,9 +585,15 @@ class JellyfinClient(RestApiMixin):
                             getattr(current_server, "allow_live_tv", False)
                         )
 
+            # Jellyfin transcoding playback toggles (invitation-level, default ON)
+            allow_transcode_audio = bool(getattr(inv, "allow_transcode_audio", False))
+            allow_transcode_video = bool(getattr(inv, "allow_transcode_video", False))
+
             current_policy = self.get(f"/Users/{user_id}").json().get("Policy", {})
             current_policy["EnableContentDownloading"] = allow_downloads
             current_policy["EnableLiveTvAccess"] = allow_live_tv
+            current_policy["EnableAudioPlaybackTranscoding"] = allow_transcode_audio
+            current_policy["EnableVideoPlaybackTranscoding"] = allow_transcode_video
 
             # Apply Jellyfin max active sessions setting
             max_sessions = getattr(inv, "max_active_sessions", None)

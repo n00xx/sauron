@@ -169,6 +169,14 @@ invitation_create_request = api.model(
         "allow_mobile_uploads": fields.Boolean(
             description="Allow mobile uploads", default=False
         ),
+        "allow_transcode_audio": fields.Boolean(
+            description="Allow audio playback that requires transcoding (Jellyfin)",
+            default=True,
+        ),
+        "allow_transcode_video": fields.Boolean(
+            description="Allow video playback that requires transcoding (Jellyfin)",
+            default=True,
+        ),
         "wizard_bundle_id": fields.Integer(
             required=False,
             description="Wizard bundle ID to use for this invitation (omit for automatic selection)",

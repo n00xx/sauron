@@ -164,6 +164,59 @@ class TestInvitationCreation:
             assert len(invite.servers) == 1  # type: ignore
             assert invite.servers[0] == server  # type: ignore
 
+    def test_create_invitation_enables_transcoding_when_checked(self, app):
+        """Modal renders the transcode toggles checked, so the form sends
+        'true' for both — the invitation must persist them enabled."""
+        with app.app_context():
+            server = MediaServer(
+                name="JF",
+                server_type="jellyfin",
+                url="http://localhost:8096",
+                api_key="test-key",
+            )
+            db.session.add(server)
+            db.session.flush()
+
+            form_data = DictFormWrapper(
+                {
+                    "expires": "week",
+                    "unlimited": True,
+                    "server_ids": [str(server.id)],
+                    "allow_transcode_audio": "true",
+                    "allow_transcode_video": "true",
+                }
+            )
+            invite = create_invite(form_data)
+
+            assert invite.allow_transcode_audio is True
+            assert invite.allow_transcode_video is True
+
+    def test_create_invitation_disables_transcoding_when_unchecked(self, app):
+        """Unchecking a toggle omits the field from the POST; the invitation
+        must persist it disabled rather than falling back to the ON default."""
+        with app.app_context():
+            server = MediaServer(
+                name="JF",
+                server_type="jellyfin",
+                url="http://localhost:8096",
+                api_key="test-key",
+            )
+            db.session.add(server)
+            db.session.flush()
+
+            form_data = DictFormWrapper(
+                {
+                    "expires": "week",
+                    "unlimited": True,
+                    "server_ids": [str(server.id)],
+                    # both transcode fields intentionally absent (unchecked)
+                }
+            )
+            invite = create_invite(form_data)
+
+            assert invite.allow_transcode_audio is False
+            assert invite.allow_transcode_video is False
+
     def test_create_invitation_with_libraries(self, app):
         """Test creating invitation with specific libraries."""
         with app.app_context():

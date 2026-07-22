@@ -103,3 +103,51 @@ def test_password_prompt_applies_safe_emby_policy(client, session):
     assert policy["AllowSharingPersonalItems"] is False
     assert policy["EnableSubtitleManagement"] is False
     assert policy["EnableRemoteControlOfOtherUsers"] is False
+
+
+def test_password_prompt_maps_transcode_toggles_to_policy(client, session):
+    _complete_setup()
+    server = MediaServer(
+        name="Emby",
+        server_type="emby",
+        url="http://emby.local",
+        api_key="emby-key",
+        allow_downloads=False,
+        allow_live_tv=False,
+        allow_mobile_uploads=False,
+    )
+    invitation = Invitation(
+        code="TRANSCODE",
+        used=False,
+        unlimited=True,
+        allow_downloads=False,
+        allow_live_tv=False,
+        allow_mobile_uploads=False,
+        allow_transcode_audio=True,
+        allow_transcode_video=False,
+    )
+    invitation.servers = [server]
+    db.session.add_all([server, invitation])
+    db.session.commit()
+
+    media_client = PolicyCapturingClient()
+
+    with patch(
+        "app.services.media.service.get_client_for_media_server",
+        return_value=media_client,
+    ):
+        response = client.post(
+            "/j/TRANSCODE/password",
+            data={
+                "username": "viewer",
+                "email": "viewer@example.com",
+                "password": "password123",
+                "confirm": "password123",
+            },
+        )
+
+    assert response.status_code == 302
+    assert len(media_client.policy_updates) == 1
+    policy = media_client.policy_updates[0]
+    assert policy["EnableAudioPlaybackTranscoding"] is True
+    assert policy["EnableVideoPlaybackTranscoding"] is False

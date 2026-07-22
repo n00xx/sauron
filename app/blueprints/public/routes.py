@@ -32,6 +32,12 @@ def _media_permission_flags(invitation: Invitation, server: MediaServer) -> dict
         or bool(getattr(server, "allow_live_tv", False)),
         "allow_mobile_uploads": bool(getattr(invitation, "allow_mobile_uploads", False))
         or bool(getattr(server, "allow_mobile_uploads", False)),
+        "allow_transcode_audio": bool(
+            getattr(invitation, "allow_transcode_audio", False)
+        ),
+        "allow_transcode_video": bool(
+            getattr(invitation, "allow_transcode_video", False)
+        ),
     }
 
 
@@ -47,6 +53,8 @@ def _apply_safe_media_user_policy(
             "EnableContentDeletionFromFolders": [],
             "EnableContentDownloading": permissions["allow_downloads"],
             "EnableLiveTvAccess": permissions["allow_live_tv"],
+            "EnableAudioPlaybackTranscoding": permissions["allow_transcode_audio"],
+            "EnableVideoPlaybackTranscoding": permissions["allow_transcode_video"],
             "EnableLiveTvManagement": False,
             "AllowCameraUpload": permissions["allow_mobile_uploads"],
             "EnablePublicSharing": False,
