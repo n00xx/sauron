@@ -778,8 +778,8 @@ class InvitationsListResource(Resource):
                     "allow_mobile_uploads": data.get("allow_mobile_uploads", False),
                     # Jellyfin transcoding toggles default ON (parity with the
                     # Create Invitation modal, which renders them checked).
-                    "allow_transcode_audio": data.get("allow_transcode_audio", True),
-                    "allow_transcode_video": data.get("allow_transcode_video", True),
+                    "allow_transcode_audio": data.get("allow_transcode_audio", False),
+                    "allow_transcode_video": data.get("allow_transcode_video", False),
                     "wizard_bundle_id": data.get("wizard_bundle_id"),
                     # Jellyfin max simultaneous streams. create_invite() calls
                     # .strip() on this, so coerce JSON ints/None to the string

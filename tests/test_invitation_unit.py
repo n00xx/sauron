@@ -165,7 +165,7 @@ class TestInvitationCreation:
             assert invite.servers[0] == server  # type: ignore
 
     def test_create_invitation_enables_transcoding_when_checked(self, app):
-        """Modal renders the transcode toggles checked, so the form sends
+        """When the admin enables the transcode toggles, the form sends
         'true' for both — the invitation must persist them enabled."""
         with app.app_context():
             server = MediaServer(

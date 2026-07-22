@@ -171,11 +171,11 @@ invitation_create_request = api.model(
         ),
         "allow_transcode_audio": fields.Boolean(
             description="Allow audio playback that requires transcoding (Jellyfin)",
-            default=True,
+            default=False,
         ),
         "allow_transcode_video": fields.Boolean(
             description="Allow video playback that requires transcoding (Jellyfin)",
-            default=True,
+            default=False,
         ),
         "wizard_bundle_id": fields.Integer(
             required=False,
