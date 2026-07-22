@@ -20,7 +20,7 @@
       }
   </style>
   <section id="invite-section"
-           class="min-h-screen bg-gradient-to-br from-gray-100 via-primary/10 to-white dark:from-slate-900 dark:via-primary/20 dark:to-slate-900 relative overflow-x-hidden overflow-y-auto lg:overflow-hidden">
+           class="min-h-screen bg-gradient-to-br from-gray-100 via-primary/10 to-white dark:from-slate-900 dark:via-primary/20 dark:to-slate-900 relative overflow-x-hidden overflow-y-auto {{ 'lg:overflow-hidden' if not show_form_on_load else '' }}">
     <!-- Animated background elements -->
     <div class="absolute inset-0 overflow-hidden">
       <div class="absolute -top-40 -right-80 w-80 h-80 bg-primary/60 rounded-full mix-blend-multiply filter blur-xl opacity-40 animate-blob">
@@ -35,7 +35,7 @@
     </div>
     <!-- Shimmer particles background -->
     <div class="shimmer-particles" id="shimmer-container"></div>
-    <div class="relative flex flex-col items-center justify-center px-6 mx-auto min-h-screen lg:py-0">
+    <div class="relative flex flex-col items-center justify-center px-6 mx-auto min-h-screen {{ 'py-8' if show_form_on_load else 'lg:py-0' }}">
       <!-- Header - always visible -->
       <div class="text-center mb-4 md:mb-8 transition-all duration-500 ease-out"
            id="page-header">
@@ -57,7 +57,7 @@
       <!-- Main Card Container -->
       <div class="w-full {{ 'max-w-lg' if show_form_on_load else 'max-w-md' }} transition-all duration-700 ease-out"
            id="main-container">
-        <div class="relative bg-white/90 dark:bg-gray-800/40 backdrop-blur-xl rounded-2xl shadow-xl dark:shadow-2xl border border-gray-200 dark:border-gray-700/50 transition-all duration-700 ease-out {{ 'h-auto min-h-[520px] md:h-[520px]' if show_form_on_load else 'h-[400px]' }}"
+        <div class="relative bg-white/90 dark:bg-gray-800/40 backdrop-blur-xl rounded-2xl shadow-xl dark:shadow-2xl border border-gray-200 dark:border-gray-700/50 transition-all duration-700 ease-out {{ 'h-auto min-h-[520px]' if show_form_on_load else 'h-[400px]' }}"
              id="card-container"
              style="overflow: {{ 'visible' if show_form_on_load else 'hidden' }}">
           <!-- Welcome Screen -->
