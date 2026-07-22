@@ -156,6 +156,32 @@
                   </div>
                 </div>
               {% endif %}
+              <!-- Registered account(s): username + email entered on the join form -->
+              {% if invite.used %}
+                {% set inv_users = invite.get_all_users() %}
+                {% if inv_users %}
+                  <div class="flex items-start text-sm text-muted-foreground dark:text-gray-400">
+                    <svg class="h-4 w-4 mr-2 mt-0.5"
+                         fill="currentColor"
+                         viewBox="0 0 20 20"
+                         xmlns="http://www.w3.org/2000/svg">
+                      <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd">
+                      </path>
+                    </svg>
+                    <div class="flex-1 min-w-0">
+                      <span>{{ _("Account") if inv_users|length == 1 else _("Accounts") }}:</span>
+                      <div class="text-xs mt-0.5 space-y-1">
+                        {% for u in inv_users %}
+                          <div class="text-gray-700 dark:text-gray-300">
+                            <span class="font-medium block truncate">{{ u.username }}</span>
+                            <span class="block truncate text-muted-foreground dark:text-gray-400">{{ u.email or _("No email") }}</span>
+                          </div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  </div>
+                {% endif %}
+              {% endif %}
             </div>
             <!-- Status & Actions -->
             <div class="flex items-center justify-between mt-auto pt-4"
