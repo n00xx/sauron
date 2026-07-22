@@ -56,6 +56,24 @@ def app():
                 os.unlink(db_file)
 
 
+@pytest.fixture(autouse=True)
+def _stub_email_domain_dns(monkeypatch):
+    """Make email-domain validation network-free for the whole suite.
+
+    JoinForm now performs a DNS lookup to confirm the email domain exists. By
+    default every domain resolves (MX present) so existing tests stay hermetic
+    and fast; tests that need a specific outcome override ``Resolver.resolve``.
+    """
+    import dns.resolver
+
+    def _resolve(self, domain, record_type, *args, **kwargs):
+        if record_type == "MX":
+            return ["mail.example.com."]
+        raise dns.resolver.NoAnswer
+
+    monkeypatch.setattr(dns.resolver.Resolver, "resolve", _resolve)
+
+
 @pytest.fixture
 def client(app):
     return app.test_client()

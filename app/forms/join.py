@@ -9,6 +9,7 @@ from app.forms.validators import (
     USERNAME_MIN_LENGTH,
     USERNAME_PATTERN,
     strip_filter,
+    validate_email_domain_exists,
 )
 
 
@@ -29,7 +30,7 @@ class JoinForm(FlaskForm):
     email = StringField(
         "Email",
         filters=[strip_filter],
-        validators=[DataRequired(), Email()],
+        validators=[DataRequired(), Email(), validate_email_domain_exists],
     )
     password = PasswordField(
         "Password",
