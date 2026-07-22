@@ -82,6 +82,57 @@
                 </div>
               </div>
             </div>
+            {# ───── Login Security (Cloudflare Turnstile) ────── #}
+            <div class="space-y-4">
+              <div class="border-b border-gray-200 dark:border-gray-700 pb-3">
+                <div class="flex items-center gap-3">
+                  <div class="flex-shrink-0 w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
+                    <svg class="w-4 h-4 text-primary" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ _("Login Security") }}</h2>
+                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                      {{ _("Protect the admin login page with a Cloudflare Turnstile challenge") }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                <div class="space-y-4">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <label class="text-sm font-medium text-gray-900 dark:text-white">{{ form.turnstile_enabled.label.text }}</label>
+                      <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                        {{ _("Require visitors to pass a Cloudflare Turnstile check before signing in") }}
+                      </p>
+                    </div>
+                    <label class="inline-flex items-center cursor-pointer">
+                      {{ form.turnstile_enabled(class="sr-only peer") }}
+                      <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 dark:peer-focus:ring-primary/30 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary dark:peer-checked:bg-primary">
+                      </div>
+                    </label>
+                  </div>
+                  <div>
+                    {{ form.turnstile_site_key.label(class="block mb-2 text-sm font-medium text-gray-900 dark:text-white") }}
+                    {{ form.turnstile_site_key(class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary focus:border-primary block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white", placeholder="0x4AAAAAAA...", autocomplete="off") }}
+                  </div>
+                  <div>
+                    {{ form.turnstile_secret_key.label(class="block mb-2 text-sm font-medium text-gray-900 dark:text-white") }}
+                    {{ form.turnstile_secret_key(class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary focus:border-primary block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white", placeholder=_("Leave blank to keep the current secret") , autocomplete="new-password") }}
+                    <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                      {{ _("Stored securely and never displayed again. Get your keys from the Cloudflare Turnstile dashboard.") }}
+                    </p>
+                  </div>
+                  <div class="pt-3 border-t border-gray-200 dark:border-gray-600">
+                    <p class="text-xs text-amber-600 dark:text-amber-400">
+                      {{ _("Locked out? Set the environment variable TURNSTILE_ENABLED=false and restart to bypass the challenge.") }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
             {# ───── User Management ──────────────────────────── #}
             <div class="space-y-4">
               <div class="border-b border-gray-200 dark:border-gray-700 pb-3">

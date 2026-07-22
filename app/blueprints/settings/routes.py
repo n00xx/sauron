@@ -38,7 +38,12 @@ def _load_settings() -> dict:
     settings = {s.key: s.value for s in Settings.query.all()}
 
     # Convert specific boolean fields from strings to booleans
-    boolean_fields = ["allow_downloads", "allow_live_tv", "wizard_acl_enabled"]
+    boolean_fields = [
+        "allow_downloads",
+        "allow_live_tv",
+        "wizard_acl_enabled",
+        "turnstile_enabled",
+    ]
     for field in boolean_fields:
         if field in settings and settings[field] is not None:
             settings[field] = str(settings[field]).lower() == "true"
@@ -265,6 +270,11 @@ def general_settings():
     )
     if form.validate_on_submit():
         data = form.data.copy()
+        # The Turnstile secret is a PasswordField and never renders its stored
+        # value back. If the admin leaves it blank on save, keep the existing
+        # secret instead of clobbering it with an empty string.
+        if not data.get("turnstile_secret_key"):
+            data.pop("turnstile_secret_key", None)
         _save_settings(data)
         flash(_("Settings saved successfully!"), "success")
         # Reload settings from database and create a fresh form to display updated values

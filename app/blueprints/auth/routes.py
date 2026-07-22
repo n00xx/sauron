@@ -42,6 +42,34 @@ def login():
     password = request.form.get("password")
     auth_method = request.form.get("auth_method", "local")
 
+    # Get IP address: prefer Cloudflare's header, then X-Forwarded-For, then remote_addr
+    client_ip = (
+        request.headers.get("CF-Connecting-IP")
+        or (request.headers.get("X-Forwarded-For") or request.remote_addr or "")
+        .split(",")[0]
+        .strip()
+    )
+
+    # ── Cloudflare Turnstile challenge ─────────────────────────────────
+    # Gates the password/LDAP login form (both submit through here). Passkey
+    # login is a separate JS flow and is intentionally not gated.
+    from app.services.turnstile import is_turnstile_enabled, verify_turnstile
+
+    if is_turnstile_enabled():
+        token = request.form.get("cf-turnstile-response")
+        if not verify_turnstile(token, client_ip):
+            logging.warning(
+                f"AUTH FAIL: Turnstile check failed for user '{username}' from {client_ip}"
+            )
+            return render_template(
+                "login.html",
+                error=_("Captcha verification failed. Please try again."),
+                has_passkeys=has_passkeys,
+                ldap_enabled=ldap_enabled,
+                media_server_url=media_server_url,
+                selected_auth_method=auth_method,
+            )
+
     # ── Handle LDAP authentication ─────────────────────────────────────
     if auth_method == "ldap":
         from .ldap_auth import handle_ldap_login
@@ -96,15 +124,7 @@ def login():
         login_user(AdminUser(), remember=bool(request.form.get("remember")))
         return redirect("/")
 
-    # Get IP address: prefer Cloudflare's header, then X-Forwarded-For, then remote_addr
-    client_ip = (
-        request.headers.get("CF-Connecting-IP")
-        or (request.headers.get("X-Forwarded-For") or request.remote_addr or "")
-        .split(",")[0]
-        .strip()
-    )
-
-    # Log failed login with IP
+    # Log failed login with IP (client_ip computed above)
     logging.warning(f"AUTH FAIL: Failed login for user '{username}' from {client_ip}")
 
     return render_template(

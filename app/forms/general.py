@@ -1,5 +1,5 @@
 from flask_wtf import FlaskForm
-from wtforms import BooleanField, SelectField, StringField
+from wtforms import BooleanField, PasswordField, SelectField, StringField
 from wtforms.validators import DataRequired, Optional
 
 
@@ -16,4 +16,14 @@ class GeneralSettingsForm(FlaskForm):
         ],
         default="delete",
         validators=[DataRequired()],
+    )
+    # ── Cloudflare Turnstile (admin login protection) ──────────────────
+    turnstile_enabled = BooleanField(
+        "Protect Login with Cloudflare Turnstile",
+        default=False,
+        validators=[Optional()],
+    )
+    turnstile_site_key = StringField("Turnstile Site Key", validators=[Optional()])
+    turnstile_secret_key = PasswordField(
+        "Turnstile Secret Key", validators=[Optional()]
     )

@@ -37,3 +37,18 @@ def inject_plus_features():
 def inject_app_version():
     """Inject current app version into template context for cache busting."""
     return {"app_version": os.getenv("APP_VERSION", "dev")}
+
+
+def inject_turnstile():
+    """Inject Cloudflare Turnstile state so any render of login.html can show
+    the widget. Only the public site key is exposed to templates."""
+    try:
+        from app.services.turnstile import get_site_key, is_turnstile_enabled
+
+        enabled = is_turnstile_enabled()
+        return {
+            "turnstile_enabled": enabled,
+            "turnstile_site_key": get_site_key() if enabled else None,
+        }
+    except Exception:
+        return {"turnstile_enabled": False, "turnstile_site_key": None}
