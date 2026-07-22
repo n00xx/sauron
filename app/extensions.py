@@ -217,6 +217,18 @@ def _normalize_locale(code: str | None) -> str | None:
     return lowered_map.get(base.lower())
 
 
+# Endpoints whose rendered page (and its form validation) is forced to es_MX.
+# The invite landing + create-account form are all served by welcome-jellyfin.html
+# through these three public endpoints.
+_SPANISH_INVITE_ENDPOINTS = frozenset(
+    {
+        "public.invite",
+        "public.process_invitation",
+        "public.join",
+    }
+)
+
+
 def _select_locale():
     supported_keys = current_app.config["LANGUAGES"].keys()
     forced = current_app.config.get("FORCE_LANGUAGE") or os.getenv("FORCE_LANGUAGE")
@@ -233,6 +245,15 @@ def _select_locale():
         if normalised:
             session["lang"] = normalised
             return normalised
+
+    # The public invite / create-account screens are served in Mexican Spanish
+    # regardless of the visitor's browser language. Scoped to these endpoints so
+    # the rest of the app keeps its normal (browser/admin) locale, and applied
+    # without touching session["lang"] so it never leaks to later pages.
+    if request.endpoint in _SPANISH_INVITE_ENDPOINTS:
+        forced_invite = _normalize_locale("es_MX")
+        if forced_invite:
+            return forced_invite
 
     if stored := session.get("lang"):
         if normalised := _normalize_locale(stored):

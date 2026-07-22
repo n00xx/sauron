@@ -130,7 +130,7 @@ class TestInvitationUserJourney:
         page.goto(f"{live_server.url()}{invitation_setup['invitation_url']}")
 
         # Verify invitation page loads
-        expect(page.locator("h1").first).to_contain_text("been invited")
+        expect(page.locator("h1").first).to_contain_text("invitado")
 
         # Click "Accept Invitation" button to show the form
         page.click("#accept-invite-btn")
@@ -209,7 +209,7 @@ class TestInvitationUserJourney:
         # Client-side validation should prevent submission of empty form
         page.wait_for_load_state("networkidle")
         # Verify we're still on the invitation page (form wasn't submitted)
-        expect(page.locator("body")).to_contain_text("been invited")
+        expect(page.locator("body")).to_contain_text("invitado")
 
         # Test password mismatch - wait for form to be ready
         page.wait_for_selector(
@@ -224,7 +224,7 @@ class TestInvitationUserJourney:
 
         # Should show password mismatch error or stay on same page
         page.wait_for_load_state("networkidle")
-        expect(page.locator("body")).to_contain_text("been invited")
+        expect(page.locator("body")).to_contain_text("invitado")
 
         # Form validation test is complete - the form correctly prevented invalid submissions
 
@@ -402,7 +402,7 @@ class TestMultiServerInvitationFlow:
         page.wait_for_load_state("networkidle")
 
         # Should show invitation content (may not show specific server names)
-        expect(page.locator("body")).to_contain_text("been invited")
+        expect(page.locator("body")).to_contain_text("invitado")
 
         # Click "Accept Invitation" button to show the form
         page.click("#accept-invite-btn")
@@ -420,7 +420,7 @@ class TestMultiServerInvitationFlow:
         page.fill("input[name='password']", "Testpass123")
         page.fill("input[name='confirm_password']", "Testpass123")
         page.fill("input[name='email']", "multi@example.com")
-        page.click("button:has-text('Create Account')")
+        page.click("button:has-text('Crear cuenta')")
 
         # Wait for form submission to complete
         page.wait_for_load_state("networkidle")
@@ -518,7 +518,7 @@ class TestMultiServerInvitationFlow:
         page.fill("input[name='password']", "Testpass123")
         page.fill("input[name='confirm_password']", "Testpass123")
         page.fill("input[name='email']", "partial@example.com")
-        page.click("button:has-text('Create Account')")
+        page.click("button:has-text('Crear cuenta')")
 
         # Wait for form submission to complete
         page.wait_for_load_state("networkidle")

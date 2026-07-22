@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from flask import session, url_for
+from flask_babel import lazy_gettext as _l
 
 from app.models import Invitation, MediaServer
 from app.services.media.service import get_client_for_media_server
@@ -320,7 +321,7 @@ class FormBasedWorkflow(InvitationWorkflow):
             return self._create_auth_error_result(
                 invitation,
                 servers,
-                "Please correct the highlighted fields.",
+                _l("Please correct the highlighted fields."),
                 form=form,
             )
         form_data = validated_data
@@ -597,7 +598,7 @@ class MixedWorkflow(InvitationWorkflow):
                 return self._create_local_form_error_result(
                     invitation,
                     other_servers,
-                    "Please correct the highlighted fields.",
+                    _l("Please correct the highlighted fields."),
                     form,
                 )
             form_data = validated_data

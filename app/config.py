@@ -88,6 +88,7 @@ class BaseConfig:
         "da": "Danish",
         "de": "German",
         "es": "Spanish",
+        "es_MX": "Spanish (Mexico)",
         "fa": "Persian",
         "fr": "French",
         "gsw": "Swiss German",

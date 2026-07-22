@@ -8,6 +8,7 @@ from typing import Any
 
 import dns.exception
 import dns.resolver
+from flask_babel import lazy_gettext as _l
 from wtforms.validators import ValidationError
 
 logger = logging.getLogger(__name__)
@@ -15,14 +16,14 @@ logger = logging.getLogger(__name__)
 USERNAME_PATTERN = r"^[\w'.-]+$"
 USERNAME_MIN_LENGTH = 3
 USERNAME_MAX_LENGTH = 15
-USERNAME_LENGTH_MESSAGE = "Username must be 3 to 15 characters."
-USERNAME_ALLOWED_CHARS_MESSAGE = (
+USERNAME_LENGTH_MESSAGE = _l("Username must be 3 to 15 characters.")
+USERNAME_ALLOWED_CHARS_MESSAGE = _l(
     "Username can contain letters, numbers, dashes (-), underscores (_), "
     "apostrophes ('), and periods (.)."
 )
 
 # ─── Email domain existence validation ──────────────────────────────────────
-EMAIL_DOMAIN_INVALID_MESSAGE = "Please enter a valid email address."
+EMAIL_DOMAIN_INVALID_MESSAGE = _l("Please enter a valid email address.")
 
 # Total DNS budget kept short so an unreachable nameserver can never stall
 # account creation. NXDOMAIN answers are fast; a dead nameserver is the risk.
@@ -69,7 +70,9 @@ def _domain_has_dns_records(domain: str) -> bool:
             continue
         except dns.exception.DNSException as exc:
             # Timeout, no reachable nameserver, etc. — fail open.
-            logger.warning("DNS lookup failed for %s (%s): %s", domain, record_type, exc)
+            logger.warning(
+                "DNS lookup failed for %s (%s): %s", domain, record_type, exc
+            )
             return True
     return False
 

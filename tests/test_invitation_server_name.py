@@ -175,10 +175,14 @@ def test_invitation_page_displays_server_name(client, test_invitation, test_serv
     # Should get the welcome page for jellyfin
     assert response.status_code == 200
 
-    # Check that the server name appears in the response
+    # Check that the server name appears in the response. The invite page is
+    # served in Mexican Spanish (es_MX); the server name itself is interpolated
+    # and not translated.
     response_text = response.get_data(as_text=True)
     assert "My Jellyfin Server" in response_text
-    assert "You've been invited to join the My Jellyfin Server server!" in response_text
+    assert (
+        "¡Te han invitado a unirte al servidor My Jellyfin Server!" in response_text
+    )
 
 
 def test_invitation_with_no_server_association_falls_back(client, invitation_no_server):
@@ -190,9 +194,10 @@ def test_invitation_with_no_server_association_falls_back(client, invitation_no_
     assert response.status_code == 200
     response_text = response.get_data(as_text=True)
     # Just verify that the invitation page is working with some server name
-    # The specific server name depends on test execution order
-    assert "Create Account" in response_text
-    assert "You've been invited to join" in response_text
+    # The specific server name depends on test execution order. The invite page
+    # is served in Mexican Spanish (es_MX).
+    assert "Crear cuenta" in response_text
+    assert "¡Te han invitado a unirte al servidor" in response_text
 
 
 def test_invitation_with_legacy_server_field(client, legacy_server_invitation):

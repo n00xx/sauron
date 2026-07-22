@@ -30,8 +30,23 @@ class E2ETestConfig(BaseConfig):
     SQLALCHEMY_DATABASE_URI = f"sqlite:///{tempfile.gettempdir()}/wizarr_e2e_test.db"
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _compile_translations():
+    """Compile .po -> .mo before the suite runs.
+
+    Compiled catalogs are gitignored (Docker builds them at Dockerfile:41), so
+    without this the es_MX assertions would silently fall back to English in CI.
+    """
+    from babel.messages.frontend import CommandLineInterface
+
+    CommandLineInterface().run(
+        ["pybabel", "compile", "--use-fuzzy", "-d", "app/translations"]
+    )
+    yield
+
+
 @pytest.fixture(scope="session")
-def app():
+def app(_compile_translations):
     # Clean up any existing test database files (including WAL files)
     for ext in ["", "-wal", "-shm"]:
         db_file = TestConfig._temp_db_path + ext

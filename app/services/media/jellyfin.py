@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 import requests
 import structlog
+from flask_babel import lazy_gettext as _l
 from sqlalchemy import or_
 
 from app.extensions import db
@@ -523,7 +524,7 @@ class JellyfinClient(RestApiMixin):
         code: str,
     ) -> tuple[bool, str]:
         if not EMAIL_RE.fullmatch(email):
-            return False, "Invalid e-mail address."
+            return False, _l("Invalid e-mail address.")
         if not 8 <= len(password) <= 128:
             return False, "Password must be 8–128 characters."
         if password != confirm:
@@ -539,7 +540,7 @@ class JellyfinClient(RestApiMixin):
             User.server_id == server_id,
         ).first()
         if existing:
-            return False, "User or e-mail already exists."
+            return False, _l("User or e-mail already exists.")
 
         try:
             user_id = self.create_user(username, password)
