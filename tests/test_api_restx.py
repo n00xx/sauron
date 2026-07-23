@@ -573,3 +573,109 @@ class TestAPIErrorHandling:
         assert response.status_code == 401
         data = response.get_json()
         assert data["error"] == "Unauthorized"
+
+
+class TestAPIInvitationDisableUsers:
+    """POST /api/invitations/<id>/disable-users — chargeback/refund revocation.
+
+    Resolves the invitation→users many-to-many mapping and disables every
+    user who redeemed the invitation (falling back to delete when the media
+    server can't disable, same semantics as POST /users/<id>/disable).
+    """
+
+    def _link_user(self, app, sample_data):
+        """Attach the sample user to the sample invitation via the M2M table."""
+        with app.app_context():
+            invitation = db.session.get(Invitation, sample_data["invitation_id"])
+            user = db.session.get(User, sample_data["user_id"])
+            invitation.users.append(user)
+            db.session.commit()
+
+    def test_unauthorized(self, client, sample_data):
+        response = client.post(
+            f"/api/invitations/{sample_data['invitation_id']}/disable-users"
+        )
+        assert response.status_code == 401
+
+    def test_invitation_not_found(self, client, api_key):
+        response = client.post(
+            "/api/invitations/99999/disable-users",
+            headers={"X-API-Key": api_key},
+        )
+        assert response.status_code == 404
+        assert response.get_json()["error"] == "Invitation not found"
+
+    def test_disables_redeemed_users(
+        self, app, client, api_key, sample_data, monkeypatch
+    ):
+        self._link_user(app, sample_data)
+        disabled_ids = []
+        monkeypatch.setattr(
+            "app.blueprints.api.api_routes.disable_user",
+            lambda db_id: disabled_ids.append(db_id) or True,
+        )
+
+        response = client.post(
+            f"/api/invitations/{sample_data['invitation_id']}/disable-users",
+            headers={"X-API-Key": api_key},
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["count"] == 1
+        assert data["users"][0]["user_id"] == sample_data["user_id"]
+        assert data["users"][0]["action"] == "disabled"
+        assert disabled_ids == [sample_data["user_id"]]
+
+    def test_falls_back_to_delete_when_disable_unsupported(
+        self, app, client, api_key, sample_data, monkeypatch
+    ):
+        self._link_user(app, sample_data)
+        deleted_ids = []
+        monkeypatch.setattr(
+            "app.blueprints.api.api_routes.disable_user", lambda db_id: False
+        )
+        monkeypatch.setattr(
+            "app.blueprints.api.api_routes.delete_user",
+            lambda db_id: deleted_ids.append(db_id),
+        )
+
+        response = client.post(
+            f"/api/invitations/{sample_data['invitation_id']}/disable-users",
+            headers={"X-API-Key": api_key},
+        )
+
+        assert response.status_code == 200
+        assert response.get_json()["users"][0]["action"] == "deleted"
+        assert deleted_ids == [sample_data["user_id"]]
+
+    def test_unredeemed_invitation_returns_zero(self, client, api_key, sample_data):
+        response = client.post(
+            f"/api/invitations/{sample_data['invitation_id']}/disable-users",
+            headers={"X-API-Key": api_key},
+        )
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data == {"count": 0, "users": []}
+
+    def test_legacy_used_by_fallback(
+        self, app, client, api_key, sample_data, monkeypatch
+    ):
+        """Old rows only have used_by_id (deprecated) — still revocable."""
+        with app.app_context():
+            invitation = db.session.get(Invitation, sample_data["invitation_id"])
+            invitation.used_by_id = sample_data["user_id"]
+            db.session.commit()
+        monkeypatch.setattr(
+            "app.blueprints.api.api_routes.disable_user", lambda db_id: True
+        )
+
+        response = client.post(
+            f"/api/invitations/{sample_data['invitation_id']}/disable-users",
+            headers={"X-API-Key": api_key},
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["count"] == 1
+        assert data["users"][0]["user_id"] == sample_data["user_id"]

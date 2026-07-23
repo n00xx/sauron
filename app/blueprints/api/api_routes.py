@@ -858,6 +858,77 @@ class InvitationResource(Resource):
             return {"error": "Internal server error"}, 500
 
 
+@invitations_ns.route("/<int:invitation_id>/disable-users")
+class InvitationDisableUsersResource(Resource):
+    @api.doc("disable_invitation_users", security="apikey")
+    @api.response(200, "Redeemed users disabled")
+    @api.response(401, "Invalid or missing API key", error_model)
+    @api.response(404, "Invitation not found", error_model)
+    @api.response(500, "Internal server error", error_model)
+    @require_api_key
+    def post(self, invitation_id):
+        """Disable every user who redeemed this invitation.
+
+        Chargeback/refund revocation: resolves the invitation→users mapping
+        (the many-to-many `invitation_user` table; falls back to the legacy
+        `used_by_id` column for pre-2025-08 rows) and disables each user on
+        their media server — falling back to deleting the user when the
+        server can't disable, same semantics as POST /users/<id>/disable.
+
+        Call this BEFORE deleting the invitation: the mapping rows cascade
+        away with the invitation (`ondelete="CASCADE"`).
+        """
+        invitation = db.session.get(Invitation, invitation_id)
+        if not invitation:
+            abort(404, error="Invitation not found")
+            return None  # Type narrowing: unreachable but helps type checker
+
+        try:
+            users = list(invitation.users)
+            # Legacy fallback: old rows only populated used_by_id.
+            if not users and invitation.used_by:
+                users = [invitation.used_by]
+
+            results = []
+            for user in users:
+                logger.info(
+                    "API: Disabling user %s (invitation %s revocation)",
+                    user.id,
+                    invitation_id,
+                )
+                if disable_user(user.id):
+                    results.append(
+                        {
+                            "user_id": user.id,
+                            "username": user.username,
+                            "action": "disabled",
+                        }
+                    )
+                else:
+                    # Same fallback as POST /users/<id>/disable: a server that
+                    # can't disable gets the user deleted instead.
+                    logger.info(
+                        "Disable not supported, deleting user %s instead", user.id
+                    )
+                    delete_user(user.id)
+                    results.append(
+                        {
+                            "user_id": user.id,
+                            "username": user.username,
+                            "action": "deleted",
+                        }
+                    )
+
+            return {"count": len(results), "users": results}
+
+        except Exception as e:
+            logger.error(
+                "Error disabling users for invitation %s: %s", invitation_id, str(e)
+            )
+            logger.error(traceback.format_exc())
+            return {"error": "Internal server error"}, 500
+
+
 @libraries_ns.route("")
 class LibrariesResource(Resource):
     @api.doc("list_libraries", security="apikey")
