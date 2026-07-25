@@ -28,7 +28,7 @@ run_as_context:
 sources:
   - https://github.com/n00xx/sauron
   - https://github.com/wizarrrr/wizarr
-  - https://hub.docker.com/r/n00xx/sauron
+  - https://github.com/n00xx/sauron/pkgs/container/sauron
 title: Sauron
 train: community
 version: 1.0.0

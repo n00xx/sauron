@@ -56,6 +56,9 @@ msgstr "Contraseña"
 msgid "Create a password"
 msgstr "Crea una contraseña"
 
+msgid "At least 8 characters, with one uppercase letter, one lowercase letter, and one number."
+msgstr "Mínimo 8 caracteres, con al menos una mayúscula, una minúscula y un número."
+
 msgid "Confirm Password"
 msgstr "Confirmar contraseña"
 

@@ -11,9 +11,10 @@ train (`../catalog/`) is an optional convenience.
 
 ## Option A — Custom App (recommended)
 
-1. **Publish the image** (once): push the `sauron` branch to GitHub with the two
-   Docker Hub secrets set (see repo root `README-SAURON.md`). CI builds and pushes
-   `n00xx/sauron:latest`.
+1. **Publish the image**: push the `sauron` branch to GitHub. CI builds
+   `linux/amd64` and pushes `ghcr.io/n00xx/sauron:latest` — public, so TrueNAS
+   pulls it with no credentials. (Docker Hub is a second, optional target; see
+   repo root `README-SAURON.md`.)
 2. **Create a dataset** for persistent data, e.g. `pool/apps/sauron/data`
    (Datasets → Add Dataset). Note its host path, e.g. `/mnt/pool/apps/sauron/data`.
 3. **Apps → Discover → Custom App** (the button in the top-right).

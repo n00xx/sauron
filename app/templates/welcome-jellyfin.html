@@ -150,8 +150,12 @@
                     {{ _("Password") }}
                   </label>
                   {{ form.password(class="w-full px-3 py-2 bg-white/80 dark:bg-gray-700/50 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent backdrop-blur-sm transition-all duration-200 text-sm",
-                                    placeholder=_("Create a password") 
-                  ) }}
+                                    placeholder=_("Create a password"),
+                                    aria_describedby="password-requirements") }}
+                  <p id="password-requirements"
+                     class="mt-1 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+                    {{ _("At least 8 characters, with one uppercase letter, one lowercase letter, and one number.") }}
+                  </p>
                   {% for err in form.password.errors %}<p class="text-red-400 text-xs mt-1">{{ err }}</p>{% endfor %}
                 </div>
                 <div class="form-field" data-field="4" style="{{ form_field_style }}">
@@ -181,9 +185,11 @@
                     </svg>
                     {{ _("Invite Code") }}
                   </label>
-                  {{ form.code(class="w-full px-3 py-2 bg-white/80 dark:bg-gray-700/50 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent backdrop-blur-sm transition-all duration-200 text-sm",
-                                    placeholder=_("Enter invite code") 
-                  ) }}
+                  {# Prefilled from the invite link — read-only so it cannot be changed by accident.
+                     readonly (not disabled) so the browser still submits it with the form. #}
+                  {{ form.code(class="w-full px-3 py-2 bg-gray-100/80 dark:bg-gray-700/70 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 rounded-lg cursor-not-allowed focus:ring-2 focus:ring-primary/40 focus:border-transparent backdrop-blur-sm transition-all duration-200 text-sm",
+                                    placeholder=_("Enter invite code"),
+                                    readonly=True) }}
                   {% for err in form.code.errors %}<p class="text-red-400 text-xs mt-1">{{ err }}</p>{% endfor %}
                 </div>
                 <button type="submit"
@@ -207,11 +213,6 @@
               </form>
             </div>
           </div>
-        </div>
-        <!-- Footer text - desktop only -->
-        <div class="text-center mt-6 transition-all duration-500 ease-out hidden md:block text-gray-500 dark:text-gray-400"
-             id="page-footer">
-          <p class="text-gray-600 dark:text-gray-400 text-sm">{{ _("Secure invitation system powered by Wizarr") }}</p>
         </div>
       </div>
     </div>
@@ -395,7 +396,6 @@
           const cardContainer = document.getElementById('card-container');
           const mainContainer = document.getElementById('main-container');
           const pageHeader = document.getElementById('page-header');
-          const pageFooter = document.getElementById('page-footer');
           const form = document.querySelector('form[action="{{ url_for("public.process_invitation") }}"]');
           const submitBtn = document.getElementById('submit-btn');
           const btnText = document.getElementById('btn-text');
@@ -526,10 +526,10 @@
                   const isMobile = window.innerWidth < 768;
                   let mobileCardHeight = null;
 
-                  // Mobile: Hide header and footer when form appears
+                  // Mobile: Hide header when form appears
                   if (isMobile) {
                       anime({
-                          targets: [pageHeader, pageFooter],
+                          targets: pageHeader,
                           opacity: 0,
                           translateY: -20,
                           duration: 400,
@@ -709,10 +709,10 @@
                   easing: 'cubicBezier(0.25, 0.46, 0.45, 0.94)'
               }, 0);
 
-              // Mobile: Show header and footer again when going back
+              // Mobile: Show header again when going back
               if (isMobile) {
                   timeline.add({
-                      targets: [pageHeader, pageFooter],
+                      targets: pageHeader,
                       opacity: 1,
                       translateY: 0,
                       duration: 400,

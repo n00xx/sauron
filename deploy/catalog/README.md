@@ -21,7 +21,7 @@ deploy/catalog/
             ├── item.yaml                 # app-level metadata
             └── 1.0.0/
                 ├── app.yaml              # manifest
-                ├── ix_values.yaml        # image repo/tag (n00xx/sauron:latest)
+                ├── ix_values.yaml        # image repo/tag (ghcr.io/n00xx/sauron:latest)
                 ├── questions.yaml        # install form (port, storage, PUID/PGID/TZ)
                 ├── README.md
                 └── templates/

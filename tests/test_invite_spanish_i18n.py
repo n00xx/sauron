@@ -36,9 +36,15 @@ def test_invite_landing_renders_in_spanish(client, session):
     assert "¡Te han invitado!" in body
     assert "Crear cuenta" in body
     assert "Aceptar invitación" in body
+    # Password rules are shown up-front, in Spanish, before the user submits.
+    assert (
+        "Mínimo 8 caracteres, con al menos una mayúscula, una minúscula y un número."
+        in body
+    )
     # The English source strings must be gone from these pages.
     assert "You've been invited!" not in body
     assert "Create Account" not in body
+    assert "At least 8 characters" not in body
 
 
 def test_invalid_email_and_password_errors_render_in_spanish(

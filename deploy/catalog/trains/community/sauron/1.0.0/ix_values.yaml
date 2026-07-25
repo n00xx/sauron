@@ -1,4 +1,4 @@
 images:
   image:
-    repository: n00xx/sauron
+    repository: ghcr.io/n00xx/sauron
     tag: latest
