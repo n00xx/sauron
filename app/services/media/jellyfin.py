@@ -37,6 +37,23 @@ HOME_PREFS_CLIENT = "emby"
 HOME_SECTION_COUNT = 10
 HOME_SECTION_NONE = "none"
 
+# ── Playlists library ────────────────────────────────────────────────────────
+# Never grant Jellyfin's Playlists folder to a provisioned account. Matched on
+# CollectionType rather than on the display name, because library names are
+# whatever the admin called them and are usually localised ("Peliculas",
+# "Documentales") — a name match would be fragile on exactly the servers that
+# need this.
+#
+# Caveat worth knowing: this keeps Playlists out of EnabledFolders, but Jellyfin
+# exempts it from that check anyway — Folder.IsVisible only consults
+# EnabledFolders/BlockedMediaFolders when `this is ICollectionFolder && this is
+# not BasePluginFolder`, and PlaylistsFolder derives from BasePluginFolder. What
+# actually hides the library is UserViewManager.GetUserViews, which skips a
+# playlists/boxsets folder unless the user can see at least one item inside it.
+# So this is correct hygiene and the right thing to send, but it is not on its
+# own a guarantee — that part lives in Jellyfin's own configuration.
+PLAYLISTS_COLLECTION_TYPE = "playlists"
+
 
 @register_media_client("jellyfin")
 class JellyfinClient(RestApiMixin):
@@ -523,18 +540,38 @@ class JellyfinClient(RestApiMixin):
         # Also map IDs directly so callers may pass either a name or an Id.
         mapping.update({v: v for v in mapping.values()})
 
+        playlist_ids = {
+            item["Id"]
+            for item in items
+            if (item.get("CollectionType") or "").lower() == PLAYLISTS_COLLECTION_TYPE
+        }
+
         log.debug("jellyfin._set_specific_folders", user_id=user_id, requested=names)
 
         folder_ids = [self._folder_name_to_id(n, mapping) for n in names]
         folder_ids = [fid for fid in folder_ids if fid]
+
+        excluded_playlists = [fid for fid in folder_ids if fid in playlist_ids]
+        folder_ids = [fid for fid in folder_ids if fid not in playlist_ids]
+
+        if excluded_playlists:
+            log.info(
+                "jellyfin._set_specific_folders.playlists_excluded",
+                user_id=user_id,
+                folder_ids=excluded_playlists,
+            )
 
         if names and not folder_ids:
             log.warning(
                 "jellyfin._set_specific_folders.no_libraries_resolved",
                 user_id=user_id,
                 requested=names,
-                hint="No requested libraries could be mapped to a Jellyfin folder Id. "
-                "Re-scan libraries on the server settings page to refresh external IDs.",
+                playlists_excluded=len(excluded_playlists),
+                hint="No grantable libraries left for this user. Either none of the "
+                "requested libraries mapped to a Jellyfin folder Id (re-scan "
+                "libraries on the server settings page to refresh external IDs), "
+                "or every one of them was the Playlists folder, which is never "
+                "granted.",
             )
             # Restrict to nothing rather than silently granting access to all libraries.
             policy_patch = {

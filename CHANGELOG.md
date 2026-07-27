@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.7.10] (2026-07-27)
+
+
+### ✨ Features
+
+* **jellyfin:** the Playlists library is never granted to a provisioned account. `_set_specific_folders` filters it out of `EnabledFolders`, matching on `CollectionType == "playlists"` rather than on the display name — library names are admin-chosen and usually localised ("Peliculas", "Documentales"), so a name match would break on exactly the servers that need this. If the Playlists folder was the *only* requested library the user is now restricted to nothing, rather than falling through to `EnableAllFolders` and being granted everything.
+
+  Known limit, stated plainly: this is correct hygiene but not a guarantee. Jellyfin exempts Playlists from the `EnabledFolders` check entirely — `Folder.IsVisible` only consults it when `this is ICollectionFolder && this is not BasePluginFolder`, and `PlaylistsFolder` derives from `BasePluginFolder`. What actually hides the library is `UserViewManager.GetUserViews`, which skips a playlists folder unless the user can see at least one playlist inside it. Fully revoking it is a Jellyfin-side configuration matter, outside Sauron's reach.
+
+
+### 🐛 Bug Fixes
+
+* **libraries:** scanning libraries no longer resets `Library.enabled`, so unchecking a library in the server settings actually sticks. Both scan paths did this: the "Scan Libraries" button (`media_servers/routes.py`) and the startup scan (`library_scanner.py`), the latter running on **every container boot** — so an admin could uncheck a library, restart, and find it silently re-enabled. New libraries still arrive enabled; only existing rows are left alone. Trade-off: a library that vanished from the server (and was auto-disabled) now stays disabled if it comes back, until the admin re-checks it — under-granting is the safer failure.
+
+
+
 ## [2026.7.9] (2026-07-27)
 
 

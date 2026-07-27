@@ -80,9 +80,14 @@ def scan_all_server_libraries(show_logs: bool = True) -> tuple[int, list[str]]:
                 incoming_ids.add(str(external_id))
                 if external_id in existing_libs:
                     lib = existing_libs[external_id]
-                    # Update mutable attributes while preserving primary key
+                    # Update mutable attributes while preserving primary key.
+                    # `enabled` is left alone on purpose: it holds the admin's
+                    # per-library choice, and this scan runs on every startup, so
+                    # resetting it here would undo that choice on every restart.
+                    # Trade-off: a library that disappeared from the server (and was
+                    # disabled below) stays disabled if it comes back, until the
+                    # admin re-checks it. Under-granting is the safer failure.
                     lib.name = name
-                    lib.enabled = True
                     updated_count += 1
                 else:
                     lib = Library(
