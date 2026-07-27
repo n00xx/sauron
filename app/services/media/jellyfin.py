@@ -19,6 +19,24 @@ if TYPE_CHECKING:
 
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,7}$")
 
+# ── Home screen sections (User → Settings → Home) ────────────────────────────
+# Jellyfin keeps the Home screen layout in DisplayPreferences, not in the user
+# Policy or Configuration. jellyfin-web reads and writes it under the fixed
+# display-preferences id "usersettings" with client "emby" — that client string
+# is what jellyfin-web itself sends (CLIENT_ID = 'emby' in userSettings.js), NOT
+# a copy-paste slip from the Emby back-end. Changing it writes to a bucket the
+# user's client never reads.
+HOME_PREFS_ID = "usersettings"
+HOME_PREFS_CLIENT = "emby"
+
+# On write the server clears every stored HomeSection and re-adds only the keys
+# it receives, so a section we omit falls back to the client's built-in default
+# (My Media, Continue Watching, …). Current jellyfin-web exposes 10 configurable
+# sections, older releases expose 7; writing all 10 holds the invariant across
+# both and costs the same single request.
+HOME_SECTION_COUNT = 10
+HOME_SECTION_NONE = "none"
+
 
 @register_media_client("jellyfin")
 class JellyfinClient(RestApiMixin):
@@ -78,6 +96,33 @@ class JellyfinClient(RestApiMixin):
 
     def set_policy(self, user_id: str, policy: dict) -> None:
         self.post(f"/Users/{user_id}/Policy", json=policy)
+
+    def reset_home_sections(self, user_id: str) -> None:
+        """Set every Home screen section of a Jellyfin user to "None".
+
+        Raises on transport errors; callers decide whether that is fatal. It is
+        not, for account creation — see the call sites.
+
+        Only valid for Jellyfin. EmbyClient subclasses JellyfinClient and so
+        inherits this method, but Emby's display-preferences semantics differ,
+        so callers must not invoke it for an Emby server.
+        """
+        params = {"userId": user_id, "client": HOME_PREFS_CLIENT}
+        prefs = self.get(f"/DisplayPreferences/{HOME_PREFS_ID}", params=params).json()
+
+        # A freshly created user has no HomeSections rows yet, so the GET comes
+        # back with no homesection* keys at all — assign them rather than expect
+        # to overwrite existing ones.
+        custom_prefs = {
+            **(prefs.get("CustomPrefs") or {}),
+            **{f"homesection{i}": HOME_SECTION_NONE for i in range(HOME_SECTION_COUNT)},
+        }
+
+        self.post(
+            f"/DisplayPreferences/{HOME_PREFS_ID}",
+            params=params,
+            json={**prefs, "CustomPrefs": custom_prefs},
+        )
 
     def delete_user(self, user_id: str) -> None:
         self.delete(f"/Users/{user_id}")
@@ -602,6 +647,19 @@ class JellyfinClient(RestApiMixin):
                 current_policy["MaxActiveSessions"] = max_sessions
 
             self.set_policy(user_id, current_policy)
+
+            # Cosmetic preference, and it runs last on purpose: the account, its
+            # libraries and its policy already exist by now. Letting an exception
+            # escape would hit the handler below, roll back, and leave an
+            # orphaned Jellyfin user behind a "sign-up failed" message.
+            try:
+                self.reset_home_sections(user_id)
+            except Exception:
+                logging.warning(
+                    "Jellyfin: could not blank home sections for %s",
+                    username,
+                    exc_info=True,
+                )
 
             from app.services.expiry import calculate_user_expiry
 

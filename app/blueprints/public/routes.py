@@ -72,6 +72,23 @@ def _apply_safe_media_user_policy(
     return permissions
 
 
+def _reset_jellyfin_home_sections(client, user_id: str) -> None:
+    """Blank the Jellyfin Home screen sections; never fatal to the sign-up.
+
+    The account and its policy already exist by the time this runs, so an escaping
+    exception would trip the caller's rollback and orphan the Jellyfin user.
+
+    Jellyfin only — the caller must not reach here for Emby, which inherits the
+    method from JellyfinClient but stores display preferences differently.
+    """
+    try:
+        client.reset_home_sections(user_id)
+    except Exception:
+        structlog.get_logger(__name__).warning(
+            "jellyfin.home_sections.reset_failed", user_id=user_id, exc_info=True
+        )
+
+
 # ─── Landing “/” ──────────────────────────────────────────────────────────────
 @public_bp.route("/")
 def root():
@@ -431,6 +448,8 @@ def password_prompt(code):
                     permissions = _apply_safe_media_user_policy(
                         client, uid, invitation, srv
                     )
+                    if srv.server_type == "jellyfin":
+                        _reset_jellyfin_home_sections(client, uid)
                 elif srv.server_type in ("audiobookshelf", "romm"):
                     uid = client.create_user(username, pw, email=email)
                 else:

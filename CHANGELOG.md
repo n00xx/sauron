@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.7.9] (2026-07-27)
+
+
+### ✨ Features
+
+* **jellyfin:** every Jellyfin account Sauron creates now lands with all of its Home screen sections (User → Settings → Home) set to "None". The layout lives in DisplayPreferences (id `usersettings`, client `emby`) rather than in the user Policy, so this is a separate write on both provisioning paths: invitation redemption (`_do_join`) and the password-prompt route (`/j/<code>/password`). Jellyfin's update handler clears every stored section and re-adds only the keys it receives, so all 10 `homesection*` keys are written — the user-visible count is 7 on current clients and 10 on newer jellyfin-web, and omitting a section would let it fall back to a built-in default. The write is isolated in its own error handler and runs last: the account, its libraries and its policy already exist by then, so a DisplayPreferences failure logs a warning instead of rolling back and orphaning the account. Emby is excluded — `EmbyClient` inherits the method but stores display preferences differently.
+
+
+
 ## [2026.7.8] (2026-07-25)
 
 
