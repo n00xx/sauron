@@ -14,7 +14,7 @@ already exists, so a preferences hiccup must never fail the sign-up.
 from unittest.mock import patch
 
 from app.extensions import db
-from app.models import AdminAccount, Invitation, MediaServer, Settings
+from app.models import AdminAccount, Invitation, MediaServer, Settings, User
 from app.services.media.jellyfin import (
     HOME_SECTION_COUNT,
     JellyfinClient,
@@ -154,6 +154,7 @@ class HomeSectionCapturingClient:
     def __init__(self):
         self.user_id = "jf-user-1"
         self.home_section_resets = []
+        self.policy_updates = []
 
     def create_user(self, username, password):
         return self.user_id
@@ -162,7 +163,9 @@ class HomeSectionCapturingClient:
         return _Response({"Policy": {}})
 
     def set_policy(self, user_id, policy):
-        pass
+        # Recorded so a test can tell "the guard skipped us" apart from
+        # "the route never got this far".
+        self.policy_updates.append(policy)
 
     def reset_home_sections(self, user_id):
         self.home_section_resets.append(user_id)
@@ -218,6 +221,9 @@ def test_password_prompt_skips_home_sections_for_emby(client, session):
     response = _redeem_via_password_prompt(client, "EMBYPWD", media_client)
 
     assert response.status_code == 302
+    # Without this first assertion the test would also pass if the Emby branch
+    # never ran at all, which would prove nothing about the guard.
+    assert len(media_client.policy_updates) == 1
     assert media_client.home_section_resets == []
 
 
@@ -237,3 +243,8 @@ def test_password_prompt_survives_display_prefs_failure(client, session):
     response = _redeem_via_password_prompt(client, "JFPWDFAIL", media_client)
 
     assert response.status_code == 302
+    # The redirect alone proves little — the route's per-server handler logs and
+    # moves on. The account row is what the isolation actually protects: without
+    # it, the exception would trip the rollback and the user would be orphaned on
+    # Jellyfin with nothing recorded locally.
+    assert User.query.filter_by(username="viewer", server_id=server.id).count() == 1
