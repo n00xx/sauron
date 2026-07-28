@@ -61,6 +61,27 @@ def test_password_field_describes_its_requirements(client, session):
     assert 'id="password-requirements"' in body
 
 
+def test_server_theme_colors_interpolate_into_the_style_block(client, session):
+    """The :root custom properties must render as real values, not Jinja text.
+
+    djLint's `--format-css` (wired into .pre-commit-config.yaml) rewrites the
+    `{{ ... }}` inside this <style> block into `{ { ... } }`, which Jinja then
+    emits verbatim and the page loses its accent colour everywhere. The damage is
+    invisible in a diff review and the page still returns 200, so guard it here.
+    """
+    _create_jellyfin_invitation(session)
+
+    body = _get_invite_page(client)
+    root_block = re.search(r":root\s*\{(.*?)\}", body, re.DOTALL)
+
+    assert root_block is not None
+    declarations = root_block.group(1)
+    assert re.search(r"--color-primary:\s*#[0-9A-Fa-f]{3,8};", declarations)
+    assert re.search(r"--color-primary_hover:\s*#[0-9A-Fa-f]{3,8};", declarations)
+    assert "gradient_start" not in declarations
+    assert "gradient_end" not in declarations
+
+
 def test_wizarr_footer_is_absent(client, session):
     _create_jellyfin_invitation(session)
 

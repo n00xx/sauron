@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.7.11] (2026-07-27)
+
+
+### ✨ Features
+
+* **invite:** both password fields on the public create-account form now carry an eye toggle to reveal what was typed, so a typo can be checked without retyping. Open eye = hidden (click to reveal), crossed-out eye = visible (click to hide). The two fields toggle independently and both start hidden — `type="password"` straight from the form, nothing to opt out of. Rendered from one Jinja macro; `type="button"` on the control is load-bearing, since a `<button>` inside a `<form>` defaults to submit and would otherwise post the form on click. Accessible name (`Mostrar contraseña` / `Ocultar contraseña`) and `aria-pressed` swap with the state.
+
+
+### 🐛 Bug Fixes
+
+* **invite:** the focus animation on form fields now targets the `.form-field` wrapper explicitly instead of `parentElement`. The password inputs sit inside a positioning box for their toggle, so `parentElement` would have animated that box rather than the field. Also skips inputs with no `.form-field` ancestor — `hidden_tag()`'s CSRF input hangs off `<form>` directly, and anime.js throws on a null target.
+* **invite:** added a regression guard for the `:root` custom properties in `welcome-jellyfin.html`. djLint's `--format-css`, wired into `.pre-commit-config.yaml`, rewrites the `{{ ... }}` inside that `<style>` block into `{ { ... } }`; Jinja then emits it verbatim and the page silently loses its accent colour while still returning 200. Run djLint on this file with `--lint` only, never `--reformat --format-css`.
+
+
+
 ## [2026.7.10] (2026-07-27)
 
 
