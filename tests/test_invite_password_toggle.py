@@ -100,3 +100,28 @@ def test_toggle_labels_render_in_spanish(client, session):
     assert "Ocultar contraseña" in body
     assert "Show password" not in body
     assert "Hide password" not in body
+
+
+def test_toggles_survive_the_validation_error_render(client, session):
+    """The form-with-errors screen is a different render path from GET /j/<code>.
+
+    It is also the screen a user is most likely to be staring at when they want
+    to check what they typed, so the toggles have to be there too.
+    """
+    _create_jellyfin_invitation(session)
+
+    response = client.post(
+        "/invitation/process",
+        data={
+            "code": INVITE_CODE,
+            "username": "user1",
+            "email": "user@example.com",
+            "password": "abcdefgh",  # long enough, fails the complexity rule
+            "confirm_password": "abcdefgh",
+        },
+    )
+    body = response.data.decode("utf-8")
+
+    assert response.status_code == 200
+    assert "Favor de corregir los campos marcados." in body, "not the error render"
+    assert len(_toggle_buttons(body)) == 2
