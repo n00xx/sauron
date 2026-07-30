@@ -6,7 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
-## [2026.7.11] (2026-07-27)
+## [2026.7.12] (2026-07-30)
+
+
+### ✨ Features
+
+* **users:** the Users page now shows a red "Expired" / orange "Expiring Soon" (≤3 days) / green "Active" badge on every card, and the filter bar gained a matching status dropdown. Both read from the same `get_expiry_status()` helper so the badge and the filter can never disagree, and the filter is applied after `_group_users_for_display()` groups multi-server accounts, against each card's `earliest_expires`.
+* **users:** "Recently Expired Users" now scopes to the last 30 days (it previously showed the full unbounded history, hence 690 rows for a handful of accounts — see the fix below) and gained per-row checkboxes with "Delete Selected", plus a "Clear All" button. "All Expired Users" (the full history) gained a "Delete All" button. Both sections read the same `ExpiredUser` table, so deleting from either refreshes both via a shared `refreshExpiredUsers` HTMX trigger.
+* **invite:** the Jellyfin "Allow audio playback that requires transcoding" checkbox now defaults to checked for every new invitation, as the code comments already (incorrectly) claimed it did. Video transcoding stays opt-in.
+
+
+### 🐛 Bug Fixes
+
+* **expiry:** fixed the root cause of the duplicated/stale "Recently Expired Users" history and users that showed "Expires: Never" while actually being inaccessible. `disable_or_delete_user_if_expired()` runs every 15 minutes in production; in `expiry_action="disable"` mode it logged a new `ExpiredUser` row and disabled the account remotely, but never marked `is_disabled` locally or excluded the user from its own query — so the same expired user matched again on every subsequent tick, forever, each time inserting another history row. The query now excludes already-disabled users and the disable branch marks `is_disabled=True` immediately. The manual enable/disable toggle in the admin panel now also persists `is_disabled` locally (it previously only called the remote API). The Jellyfin sync additionally pulls `Policy.IsDisabled` on every poll, so an account disabled directly on Jellyfin (outside Wizarr) self-heals into the local record instead of drifting indefinitely.
+
 
 
 ### ✨ Features
