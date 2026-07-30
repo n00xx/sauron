@@ -142,7 +142,10 @@ class Invitation(db.Model):
 
     # Jellyfin options
     max_active_sessions = db.Column(db.Integer, nullable=True)  # 0 = unlimited/infinity
-    # Jellyfin transcoding playback toggles (default ON for all new invitations)
+    # Jellyfin transcoding playback toggles. The audio toggle's checkbox is
+    # rendered checked by default in the invite modal (templates/modals/invite.html);
+    # video is opt-in. The column default below only applies when the field is
+    # omitted entirely (e.g. API-created invitations), not to the UI default.
     allow_transcode_audio = db.Column(db.Boolean, default=False, nullable=True)
     allow_transcode_video = db.Column(db.Boolean, default=False, nullable=True)
 
