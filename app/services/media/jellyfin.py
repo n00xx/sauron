@@ -442,6 +442,7 @@ class JellyfinClient(RestApiMixin):
             "allow_downloads": policy.get("EnableContentDownloading", True),
             "allow_live_tv": policy.get("EnableLiveTvAccess", False),
             "allow_camera_upload": policy.get("AllowCameraUpload", False),
+            "is_disabled": policy.get("IsDisabled", False),
         }
 
     def _get_user_library_access(self, jf_user: dict) -> tuple[list[str] | None, bool]:
@@ -475,6 +476,9 @@ class JellyfinClient(RestApiMixin):
         user.allow_downloads = perms["allow_downloads"]
         user.allow_live_tv = perms["allow_live_tv"]
         user.allow_camera_upload = perms["allow_camera_upload"]
+        # Self-heal: reflect Jellyfin's real disabled state even if it was
+        # changed out-of-band (directly in Jellyfin, not through Wizarr).
+        user.is_disabled = perms["is_disabled"]
 
         # Store library access
         library_names, has_full_access = self._get_user_library_access(jf_user)

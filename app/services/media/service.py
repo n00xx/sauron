@@ -68,6 +68,8 @@ def _set_user_enabled_state(db_id: int, enabled: bool) -> bool:
 
         action = "enabled" if enabled else "disabled"
         if result:
+            user.is_disabled = not enabled
+            db.session.commit()
             logging.info(
                 f"Successfully {action} user {user.username} (ID: {db_id}) on {user.server.server_type}"
             )

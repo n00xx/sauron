@@ -43,6 +43,43 @@ def calculate_user_expiry(
         return None
 
 
+EXPIRING_SOON_THRESHOLD_DAYS = 3
+
+
+def get_expiry_status(
+    expires: datetime.datetime | None, now: datetime.datetime | None = None
+) -> str:
+    """
+    Classify a user's expiry status for badges and filters.
+
+    This is the single source of truth for the "expired / expiring soon /
+    active" thresholds so the status badge and the status filter can never
+    disagree.
+
+    Returns:
+        "expired" if `expires` is in the past.
+        "expiring_soon" if `expires` is within the next
+            `EXPIRING_SOON_THRESHOLD_DAYS` days.
+        "active" otherwise, including when `expires` is None (never expires).
+    """
+    if expires is None:
+        return "active"
+
+    if now is None:
+        now = datetime.datetime.now(datetime.UTC)
+
+    # Database stores naive UTC; normalise for a safe comparison.
+    expires_aware = expires if expires.tzinfo else expires.replace(tzinfo=datetime.UTC)
+
+    if expires_aware < now:
+        return "expired"
+
+    if expires_aware <= now + datetime.timedelta(days=EXPIRING_SOON_THRESHOLD_DAYS):
+        return "expiring_soon"
+
+    return "active"
+
+
 def get_server_specific_expiry(
     invitation_id: int, server_id: int
 ) -> datetime.datetime | None:
@@ -182,6 +219,7 @@ def disable_or_delete_user_if_expired() -> list[int]:
     expired_rows = User.query.filter(
         User.expires.is_not(None),  # not null
         User.expires < now,
+        User.is_disabled.is_(False),  # already-disabled users are handled; don't reprocess
     ).all()
 
     processed: list[int] = []
@@ -216,7 +254,9 @@ def disable_or_delete_user_if_expired() -> list[int]:
                 # Try to disable the user using the service function
                 try:
                     if disable_user(user.id):
-                        # Successfully disabled the user
+                        # Successfully disabled the user - mark locally so this
+                        # user is excluded from future runs (query filter above)
+                        user.is_disabled = True
                         processed.append(user.id)
                         logging.info(
                             "🔒 Expired user %s (%s) disabled on %s",
@@ -312,6 +352,46 @@ def get_expired_users() -> list[ExpiredUser]:
         .order_by(ExpiredUser.deleted_at.desc())
         .all()
     )
+
+
+RECENTLY_EXPIRED_WINDOW_DAYS = 30
+
+
+def get_recently_expired_users(
+    days: int = RECENTLY_EXPIRED_WINDOW_DAYS,
+) -> list[ExpiredUser]:
+    """
+    Get expired users deleted within the last `days` days.
+
+    Returns:
+        List of ExpiredUser objects ordered by deletion date (most recent first)
+    """
+    cutoff = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=days)
+    return (
+        ExpiredUser.query.options(db.joinedload(ExpiredUser.server))
+        .filter(ExpiredUser.deleted_at >= cutoff)
+        .order_by(ExpiredUser.deleted_at.desc())
+        .all()
+    )
+
+
+def delete_expired_user_records(ids: list[int] | None = None) -> int:
+    """
+    Delete ExpiredUser history records.
+
+    Args:
+        ids: Specific ExpiredUser IDs to delete. If None, deletes ALL records.
+
+    Returns:
+        Number of records deleted.
+    """
+    query = ExpiredUser.query
+    if ids is not None:
+        query = query.filter(ExpiredUser.id.in_(ids))
+
+    count = query.delete(synchronize_session=False)
+    db.session.commit()
+    return count
 
 
 def get_expiring_this_week_users() -> list[dict]:
