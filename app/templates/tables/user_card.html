@@ -82,6 +82,23 @@
             </div>
             <!-- User Info -->
             <div class="space-y-2 flex-1 mt-4">
+              <!-- Expiry status badge -->
+              {% set status = user.earliest_expires|expiry_status %}
+              <div>
+                {% if status == 'expired' %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800">
+                    {{ _("Expired") }}
+                  </span>
+                {% elif status == 'expiring_soon' %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800">
+                    {{ _("Expiring Soon") }}
+                  </span>
+                {% else %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800">
+                    {{ _("Active") }}
+                  </span>
+                {% endif %}
+              </div>
               <!-- Expires information -->
               {% set accs = user.accounts if user.accounts is defined else [user] %}
               {% set expiry_values = accs|map(attribute='expires')|list %}

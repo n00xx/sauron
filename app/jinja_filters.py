@@ -191,6 +191,16 @@ def render_jinja(text: str) -> Markup:
         return Markup(escape(text))  # noqa: S704  # Text is explicitly escaped
 
 
+def expiry_status(expires) -> str:
+    """Jinja filter wrapper around app.services.expiry.get_expiry_status.
+
+    Imported lazily to avoid a circular import at module load time.
+    """
+    from app.services.expiry import get_expiry_status
+
+    return get_expiry_status(expires)
+
+
 def register_filters(app):
     """Register the custom Jinja filters on the given Flask *app*."""
     app.jinja_env.filters.setdefault("server_type_tag", server_type_tag)
@@ -200,6 +210,7 @@ def register_filters(app):
     app.jinja_env.filters.setdefault("local_date", local_date)
     app.jinja_env.filters.setdefault("nl2br", nl2br)
     app.jinja_env.filters.setdefault("render_jinja", render_jinja)
+    app.jinja_env.filters.setdefault("expiry_status", expiry_status)
 
     # Add Python built-in functions to Jinja globals
     app.jinja_env.globals.setdefault("max", max)

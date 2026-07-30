@@ -30,7 +30,12 @@ from app.models import (
     invitation_servers,
     invitation_users,
 )
-from app.services.expiry import get_expired_users, get_expiring_this_week_users
+from app.services.expiry import (
+    delete_expired_user_records,
+    get_expired_users,
+    get_expiring_this_week_users,
+    get_recently_expired_users,
+)
 from app.services.invites import create_invite
 from app.services.media.service import (
     EMAIL_RE,
@@ -433,13 +438,13 @@ def users():
 
     servers = MediaServer.query.order_by(MediaServer.name).all()
     expiring_users = get_expiring_this_week_users()
-    expired_users = get_expired_users()
+    recently_expired_users = get_recently_expired_users()
 
     return render_template(
         "admin/users.html",
         servers=servers,
         expiring_users=expiring_users,
-        expired_users=expired_users,
+        recently_expired_users=recently_expired_users,
     )
 
 
@@ -449,6 +454,7 @@ def users_table():
     server_id = request.args.get("server")
     order = request.args.get("order", "name_asc")
     query_text = request.args.get("q", "").lower()
+    status_filter = request.args.get("status", "")
     # single or multi delete
     if uid := request.args.get("delete"):
         delete_user(int(uid))
@@ -483,6 +489,19 @@ def users_table():
     users = q.all()
 
     grouped = _group_users_for_display(users)
+
+    # Status filtering happens after grouping, against the same
+    # `earliest_expires` value the badge is computed from in the template,
+    # so the filter and the displayed badge can never disagree.
+    if status_filter in ("expired", "expiring_soon", "active"):
+        from app.services.expiry import get_expiry_status
+
+        grouped = [
+            card
+            for card in grouped
+            if get_expiry_status(card.earliest_expires) == status_filter
+        ]
+
     return render_template("tables/user_card.html", users=grouped)
 
 
@@ -1379,6 +1398,39 @@ def expired_users_table():
         return render_template(
             "tables/expired_user_card.html", expired_users=[], error=str(e)
         )
+
+
+@admin_bp.route("/recently-expired-users/table")
+@login_required
+def recently_expired_users_table():
+    """Return the last-30-days slice of expired users, with selection controls."""
+    try:
+        expired_users = get_recently_expired_users()
+        return render_template(
+            "tables/recently_expired_user_card.html", expired_users=expired_users
+        )
+    except Exception as e:
+        logging.error(f"Failed to get recently expired users: {e}")
+        return render_template(
+            "tables/recently_expired_user_card.html", expired_users=[], error=str(e)
+        )
+
+
+@admin_bp.post("/expired-users/delete")
+@login_required
+def delete_expired_users():
+    """Delete ExpiredUser history records, either selected IDs or all of them."""
+    if request.form.get("all") == "true":
+        count = delete_expired_user_records()
+    else:
+        ids = [int(uid) for uid in request.form.getlist("ids") if uid.isdigit()]
+        count = delete_expired_user_records(ids) if ids else 0
+
+    logging.info("Deleted %s expired user history record(s)", count)
+
+    response = Response("", status=200)
+    response.headers["HX-Trigger"] = "refreshExpiredUsers"
+    return response
 
 
 @admin_bp.route("/expiring-users/table")

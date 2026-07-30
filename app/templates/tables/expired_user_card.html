@@ -6,6 +6,16 @@
       </div>
     </div>
   {% elif expired_users %}
+    <div class="flex justify-end mb-3">
+      <button type="button"
+              hx-post="{{ url_for('admin.delete_expired_users') }}"
+              hx-vals='{"all": "true"}'
+              hx-swap="none"
+              hx-confirm="{{ _('Delete ALL expired user history? This cannot be undone.') }}"
+              class="text-white bg-red-600 hover:bg-red-700 focus:ring-4 focus:outline-none focus:ring-red-300 font-medium rounded-lg text-xs px-3 py-1.5">
+        {{ _("Delete All") }}
+      </button>
+    </div>
     <!-- Clean list layout matching the main users page design -->
     <div class="space-y-3
                 {% if expired_users|length > 10 %}max-h-80 overflow-y-auto pr-1{% endif %}">
