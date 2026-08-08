@@ -1,6 +1,7 @@
 import contextlib
 import logging
 import os
+import re
 import time
 from datetime import UTC, datetime
 
@@ -172,23 +173,35 @@ def nl2br(text: str) -> Markup:
     return Markup(html)  # noqa: S704  # Text is escaped before markup conversion
 
 
-def render_jinja(text: str) -> Markup:
-    """Render a string as a Jinja template.
+_TRANSLATION_CALL_RE = re.compile(r"\{\{\s*_\(\s*(['\"])(?P<msg>.*?)\1\s*\)\s*\}\}")
 
-    This is useful for rendering template syntax stored in the database,
-    such as wizard step titles that contain {{ _('...') }} translation calls.
+
+def render_jinja(text: str) -> Markup:
+    """Resolve ``{{ _('...') }}`` translation calls in database-stored text.
+
+    Deliberately *not* a Jinja render. This text comes from the database —
+    wizard step titles, which are importable from bundle files — so handing it
+    to ``render_template_string`` would let a stored value evaluate arbitrary
+    Jinja: ``{{ config }}`` leaks SECRET_KEY and ``__subclasses__`` traversal
+    reaches code execution. Autoescaping does not help, because it guards the
+    output, not the evaluation.
+
+    Everything outside a translation call is escaped and emitted verbatim.
     """
     if not text:
         return Markup("")
 
-    from flask import render_template_string
+    from flask_babel import gettext
 
-    try:
-        rendered = render_template_string(text)
-        return Markup(rendered)  # noqa: S704  # render_template_string auto-escapes
-    except Exception:
-        # If rendering fails, return the original text escaped
-        return Markup(escape(text))  # noqa: S704  # Text is explicitly escaped
+    parts: list[str] = []
+    cursor = 0
+    for match in _TRANSLATION_CALL_RE.finditer(text):
+        parts.append(str(escape(text[cursor : match.start()])))
+        parts.append(str(escape(gettext(match.group("msg")))))
+        cursor = match.end()
+    parts.append(str(escape(text[cursor:])))
+
+    return Markup("".join(parts))  # noqa: S704  # every part escaped above
 
 
 def expiry_status(expires) -> str:
