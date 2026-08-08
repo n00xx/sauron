@@ -21,6 +21,7 @@
                 hx-target="#tab-body"
                 hx-swap="innerHTML"
                 hx-confirm="{{ _('Are you sure you want to reset all steps for %(server)s to defaults? This will delete all custom steps and reimport the default ones.', server=server|capitalize) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit"
                     class="inline-flex items-center justify-center p-2 text-orange-600 rounded-lg hover:text-white hover:bg-orange-500 dark:text-orange-400 dark:hover:text-white dark:hover:bg-orange-600"
                     title="{{ _('Reset %(server)s Steps to Defaults', server=server|capitalize) }}">
@@ -104,6 +105,7 @@
                           hx-target="#tab-body"
                           hx-swap="innerHTML"
                           hx-confirm="{{ _('Are you sure you want to delete this step?') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                       <button type="submit"
                               class="inline-flex items-center justify-center p-2 text-red-500 rounded-lg hover:text-white hover:bg-red-500 dark:text-red-400 dark:hover:text-white dark:hover:bg-red-600">
                         <svg class="w-5 h-5"
@@ -184,6 +186,7 @@
                           hx-target="#tab-body"
                           hx-swap="innerHTML"
                           hx-confirm="{{ _('Are you sure you want to delete this step?') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                       <button type="submit"
                               class="inline-flex items-center justify-center p-2 text-red-500 rounded-lg hover:text-white hover:bg-red-500 dark:text-red-400 dark:hover:text-white dark:hover:bg-red-600">
                         <svg class="w-5 h-5"

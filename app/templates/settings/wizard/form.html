@@ -4,6 +4,7 @@
     {{ _(action == 'create' and 'Create Wizard Step' or 'Edit Wizard Step') }}
   </h1>
   <form method="post" class="space-y-4">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div>
       {{ form.server_type.label(class="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300") }}
       {{ form.server_type(class="w-full border rounded p-2 dark:bg-gray-700 dark:border-gray-600") }}

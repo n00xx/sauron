@@ -45,6 +45,14 @@ def create_app(config_object=DevelopmentConfig):
     for bp in all_blueprints:
         app.register_blueprint(bp)
 
+    # The X-API-Key API authenticates by header, not by cookie, so a browser
+    # cannot be tricked into making an authenticated request on a user's
+    # behalf. CSRF does not apply and enforcing it would break every client.
+    from .blueprints.api.api_routes import api_bp
+    from .extensions import csrf
+
+    csrf.exempt(api_bp)
+
     # Initialise activity monitoring (blueprint already registered above)
     from app.activity import init_app as init_activity
 
@@ -100,6 +108,16 @@ def create_app(config_object=DevelopmentConfig):
         except Exception as exc:
             # Non-fatal – log and continue startup to avoid blocking the app
             logger.warning(f"Wizard step bootstrap failed: {exc}")
+
+        # Warn loudly if LDAP admin login is enabled without an admin group.
+        # The form now blocks saving that state, but existing databases may
+        # already hold it, and authentication refuses it at login time.
+        try:
+            from .services.ldap.config_check import warn_on_unsafe_ldap_config
+
+            warn_on_unsafe_ldap_config(app)
+        except Exception as exc:
+            logger.warning(f"LDAP configuration check failed: {exc}")
 
         # Step 7: Run wizard migrations
         if show_startup:

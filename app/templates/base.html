@@ -121,7 +121,11 @@
         }
     </script>
   </head>
-  <body class="bg-gray-50 dark:bg-gray-900">
+  {# hx-headers sends the CSRF token on every HTMX request; most mutating
+     endpoints read request.form directly rather than going through a
+     FlaskForm, so they have no hidden token field to rely on. #}
+  <body class="bg-gray-50 dark:bg-gray-900"
+        hx-headers='{"X-CSRFToken": "{{ csrf_token() }}"}'>
     {% block main %}
     {% endblock main %}
     <script src="{{ url_for('static', filename='js/vendor/alpine-collapse.min.js', v=app_version) }}"></script>

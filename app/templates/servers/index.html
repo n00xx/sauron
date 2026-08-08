@@ -28,6 +28,7 @@
                     method="post"
                     style="display:inline"
                     onsubmit="return confirm('{{ _("Delete this server?") }}');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="text-red-600">{{ _("Delete") }}</button>
               </form>
             </td>

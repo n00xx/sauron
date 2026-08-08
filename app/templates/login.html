@@ -58,6 +58,7 @@
                   action="{{ url_for('auth.login') }}"
                   method="post"
                   x-data="{ authMethod: '{{ selected_auth_method|default("local") }}' }">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               {% if ldap_enabled %}
                 <div>
                   <label for="auth_method"
