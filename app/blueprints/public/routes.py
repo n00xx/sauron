@@ -16,7 +16,7 @@ from flask import (
 )
 from flask_babel import gettext as _
 
-from app.extensions import db, limiter
+from app.extensions import db, limiter, scaled_limit
 from app.models import Invitation, MediaServer, Settings, User
 from app.services.invites import is_invite_valid
 from app.services.media.plex import PlexInvitationError, handle_oauth_token
@@ -111,7 +111,7 @@ def favicon():
 
 # ─── Invite link  /j/<code> ─────────────────────────────────────────────────
 @public_bp.route("/j/<code>")
-@limiter.limit("50 per minute")
+@limiter.limit(scaled_limit("50 per minute"))
 def invite(code):
     from app.services.invitation_flow import InvitationFlowManager
 
@@ -122,7 +122,7 @@ def invite(code):
 
 # ─── Unified invitation processing ─────────────────────────────────────────
 @public_bp.route("/invitation/process", methods=["POST"])
-@limiter.limit("20 per minute")
+@limiter.limit(scaled_limit("20 per minute"))
 def process_invitation():
     """Unified route for processing all invitation types"""
     from app.services.invitation_flow import InvitationFlowManager
@@ -135,7 +135,7 @@ def process_invitation():
 
 # ─── POST /join  (Legacy Plex OAuth route - kept for compatibility) ────────
 @public_bp.route("/join", methods=["POST"])
-@limiter.limit("20 per minute")
+@limiter.limit(scaled_limit("20 per minute"))
 def join():
     code = request.form.get("code")
     token = request.form.get("token")
@@ -547,7 +547,7 @@ def image_proxy():
 
 # ─── Password Reset ──────────────────────────────────────────────────────────
 @public_bp.route("/reset/<code>", methods=["GET", "POST"])
-@limiter.limit("10 per minute")
+@limiter.limit(scaled_limit("10 per minute"))
 def reset_password(code):
     """Handle password reset via token link."""
     from app.services.password_reset import get_reset_token, use_reset_token

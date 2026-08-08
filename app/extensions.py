@@ -1,4 +1,5 @@
 import os
+import re
 
 from flask import current_app, request, session
 from flask_apscheduler import APScheduler
@@ -11,9 +12,13 @@ from flask_migrate import Migrate
 from flask_restx import Api
 from flask_session import Session
 from flask_sqlalchemy import SQLAlchemy
+from flask_wtf.csrf import CSRFProtect
 
 # Instantiate extensions
 db = SQLAlchemy()
+# FlaskForm validates its own token, but two thirds of the mutating routes read
+# request.form / HTMX JSON directly and were unprotected without this.
+csrf = CSRFProtect()
 babel = Babel()
 sess = Session()
 scheduler = APScheduler()
@@ -22,10 +27,102 @@ login_manager = LoginManager()
 migrate = Migrate()
 limiter = Limiter(
     key_func=get_remote_address,
-    default_limits=[],  # No default limits
-    storage_uri="memory://",
-    enabled=False,  # Explicitly disabled by default
+    default_limits=[],  # No default limits; routes opt in via @limiter.limit
+    # NOTE: "memory://" is per-process. gunicorn.conf.py runs 4 workers by
+    # default, so each worker keeps its own counters and the effective limit is
+    # multiplied by the worker count. Point RATELIMIT_STORAGE_URI at Redis (or
+    # another shared backend) for a hard limit across the whole deployment.
+    storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"),
+    enabled=True,
 )
+
+_LIMIT_RE = re.compile(r"^\s*(\d+)\s+(per|/)\s*(.+)$", re.IGNORECASE)
+
+
+def _worker_count() -> int:
+    """Number of gunicorn workers, mirroring gunicorn.conf.py:16."""
+    try:
+        return int(os.getenv("GUNICORN_WORKERS", "4"))
+    except ValueError:
+        return 1
+
+
+def _storage_is_shared() -> bool:
+    """True when rate-limit counters are shared across processes."""
+    uri = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
+    return not uri.startswith("memory://")
+
+
+def scaled_limit(limit_string: str):
+    """Scale a rate limit down by the worker count, for per-process storage.
+
+    ``memory://`` counters live inside a single worker, so N workers multiply
+    every declared limit by N. Dividing here keeps the *aggregate* close to
+    what was intended. The tradeoff is real: a client that happens to land on
+    one worker only gets its share, so a "10 per minute" login limit becomes 3
+    for that client. That is the right side to err on for authentication.
+
+    Returns a callable because Flask-Limiter evaluates limits per request,
+    which keeps this responsive to configuration instead of import order.
+    No-op when storage is shared or scaling is turned off.
+    """
+
+    def _resolve() -> str:
+        if os.getenv("RATELIMIT_SCALE_BY_WORKERS", "true").lower() not in (
+            "true",
+            "1",
+            "yes",
+            "on",
+        ):
+            return limit_string
+
+        if _storage_is_shared():
+            return limit_string
+
+        workers = _worker_count()
+        if workers <= 1:
+            return limit_string
+
+        match = _LIMIT_RE.match(limit_string)
+        if not match:
+            return limit_string
+
+        amount, separator, period = match.groups()
+        # Round to nearest rather than floor: for "10 per minute" over 4
+        # workers, 3 keeps the aggregate at 12 (close to the declared 10),
+        # where flooring to 2 would give 8 and reject legitimate traffic.
+        scaled = max(1, int(int(amount) / workers + 0.5))
+        joiner = " per " if separator.lower() == "per" else "/"
+        return f"{scaled}{joiner}{period}"
+
+    return _resolve
+
+
+def warn_on_unshared_rate_limit_storage(app) -> bool:
+    """Log an error when rate limits are per-process across several workers.
+
+    Returns True when the deployment is affected, so callers and tests can
+    act on it.
+    """
+    if _storage_is_shared():
+        return False
+
+    workers = _worker_count()
+    if workers <= 1:
+        return False
+
+    app.logger.error(
+        "Rate limiting uses per-process memory storage across %d gunicorn "
+        "workers, so every declared limit is effectively multiplied by %d. "
+        "Limits are being scaled down to compensate (disable with "
+        "RATELIMIT_SCALE_BY_WORKERS=false), but for a hard, accurate limit "
+        "set RATELIMIT_STORAGE_URI to a shared backend such as "
+        "redis://host:6379.",
+        workers,
+        workers,
+    )
+    return True
+
 
 # Initialize Flask-RESTX API with OpenAPI configuration
 # This will be initialized later with the blueprint in api_routes.py
@@ -54,6 +151,7 @@ def init_extensions(app):
     """Initialize Flask extensions with clean separation of concerns."""
     # Core extensions initialization
     sess.init_app(app)
+    csrf.init_app(app)
     babel.init_app(app, locale_selector=_select_locale)
 
     # Scheduler initialization - Flask-APScheduler handles Gunicorn properly
@@ -157,6 +255,7 @@ def init_extensions(app):
 
     migrate.init_app(app, db)
     limiter.init_app(app)
+    warn_on_unshared_rate_limit_storage(app)
     # Flask-RESTX API will be initialized with the blueprint
 
     # Always fetch manifest on startup after DB is initialized
