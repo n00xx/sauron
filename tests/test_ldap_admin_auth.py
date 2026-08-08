@@ -61,7 +61,7 @@ def test_ldap_admin_login_success(mock_client_class, app, ldap_config_with_admin
         mock_client_class.return_value = mock_client
 
         # Perform login
-        success, message = handle_ldap_login("admin", "password123")
+        success, message, _account = handle_ldap_login("admin", "password123")
 
         assert success is True
         assert message == "Login successful"
@@ -93,7 +93,7 @@ def test_ldap_admin_login_invalid_credentials(
         mock_client_class.return_value = mock_client
 
         # Perform login
-        success, message = handle_ldap_login("admin", "wrongpassword")
+        success, message, _account = handle_ldap_login("admin", "wrongpassword")
 
         assert success is False
         assert "Invalid LDAP credentials" in message
@@ -124,7 +124,7 @@ def test_ldap_admin_login_not_in_admin_group(
         mock_client_class.return_value = mock_client
 
         # Perform login
-        success, message = handle_ldap_login("user", "password123")
+        success, message, _account = handle_ldap_login("user", "password123")
 
         assert success is False
         assert "not authorized as an administrator" in message
@@ -162,7 +162,7 @@ def test_ldap_admin_login_existing_account(
         mock_client_class.return_value = mock_client
 
         # Perform login
-        success, message = handle_ldap_login("admin", "password123")
+        success, message, _account = handle_ldap_login("admin", "password123")
 
         assert success is True
         assert message == "Login successful"
@@ -186,7 +186,7 @@ def test_ldap_admin_login_disabled(app):
 
     with app.app_context():
         # No LDAP config
-        success, message = handle_ldap_login("admin", "password123")
+        success, message, _account = handle_ldap_login("admin", "password123")
 
         assert success is False
         assert "not enabled" in message
@@ -218,7 +218,7 @@ def test_ldap_admin_login_bind_not_allowed(app):
 
         from app.blueprints.auth.ldap_auth import handle_ldap_login
 
-        success, message = handle_ldap_login("admin", "password123")
+        success, message, _account = handle_ldap_login("admin", "password123")
 
         assert success is False
         assert "not allowed" in message

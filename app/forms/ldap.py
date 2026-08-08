@@ -1,6 +1,6 @@
 from flask_wtf import FlaskForm
 from wtforms import BooleanField, PasswordField, SelectField, StringField
-from wtforms.validators import DataRequired, Optional
+from wtforms.validators import DataRequired, Optional, ValidationError
 
 
 class LDAPSettingsForm(FlaskForm):
@@ -86,6 +86,23 @@ class LDAPSettingsForm(FlaskForm):
     admin_group_dn = SelectField(
         "Admin Group DN",
         choices=[],
-        validators=[Optional()],
+        # No Optional() here: it raises StopValidation on an empty value, which
+        # would skip the cross-field check below. Emptiness is allowed by that
+        # check itself, as long as admin login is off.
+        validators=[],
         coerce=lambda x: x or None,
     )
+
+    def validate_admin_group_dn(self, field):
+        """Require an admin group whenever LDAP admin login is enabled.
+
+        Without it, every directory user who can bind would be provisioned as
+        a Wizarr administrator. Authentication refuses that state at login
+        time; catching it here turns a mysterious login failure into a form
+        error at the moment the operator configures it.
+        """
+        if self.allow_admin_bind.data and not field.data:
+            raise ValidationError(
+                "An admin group is required when LDAP admin login is enabled, "
+                "otherwise any directory user would become an administrator."
+            )
