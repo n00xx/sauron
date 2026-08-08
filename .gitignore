@@ -437,3 +437,8 @@ CLAUDE.md.old
 
 # Internal documentation (AI-generated, not for version control)
 docs-internal/
+
+# Informes de auditoria de seguridad: contienen pasos de explotacion de
+# vulnerabilidades heredadas de upstream que aun afectan a otras instancias.
+# Mantener fuera de este repositorio publico hasta resolver la divulgacion.
+autoresearch/
