@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.7.14] (2026-08-07)
+
+### Changed
+
+- **Rate limiting exacto sin Redis**: gunicorn pasa de 4 workers `sync` a un
+  único worker `gthread` con 8 hilos. `memory://` cuenta por proceso, así que
+  los 4 workers multiplicaban por 4 todo límite declarado y `scaled_limit` sólo
+  lo compensaba por aproximación; los hilos comparten memoria, de modo que un
+  solo proceso deja los límites exactos — `/login` a 10/min es 10/min. Se
+  descartó Redis porque la base de datos es SQLite sobre volumen montado, lo
+  que ya impide correr varias réplicas: sería un contenedor y una dependencia
+  extra a cambio de exactitud que los hilos dan gratis. La vía de Redis sigue
+  abierta vía `RATELIMIT_STORAGE_URI` si alguna vez se sale de SQLite.
+  Hilos, y no un worker `sync` a secas, porque uno solo sirve una petición a la
+  vez: una llamada lenta a Jellyfin bloquearía toda la app.
+- `pool_size` de SQLAlchemy sube a 20 (+10 overflow). Con un solo proceso el
+  pool ya no se reparte entre 4: lo comparten los 8 hilos de petición, el
+  `ThreadPoolExecutor(max_workers=10)` de monitorización y el scheduler.
+- Nuevos tests: los defaults de `GUNICORN_WORKERS` en `gunicorn.conf.py` y
+  `app/extensions.py` quedan fijados entre sí (desincronizarlos volvería cada
+  límite 4x más estricto, en silencio), y un test de concurrencia comprueba que
+  11 peticiones simultáneas contra un límite de 10/min producen exactamente un
+  429.
+
 ## [2026.7.13] (2026-08-07)
 
 Release de seguridad. Auditoría STRIDE + OWASP sobre toda la aplicación
