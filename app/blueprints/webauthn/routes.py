@@ -28,7 +28,7 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
-from app.extensions import db, limiter
+from app.extensions import db, limiter, scaled_limit
 from app.models import AdminAccount, WebAuthnCredential
 
 webauthn_bp = Blueprint("webauthn", __name__)
@@ -254,7 +254,7 @@ def register_complete():
 
 
 @webauthn_bp.route("/webauthn/authenticate/begin", methods=["POST"])
-@limiter.limit("20 per minute")
+@limiter.limit(scaled_limit("20 per minute"))
 def authenticate_begin():
     """Begin WebAuthn authentication process (usernameless or 2FA)."""
     try:
@@ -324,7 +324,7 @@ def authenticate_begin():
 
 
 @webauthn_bp.route("/webauthn/authenticate/complete", methods=["POST"])
-@limiter.limit("20 per minute")
+@limiter.limit(scaled_limit("20 per minute"))
 def authenticate_complete():
     """Complete WebAuthn authentication process (usernameless or 2FA)."""
     credential_data = request.get_json()
@@ -382,7 +382,11 @@ def authenticate_complete():
         session.pop("webauthn_challenge", None)
 
         if pending_2fa_user_id:
-            # 2FA mode - complete the authentication via the auth route
+            # 2FA mode - complete the authentication via the auth route.
+            # Stamp the session so auth.complete_2fa can prove this ceremony
+            # actually happened; without it the password step alone would be
+            # enough to log in and the second factor would be worthless.
+            session["2fa_verified_user_id"] = pending_2fa_user_id
             return jsonify({"verified": True, "redirect": url_for("auth.complete_2fa")})
         # Usernameless mode - login directly
         from flask_login import login_user

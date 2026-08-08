@@ -1,21 +1,94 @@
 import logging
 import os
 
-from flask import Blueprint, redirect, render_template, request, url_for
+from flask import Blueprint, abort, redirect, render_template, request, url_for
 from flask_babel import _
 from flask_login import login_required, login_user, logout_user
 from werkzeug.security import check_password_hash
 
-from app.extensions import db, limiter
+from app.extensions import db, limiter, scaled_limit
 from app.models import AdminAccount, AdminUser, Settings
 
 auth_bp = Blueprint("auth", __name__)
 
 
+def _client_ip() -> str:
+    """Resolve the client IP, ignoring headers unless a proxy is configured.
+
+    ``X-Forwarded-For`` and ``CF-Connecting-IP`` are attacker-controlled unless
+    a trusted reverse proxy rewrites them. Trusting them unconditionally let
+    anyone forge the IP recorded in AUTH FAIL logs and sent to Turnstile, so
+    they are only honoured when TRUSTED_PROXY_COUNT says a proxy is in front.
+    """
+    remote_addr = request.remote_addr or ""
+
+    try:
+        trusted_proxies = int(os.getenv("TRUSTED_PROXY_COUNT", "0"))
+    except ValueError:
+        trusted_proxies = 0
+
+    if trusted_proxies <= 0:
+        return remote_addr
+
+    cf_ip = request.headers.get("CF-Connecting-IP")
+    if cf_ip:
+        return cf_ip.strip()
+
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        # Right-most entries are appended by our own proxies; take the last
+        # hop we do not control.
+        hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+        if hops:
+            return hops[max(0, len(hops) - trusted_proxies)]
+
+    return remote_addr
+
+
+def _sso_proxy_authorised() -> bool:
+    """Check that a DISABLE_BUILTIN_AUTH request really came from the proxy.
+
+    The flag alone used to hand out an admin session to anyone who could reach
+    /login, which is a full takeover if the container is exposed directly or
+    the SSO proxy is bypassed in routing.
+    """
+    trusted = [
+        ip.strip()
+        for ip in os.getenv("SSO_TRUSTED_PROXY_IPS", "").split(",")
+        if ip.strip()
+    ]
+    if not trusted:
+        logging.error(
+            "DISABLE_BUILTIN_AUTH is set but SSO_TRUSTED_PROXY_IPS is empty; "
+            "refusing to bypass authentication"
+        )
+        return False
+
+    identity_header = os.getenv("SSO_IDENTITY_HEADER", "X-Forwarded-User")
+    if not request.headers.get(identity_header):
+        logging.warning(
+            "DISABLE_BUILTIN_AUTH request without %s header from %s",
+            identity_header,
+            request.remote_addr,
+        )
+        return False
+
+    if (request.remote_addr or "") not in trusted:
+        logging.warning(
+            "DISABLE_BUILTIN_AUTH request from untrusted source %s",
+            request.remote_addr,
+        )
+        return False
+
+    return True
+
+
 @auth_bp.route("/login", methods=["GET", "POST"])
-@limiter.limit("10 per minute")
+@limiter.limit(scaled_limit("10 per minute"))
 def login():
     if os.getenv("DISABLE_BUILTIN_AUTH", "").lower() == "true":
+        if not _sso_proxy_authorised():
+            abort(403)
         login_user(AdminUser(), remember=bool(request.form.get("remember")))
         return redirect("/")
 
@@ -42,13 +115,7 @@ def login():
     password = request.form.get("password")
     auth_method = request.form.get("auth_method", "local")
 
-    # Get IP address: prefer Cloudflare's header, then X-Forwarded-For, then remote_addr
-    client_ip = (
-        request.headers.get("CF-Connecting-IP")
-        or (request.headers.get("X-Forwarded-For") or request.remote_addr or "")
-        .split(",")[0]
-        .strip()
-    )
+    client_ip = _client_ip()
 
     # ── Cloudflare Turnstile challenge ─────────────────────────────────
     # Gates the password/LDAP login form (both submit through here). Passkey
@@ -72,10 +139,27 @@ def login():
 
     # ── Handle LDAP authentication ─────────────────────────────────────
     if auth_method == "ldap":
+        from flask import session
+
+        from app.models import WebAuthnCredential
+
         from .ldap_auth import handle_ldap_login
 
-        success, message = handle_ldap_login(username, password)
-        if success:
+        success, message, account = handle_ldap_login(username, password)
+        if success and account is not None:
+            # Same second-factor rule as the local path: an account holding a
+            # passkey must complete WebAuthn before it gets a session.
+            if WebAuthnCredential.query.filter_by(
+                admin_account_id=account.id
+            ).first():
+                session["pending_2fa_user_id"] = account.id
+                session["pending_2fa_remember"] = bool(request.form.get("remember"))
+                return render_template(
+                    "login.html", show_2fa=True, username=username, has_passkeys=True
+                )
+
+            login_user(account, remember=bool(request.form.get("remember")))
+            session.permanent = True
             return redirect("/")
 
         return render_template(
@@ -118,6 +202,9 @@ def login():
     if (
         username == admin_username
         and password
+        # admin_password_hash is None when the legacy Settings row is absent;
+        # passing that to check_password_hash raised a 500 on a public route.
+        and admin_password_hash
         and check_password_hash(admin_password_hash, password)
     ):
         # Legacy single-admin (Settings table)
@@ -138,13 +225,32 @@ def login():
 
 
 @auth_bp.route("/complete-2fa", methods=["POST"])
-@limiter.limit("10 per minute")
+@limiter.limit(scaled_limit("10 per minute"))
 def complete_2fa():
-    """Complete 2FA authentication with passkey."""
-    from flask import session
+    """Complete 2FA authentication with passkey.
+
+    Only the WebAuthn route may authorise this step: it stamps
+    ``2fa_verified_user_id`` into the session after
+    ``verify_authentication_response`` succeeds. The marker is single-use and
+    must name the same account as the pending login, otherwise knowing the
+    password alone would be enough to obtain a session.
+    """
+    from flask import abort, session
 
     user_id = session.get("pending_2fa_user_id")
     remember = session.get("pending_2fa_remember", False)
+    # Consume the marker so a ceremony cannot be replayed for a later login.
+    verified_user_id = session.pop("2fa_verified_user_id", None)
+
+    if user_id and (verified_user_id is None or verified_user_id != user_id):
+        logging.warning(
+            "AUTH FAIL: /complete-2fa reached without a verified WebAuthn "
+            "ceremony for account id %s",
+            user_id,
+        )
+        session.pop("pending_2fa_user_id", None)
+        session.pop("pending_2fa_remember", None)
+        abort(403)
 
     if not user_id:
         # Check if there are any passkeys registered for error page
