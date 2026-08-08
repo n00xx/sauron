@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.7.13] (2026-08-07)
+
+Release de seguridad. Auditoría STRIDE + OWASP sobre toda la aplicación
+(146 ficheros Python, ~116 rutas, 21 blueprints) con remediación completa
+y 65 tests de regresión nuevos. Todos los hallazgos son heredados de
+wizarrrr/wizarr; ninguno lo introdujo este fork.
+
+### Security
+
+- **Bypass total del segundo factor**: `POST /complete-2fa` autenticaba
+  comprobando sólo un valor de sesión que fija el paso de contraseña, así
+  que quien conociera la contraseña de un admin con passkey obtenía sesión
+  saltándose WebAuthn por completo. Ahora se exige y consume una marca de
+  ceremonia verificada.
+- **Rate limiting desactivado**: el `Limiter` se construía con
+  `enabled=False`, dejando los nueve decoradores `@limiter.limit` como
+  no-ops, incluido el de `/login`. Activado, con `scaled_limit` para
+  compensar que `memory://` cuenta por worker.
+- **Inyección de plantillas (SSTI)** en el filtro `render_jinja`, que
+  evaluaba como plantilla el título de los pasos del wizard leído de la
+  base de datos: `{{ config }}` filtraba `SECRET_KEY`.
+- **CSRF**: no había `CSRFProtect` global, así que 42 de 64 rutas mutantes
+  no validaban token, entre ellas `change_password` y `delete_admin`.
+- **LDAP**: la rama LDAP omitía el segundo factor, y sin `admin_group_dn`
+  configurado provisionaba como administrador a cualquier usuario del
+  directorio capaz de hacer bind. Ambas cerradas.
+- **Replay de invitaciones**: la invitación se marcaba usada después de
+  aprovisionar, de modo que dos envíos simultáneos del mismo código de un
+  solo uso creaban dos cuentas. Añadido claim atómico con liberación si el
+  aprovisionamiento falla.
+- **`DISABLE_BUILTIN_AUTH`** concedía sesión de administrador a cualquiera
+  que alcanzase `/login`; ahora exige proxy de confianza e identidad.
+- **Dependencias**: 11 CVEs conocidos en 5 paquetes, incluidos 3 en
+  `cryptography`, que cifra las credenciales LDAP. Actualizadas.
+- Endurecimiento: cookies `Secure`/`HttpOnly`/`SameSite`, `secrets.json`
+  en modo `0600`, IP de cliente no falsificable, HMAC de image-proxy de 64
+  a 128 bits, `secrets.choice` para los salt, y códigos de invitación
+  personalizados con mínimo de 8 caracteres.
+
+### Notas de despliegue
+
+Variables nuevas, todas con valor por defecto seguro:
+
+| Variable | Defecto | Cuándo tocarla |
+|---|---|---|
+| `RATELIMIT_STORAGE_URI` | `memory://` | Apuntar a Redis para un límite exacto entre workers |
+| `TRUSTED_PROXY_COUNT` | `0` | Número de proxies delante; sin esto las cabeceras de IP se ignoran |
+| `SSO_TRUSTED_PROXY_IPS` | vacío | Obligatoria si se usa `DISABLE_BUILTIN_AUTH` |
+| `SSO_IDENTITY_HEADER` | `X-Forwarded-User` | Cabecera de identidad del proxy SSO |
+| `SESSION_COOKIE_SECURE` | `true` | `false` sólo en despliegues LAN sin TLS |
+
+Cambio de comportamiento: con `admin_group_dn` vacío, el login LDAP de
+administrador ahora **deniega** en lugar de conceder acceso. El formulario
+impide guardar ese estado y el arranque avisa si la base de datos ya lo
+tenía.
+
 ## [2026.7.12] (2026-07-30)
 
 
