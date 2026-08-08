@@ -10,7 +10,11 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from app.models import Invitation, MediaServer, WizardBundleStep
-from app.services.invites import is_invite_valid
+from app.services.invites import (
+    is_invite_valid,
+    release_invitation_claim,
+    try_claim_invitation,
+)
 
 from .results import InvitationResult, ProcessingStatus
 from .workflows import WorkflowFactory
@@ -169,13 +173,53 @@ class InvitationFlowManager:
 
             servers = self._get_invitation_servers(invitation)
 
+            # Claim the invitation before provisioning. is_invite_valid above
+            # only reads, and provisioning is a network round-trip, so without
+            # an atomic claim two concurrent submissions of the same
+            # single-use code would each create an account.
+            if not try_claim_invitation(code):
+                return self._create_error_result(
+                    "Invitation has already been used."
+                )
+
             # Process with appropriate workflow
             workflow = WorkflowFactory.create_workflow(servers)
-            return workflow.process_submission(invitation, servers, form_data)
+            try:
+                result = workflow.process_submission(invitation, servers, form_data)
+            except Exception:
+                # Do not burn the invitation on a provisioning failure.
+                release_invitation_claim(code)
+                raise
+
+            # Failures are collected rather than raised, so check the result
+            # too: a media-server outage must not consume the invitation.
+            if not self._result_provisioned_anything(result):
+                release_invitation_claim(code)
+
+            return result
 
         except Exception as e:
             self.logger.error(f"Error processing invitation submission: {e}")
             return self._create_error_result(str(e))
+
+    @staticmethod
+    def _result_provisioned_anything(result: Any) -> bool:
+        """Whether a workflow result represents at least one account created.
+
+        Tolerant of result objects that do not implement the full
+        InvitationResult protocol, so an unexpected shape never causes a valid
+        invitation to be released and handed out twice.
+        """
+        try:
+            if hasattr(result, "has_successful_servers"):
+                if result.has_successful_servers():
+                    return True
+                if hasattr(result, "is_failure"):
+                    return not result.is_failure()
+                return False
+        except Exception:
+            return True
+        return True
 
     def _get_invitation_servers(self, invitation: Invitation) -> list[MediaServer]:
         """Get servers associated with invitation (same logic as existing system)."""

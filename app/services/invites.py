@@ -18,6 +18,10 @@ from app.models import (
 
 MIN_CODESIZE = 6  # Minimum allowed invite code length
 MAX_CODESIZE = 10  # Maximum allowed invite code length (default for generated codes)
+# Floor for admin-chosen codes. Kept above MIN_CODESIZE because human-picked
+# codes cluster on dictionary words and a 6-char space is small enough to
+# sweep. MIN_CODESIZE still applies when validating already-issued codes.
+MIN_CUSTOM_CODESIZE = 8
 CODESET = string.ascii_uppercase + string.digits
 
 # Backwards-compat alias for existing usages
@@ -51,6 +55,74 @@ def is_invite_valid(code: str) -> tuple[bool, str]:
     return True, "okay"
 
 
+def try_claim_invitation(code: str | None) -> bool:
+    """Atomically claim a single-use invitation before provisioning.
+
+    ``is_invite_valid`` only reads. Provisioning then makes a network call to
+    the media server, leaving a wide window in which a second submission of
+    the same code also passes validation -- so one single-use invite could
+    provision two accounts.
+
+    This closes the window with a conditional UPDATE: the database applies
+    ``used = 1 WHERE used = 0`` atomically, so exactly one caller sees a
+    non-zero rowcount. Unlimited invitations are reusable by design and always
+    succeed.
+
+    Call :func:`release_invitation_claim` if provisioning then fails, so a
+    genuine error does not burn the invite.
+    """
+    if not code:
+        return False
+
+    invitation = Invitation.query.filter(
+        db.func.lower(Invitation.code) == code.lower()
+    ).first()
+    if not invitation:
+        return False
+
+    if invitation.unlimited:
+        return True
+
+    now = datetime.datetime.now(datetime.UTC)
+    claimed = (
+        db.session.query(Invitation)
+        .filter(
+            Invitation.id == invitation.id,
+            Invitation.used.is_(False),
+        )
+        .update({"used": True, "used_at": now}, synchronize_session=False)
+    )
+    db.session.commit()
+
+    if not claimed:
+        logging.info("Invitation %s was already claimed by another request", code)
+        return False
+
+    return True
+
+
+def release_invitation_claim(code: str | None) -> None:
+    """Undo a claim taken by :func:`try_claim_invitation`.
+
+    Used when provisioning failed on every server, so a network error or a
+    rejected password does not consume the invitation.
+    """
+    if not code:
+        return
+
+    invitation = Invitation.query.filter(
+        db.func.lower(Invitation.code) == code.lower()
+    ).first()
+    if not invitation or invitation.unlimited:
+        return
+
+    db.session.query(Invitation).filter(Invitation.id == invitation.id).update(
+        {"used": False, "used_at": None}, synchronize_session=False
+    )
+    db.session.commit()
+    logging.info("Released claim on invitation %s after failed provisioning", code)
+
+
 def _get_form_list(form: Any, key: str) -> list[str]:
     """Get list from form, handling both WTForms and dict."""
     if hasattr(form, "getlist"):
@@ -68,10 +140,16 @@ def _get_form_list(form: Any, key: str) -> list[str]:
 def create_invite(form: Any) -> Invitation:
     """Takes a WTForms or dict-like `form` with the same keys as your old version."""
     # generate or validate provided code
-    code = (form.get("code") or _generate_code()).upper()
+    custom_code = form.get("code")
+    code = (custom_code or _generate_code()).upper()
+
+    # Custom codes are chosen by humans and tend to be guessable ("FAMILY",
+    # "CASA01"), so they get a higher floor than MIN_CODESIZE, which still
+    # governs validation of codes already issued.
+    minimum = MIN_CUSTOM_CODESIZE if custom_code else MIN_CODESIZE
 
     if (
-        not (MIN_CODESIZE <= len(code) <= MAX_CODESIZE)
+        not (minimum <= len(code) <= MAX_CODESIZE)
         or Invitation.query.filter_by(code=code).first()
     ):
         raise ValueError("Invalid or duplicate code")
