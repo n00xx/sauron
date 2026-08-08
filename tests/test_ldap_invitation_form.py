@@ -82,7 +82,7 @@ def test_create_invite_with_ldap_enabled(app, ldap_setup, media_server):
 def test_create_invite_without_ldap(app, ldap_setup, media_server):
     with app.app_context():
         form_data = {
-            "code": "NOLDAP",
+            "code": "NOLDAP01",
             "expires": "never",
             "server_ids": [str(media_server.id)],
             "create_ldap_user": "",  # Not checked
@@ -91,7 +91,7 @@ def test_create_invite_without_ldap(app, ldap_setup, media_server):
         invitation = create_invite(form_data)
 
         assert invitation is not None
-        assert invitation.code == "NOLDAP"
+        assert invitation.code == "NOLDAP01"
         assert invitation.create_ldap_user is False
 
         # Cleanup

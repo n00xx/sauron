@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import random
+import secrets
 import string
 from typing import TYPE_CHECKING, Any
 
@@ -47,7 +47,8 @@ class NavidromeClient(RestApiMixin):
             raise ValueError("API token (password) is required for Navidrome")
 
         # Generate random salt
-        salt = "".join(random.choices(string.ascii_letters + string.digits, k=6))
+        alphabet = string.ascii_letters + string.digits
+        salt = "".join(secrets.choice(alphabet) for _ in range(6))
 
         # Create MD5 hash of password + salt
         token_hash = hashlib.md5((self.token + salt).encode()).hexdigest()  # noqa: S324  # Required by Subsonic API specification

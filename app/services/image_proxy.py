@@ -91,7 +91,7 @@ class ImageProxyService:
         # Generate HMAC signature over the payload
         signature = hmac.new(
             cls._get_secret(), payload_b64.encode(), hashlib.sha256
-        ).hexdigest()[:16]  # Use 16 chars (64 bits) for compactness
+        ).hexdigest()[:32]  # 32 chars (128 bits); 64 bits left little margin
 
         # Token format: signature.payload
         token = f"{signature}.{payload_b64}"
@@ -139,10 +139,10 @@ class ImageProxyService:
 
         signature, payload_b64 = parts
 
-        # Verify HMAC signature
+        # Verify HMAC signature. Must match generate_token's truncation length.
         expected_sig = hmac.new(
             cls._get_secret(), payload_b64.encode(), hashlib.sha256
-        ).hexdigest()[:16]
+        ).hexdigest()[:32]
 
         if not hmac.compare_digest(signature, expected_sig):
             return None

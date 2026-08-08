@@ -5,6 +5,7 @@ from flask import Flask
 from flask_login import LoginManager, UserMixin, login_user
 
 from app.activity.api.blueprint import activity_bp
+from app.extensions import csrf
 
 
 class _TestUser(UserMixin):
@@ -19,6 +20,10 @@ def activity_app():
         SECRET_KEY="testing-secret",
         TESTING=True,
     )
+
+    # base.html emits the CSRF token for HTMX, so this stand-in app needs the
+    # extension too -- it renders the real templates.
+    csrf.init_app(app)
 
     login_manager = LoginManager()
     login_manager.init_app(app)

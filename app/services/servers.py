@@ -233,7 +233,7 @@ def check_navidrome(url: str, token: str) -> tuple[bool, str]:
     """
     try:
         import hashlib
-        import random
+        import secrets
         import string
 
         # Build Subsonic API authentication parameters
@@ -246,7 +246,8 @@ def check_navidrome(url: str, token: str) -> tuple[bool, str]:
 
         if token:
             # Generate random salt for secure authentication
-            salt = "".join(random.choices(string.ascii_letters + string.digits, k=6))
+            alphabet = string.ascii_letters + string.digits
+            salt = "".join(secrets.choice(alphabet) for _ in range(6))
 
             # Create SHA-256 hash of password + salt (prefer strong hash if supported by Navidrome/Subsonic API)
             token_hash = hashlib.sha256((token + salt).encode()).hexdigest()

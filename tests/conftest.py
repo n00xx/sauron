@@ -18,6 +18,10 @@ os.environ["no_proxy"] = "*"
 class TestConfig(BaseConfig):
     TESTING = True
     WTF_CSRF_ENABLED = False
+    # Kept True so Flask-Limiter initialises its storage exactly as it does in
+    # production; the _disable_rate_limiting fixture below switches it off per
+    # test so unrelated tests can hammer endpoints freely.
+    RATELIMIT_ENABLED = True
     # Use a temporary file database for better migration compatibility
     _temp_db_path = os.path.join(tempfile.gettempdir(), "wizarr_test.db")
     SQLALCHEMY_DATABASE_URI = f"sqlite:///{_temp_db_path}"
@@ -87,6 +91,21 @@ def _stub_email_domain_dns(monkeypatch):
         raise dns.resolver.NoAnswer
 
     monkeypatch.setattr(dns.resolver.Resolver, "resolve", _resolve)
+
+
+@pytest.fixture(autouse=True)
+def _disable_rate_limiting(app):
+    """Keep rate limiting out of the way of unrelated tests.
+
+    Storage is still initialised (TestConfig sets RATELIMIT_ENABLED=True), so
+    tests that need real enforcement can flip ``limiter.enabled`` back on.
+    """
+    from app.extensions import limiter
+
+    previous = limiter.enabled
+    limiter.enabled = False
+    yield
+    limiter.enabled = previous
 
 
 @pytest.fixture
