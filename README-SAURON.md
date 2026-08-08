@@ -74,6 +74,32 @@ See [`deploy/truenas/README.md`](deploy/truenas/README.md). Custom App (Compose
 YAML) is the supported path; an optional custom catalog train lives in
 [`deploy/catalog/`](deploy/catalog/README.md).
 
+## Concurrency & rate limiting
+
+The container runs **one gunicorn process with 8 threads** (`gunicorn.conf.py`),
+not the 4 sync workers upstream uses. The reason is rate limiting:
+flask-limiter's default `memory://` storage is per *process*, so 4 workers meant
+a declared `10 per minute` on `/login` was really ~40 across the deployment.
+Threads share that memory, so one process makes the declared limits exact — no
+Redis, no second container.
+
+Threads rather than a bare single worker because a lone `sync` worker serves one
+request at a time: a slow Jellyfin call would block login and invites until the
+120s timeout. The app is I/O-bound, so the GIL is released during those waits.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `GUNICORN_WORKERS` | `1` | Above 1 the counters fragment again. `scaled_limit` compensates by dividing the declared limits, but the result is approximate — set `RATELIMIT_STORAGE_URI` instead if you need exactness. |
+| `GUNICORN_THREADS` | `8` | Concurrent requests. Raising it means raising `pool_size` in `SQLALCHEMY_ENGINE_OPTIONS` too — one process now shares a single pool between these threads, the activity monitor's 10-thread executor and the scheduler. |
+| `RATELIMIT_STORAGE_URI` | `memory://` | Only needed for multiple processes/replicas. **Requires adding the `redis` package to `pyproject.toml` first** — with a `redis://` URI and no such package, `limiter.init_app()` raises and the app will not boot. |
+
+Multiple replicas are not a supported shape regardless: the database is SQLite on
+a bind-mounted volume (`app/config.py`), which cannot be shared across instances.
+
+`tests/test_ratelimit_multiworker.py` pins the `GUNICORN_WORKERS` default in
+`gunicorn.conf.py` to the one in `app/extensions.py:_worker_count()`. Changing
+one without the other makes every limit 4x stricter than declared, silently.
+
 ## Running the tests locally
 
 ```bash

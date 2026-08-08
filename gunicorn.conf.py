@@ -12,21 +12,31 @@ loglevel = os.getenv("GUNICORN_LOG_LEVEL", "warning").lower()
 accesslog = None  # Disable access logs for clean output
 errorlog = "-"  # Only errors to stderr
 
-# Make workers configurable (default 4, but allow override for resource-constrained systems)
-workers = int(os.getenv("GUNICORN_WORKERS", "4"))
-worker_class = "sync"
+# One process keeps rate limiting exact: flask-limiter's "memory://" storage is
+# per-process, so N workers multiply every declared limit by N. Concurrency comes
+# from threads instead, which share that memory. The trade suits this app -- it is
+# I/O-bound (Jellyfin HTTP, SQLite), so the GIL is released during the waits.
+#
+# Raising GUNICORN_WORKERS above 1 re-introduces the multiplier; app/extensions.py
+# scales the limits down to compensate, and its default MUST match the one here.
+workers = int(os.getenv("GUNICORN_WORKERS", "1"))
+worker_class = "gthread"
+# Without threads a single worker serves one request at a time, and a slow
+# Jellyfin call would block the whole app until `timeout` below.
+threads = int(os.getenv("GUNICORN_THREADS", "8"))
 
 # Worker timeout - kill workers that don't respond within this time
 # Increase from default 30s to 120s to account for slow library scans
 timeout = int(os.getenv("GUNICORN_TIMEOUT", "120"))
 
 # Make host and port configurable
-host  = os.getenv("HOST", "0.0.0.0")
-port  = os.getenv("PORT", "5690")
-bind  = f"{host}:{port}"
+host = os.getenv("HOST", "0.0.0.0")
+port = os.getenv("PORT", "5690")
+bind = f"{host}:{port}"
 
 print(
-    f"DEBUG: Gunicorn config - workers={workers}, loglevel={loglevel}, timeout={timeout}s, host={host}, port={port}"
+    f"DEBUG: Gunicorn config - workers={workers}, worker_class={worker_class}, "
+    f"threads={threads}, loglevel={loglevel}, timeout={timeout}s, host={host}, port={port}"
 )
 
 

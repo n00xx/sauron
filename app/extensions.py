@@ -28,10 +28,12 @@ migrate = Migrate()
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=[],  # No default limits; routes opt in via @limiter.limit
-    # NOTE: "memory://" is per-process. gunicorn.conf.py runs 4 workers by
-    # default, so each worker keeps its own counters and the effective limit is
-    # multiplied by the worker count. Point RATELIMIT_STORAGE_URI at Redis (or
-    # another shared backend) for a hard limit across the whole deployment.
+    # NOTE: "memory://" is per-process, so N worker processes multiply every
+    # declared limit by N. gunicorn.conf.py runs a single gthread worker by
+    # default, which keeps the counters exact: threads share the process memory,
+    # and limits' MemoryStorage guards each key with its own RLock. Raising
+    # GUNICORN_WORKERS above 1 brings the multiplier back -- point
+    # RATELIMIT_STORAGE_URI at Redis (or another shared backend) if you do.
     storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"),
     enabled=True,
 )
@@ -40,9 +42,19 @@ _LIMIT_RE = re.compile(r"^\s*(\d+)\s+(per|/)\s*(.+)$", re.IGNORECASE)
 
 
 def _worker_count() -> int:
-    """Number of gunicorn workers, mirroring gunicorn.conf.py:16."""
+    """Number of gunicorn worker *processes*, mirroring gunicorn.conf.py.
+
+    Threads deliberately do not count: they share the process memory, so
+    ``memory://`` counters stay correct across them. Only separate processes
+    fragment the counters.
+
+    The default must match gunicorn.conf.py. If it drifts higher, ``scaled_limit``
+    divides limits that were never multiplied and every endpoint silently becomes
+    stricter than declared. ``test_worker_count_default_matches_gunicorn_config``
+    pins the two together.
+    """
     try:
-        return int(os.getenv("GUNICORN_WORKERS", "4"))
+        return int(os.getenv("GUNICORN_WORKERS", "1"))
     except ValueError:
         return 1
 
@@ -55,6 +67,10 @@ def _storage_is_shared() -> bool:
 
 def scaled_limit(limit_string: str):
     """Scale a rate limit down by the worker count, for per-process storage.
+
+    Inert on the default deployment (one gthread worker), where the declared
+    limit is already exact. It exists for anyone who raises GUNICORN_WORKERS
+    without also configuring shared storage.
 
     ``memory://`` counters live inside a single worker, so N workers multiply
     every declared limit by N. Dividing here keeps the *aggregate* close to

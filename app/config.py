@@ -143,6 +143,24 @@ class BaseConfig:
     }
 
 
+# Pool sizing for the file-backed database, shared by dev and production.
+#
+# A *single* process serves every database consumer now, where 4 gunicorn workers
+# used to get a pool each: 8 request threads (gunicorn.conf.py), the activity
+# monitor's ThreadPoolExecutor(max_workers=10), the scheduler jobs and the
+# historical-sync thread. SQLAlchemy's 5+10 default exhausts under that and
+# raises "QueuePool limit ... connection timed out". SQLite connections are cheap
+# file handles, and WAL plus the 30s busy timeout absorb the write contention.
+#
+# Deliberately not on BaseConfig: the test configs run against pools
+# (StaticPool) that reject these arguments outright.
+_FILE_DB_POOL_OPTIONS: dict = {
+    **BaseConfig.SQLALCHEMY_ENGINE_OPTIONS,
+    "pool_size": 20,
+    "max_overflow": 10,
+}
+
+
 def _env_flag(name: str, default: bool) -> bool:
     """Read a boolean from the environment, keeping *default* when unset."""
     raw = os.getenv(name)
@@ -153,6 +171,8 @@ def _env_flag(name: str, default: bool) -> bool:
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True
+    # Same file-backed database and same background threads as production.
+    SQLALCHEMY_ENGINE_OPTIONS: ClassVar[dict] = _FILE_DB_POOL_OPTIONS
     # Local development is plain HTTP, so a Secure cookie would never be sent.
     SESSION_COOKIE_SECURE = False
     REMEMBER_COOKIE_SECURE = False
@@ -164,6 +184,7 @@ class DevelopmentConfig(BaseConfig):
 
 class ProductionConfig(BaseConfig):
     DEBUG = False
+    SQLALCHEMY_ENGINE_OPTIONS: ClassVar[dict] = _FILE_DB_POOL_OPTIONS
     # Cookie hardening. SameSite=Lax is defence in depth behind CSRFProtect;
     # Secure can be turned off for LAN deployments that terminate no TLS, but
     # it defaults to on so the safe case needs no configuration.
