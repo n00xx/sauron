@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.7.15] (2026-08-23)
+
+### Fixed
+
+- **La reserva de la invitación ya no la invalida a sí misma**: desde 2026.7.13,
+  el primer canje legítimo de cualquier código de un solo uso fallaba con
+  "Invitation has already been used." sin llegar a crear la cuenta.
+  `try_claim_invitation` reservaba la invitación escribiendo `used = True` antes
+  de aprovisionar, pero `used` ya significaba "consumida" para `is_invite_valid`,
+  que los siete clientes de media server vuelven a llamar desde dentro de
+  `_do_join`. Afectaba al 100% de las invitaciones limitadas por
+  `/invitation/process`; las ilimitadas no se veían afectadas.
+- La reserva pasa a vivir en las columnas nuevas `claimed_at` / `claim_token`.
+  `used` vuelve a significar sólo "cuenta creada de verdad" y lo escribe
+  únicamente `mark_server_used`, de modo que `_do_join` conserva su validación y
+  con ella la defensa en profundidad de los caminos que llaman `client.join()`
+  sin reserva.
+- Una reserva de más de 15 minutos se considera abandonada y puede volver a
+  tomarse. La comprobación va en el `WHERE` del propio claim, en lectura: un
+  worker que muera aprovisionando no deja varada una invitación pagada, y no
+  hace falta scheduler ni cron.
+- `_result_provisioned_anything` trataba cualquier estado distinto de `FAILURE`
+  como aprovisionamiento, así que `OAUTH_PENDING` y `AUTHENTICATION_REQUIRED`
+  conservaban la reserva y quemaban la invitación a media sesión.
+- `release_invitation_claim` escribía `used = False` sin condición y podía
+  borrar un `used = True` legítimo puesto por `mark_server_used`.
+- Un código reservado deja de reportar "ya fue usada" y explica que está siendo
+  canjeado en ese momento.
+- Nuevos tests: `test_invitation_claim_collision.py` recorre la pila real
+  (manager → `FormBasedWorkflow` → `JellyfinClient._do_join`) y stubbea sólo la
+  capa HTTP. Los tests previos mockeaban `WorkflowFactory.create_workflow` y por
+  eso ninguno podía detectar este fallo.
+
 ## [2026.7.14] (2026-08-07)
 
 ### Changed
