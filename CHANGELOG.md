@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.8.1] (2026-08-23)
+
+### Fixed
+
+- **El token CSRF caducado ya no deja al usuario en una página muerta**: nada
+  configuraba `WTF_CSRF_TIME_LIMIT`, así que regía el default de una hora de
+  Flask-WTF, y sin handler de `CSRFError` Werkzeug servía su 400 crudo. Quien
+  abría el formulario, iba a buscar el correo con su invitación y volvía,
+  recibía "Bad Request" sin marca, sin explicación y con el código que acababa
+  de pagar perdido.
+- `WTF_CSRF_TIME_LIMIT = None`: el token deja de caducar por reloj propio y vive
+  lo que viva la sesión que lo emitió, todavía detrás de cookies `SameSite=Lax`
+  y `HttpOnly`.
+- El handler de `CSRFError` devuelve el formulario con token nuevo, el código de
+  invitación intacto y un aviso legible. Usuario y correo se conservan; las
+  contraseñas nunca se repueblan. El handler no aprovisiona, no reserva la
+  invitación y no toca el servidor de medios.
+- La búsqueda de la invitación en esa recuperación usa igualdad exacta, nunca
+  `LIKE`: corre antes de que CSRF esté establecido, así que el código enviado es
+  entrada hostil y un `%` habría devuelto un código real y pagado a un llamante
+  anónimo.
+
+### Removed
+
+- **Rutas de alta huérfanas** (`/jf/join`, `/emby/join`, `/abs/join`,
+  `/kavita/join`, `/komga/join`, `/romm/join`): eran un segundo endpoint público
+  de alta que ninguna plantilla ni JS referenciaba, sin rate limit, sin
+  `login_required` y sin pasar por `try_claim_invitation`, de modo que la carrera
+  de replay de invitaciones de un solo uso seguía abierta ahí. Se conservan
+  `/scan` y `/scan-specific`, que sí se usan y exigen sesión de administrador.
+
 ## [2026.7.15] (2026-08-23)
 
 ### Fixed
