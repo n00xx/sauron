@@ -24,6 +24,12 @@ MAX_CODESIZE = 10  # Maximum allowed invite code length (default for generated c
 MIN_CUSTOM_CODESIZE = 8
 CODESET = string.ascii_uppercase + string.digits
 
+# How long a provisional claim stays valid without being released. Orders of
+# magnitude longer than a provisioning round-trip, so replay protection is
+# unaffected, but short enough that a crashed worker cannot leave a paid
+# invitation unusable for long.
+CLAIM_TTL = datetime.timedelta(minutes=15)
+
 # Backwards-compat alias for existing usages
 CODESIZE = MAX_CODESIZE
 
@@ -55,57 +61,88 @@ def is_invite_valid(code: str) -> tuple[bool, str]:
     return True, "okay"
 
 
-def try_claim_invitation(code: str | None) -> bool:
-    """Atomically claim a single-use invitation before provisioning.
+def _utcnow_naive() -> datetime.datetime:
+    """Current UTC time shaped like the naive datetimes this schema stores."""
+    return datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+
+
+def try_claim_invitation(code: str | None) -> str | None:
+    """Atomically reserve a single-use invitation before provisioning.
 
     ``is_invite_valid`` only reads. Provisioning then makes a network call to
     the media server, leaving a wide window in which a second submission of
     the same code also passes validation -- so one single-use invite could
     provision two accounts.
 
-    This closes the window with a conditional UPDATE: the database applies
-    ``used = 1 WHERE used = 0`` atomically, so exactly one caller sees a
-    non-zero rowcount. Unlimited invitations are reusable by design and always
-    succeed.
+    The reservation lives in ``claimed_at``, *not* in ``used``. That separation
+    is the whole point: ``used`` means "an account was actually created", and
+    every media-server client re-validates the code from inside ``_do_join``.
+    Claiming via ``used`` therefore made the invitation reject the very signup
+    it had been claimed for, so no single-use code could ever be redeemed.
 
-    Call :func:`release_invitation_claim` if provisioning then fails, so a
-    genuine error does not burn the invite.
+    A claim older than :data:`CLAIM_TTL` is treated as abandoned and can be
+    taken again. That check runs here, at read time, so a worker that dies
+    mid-provisioning cannot strand a paid invitation -- it heals on the next
+    attempt, with no scheduler involved.
+
+    Returns the claim token on success and ``None`` if the invitation is
+    already used or claimed. Unlimited invitations are reusable by design and
+    always succeed without reserving anything.
+
+    Pass the returned token to :func:`release_invitation_claim` if provisioning
+    then fails, so a genuine error does not burn the invite.
     """
     if not code:
-        return False
+        return None
 
     invitation = Invitation.query.filter(
         db.func.lower(Invitation.code) == code.lower()
     ).first()
     if not invitation:
-        return False
+        return None
+
+    token = secrets.token_urlsafe(16)
 
     if invitation.unlimited:
-        return True
+        return token
 
-    now = datetime.datetime.now(datetime.UTC)
+    now = _utcnow_naive()
     claimed = (
         db.session.query(Invitation)
         .filter(
             Invitation.id == invitation.id,
             Invitation.used.is_(False),
+            db.or_(
+                Invitation.claimed_at.is_(None),
+                Invitation.claimed_at < now - CLAIM_TTL,
+            ),
         )
-        .update({"used": True, "used_at": now}, synchronize_session=False)
+        .update(
+            {"claimed_at": now, "claim_token": token},
+            synchronize_session=False,
+        )
     )
     db.session.commit()
 
     if not claimed:
-        logging.info("Invitation %s was already claimed by another request", code)
-        return False
+        logging.info("Invitation %s is already used or claimed elsewhere", code)
+        return None
 
-    return True
+    return token
 
 
-def release_invitation_claim(code: str | None) -> None:
-    """Undo a claim taken by :func:`try_claim_invitation`.
+def release_invitation_claim(code: str | None, token: str | None = None) -> None:
+    """Release a reservation taken by :func:`try_claim_invitation`.
 
     Used when provisioning failed on every server, so a network error or a
-    rejected password does not consume the invitation.
+    rejected password does not strand the invitation until the TTL expires.
+
+    ``token`` scopes the release to the caller's own claim. A request that
+    stalled past :data:`CLAIM_TTL` may finish after someone else has legitimately
+    re-claimed the invitation; without the token check its late release would
+    free a live claim and let a third request provision alongside it.
+
+    This never touches ``used``: only real provisioning consumes an invitation.
     """
     if not code:
         return
@@ -116,11 +153,22 @@ def release_invitation_claim(code: str | None) -> None:
     if not invitation or invitation.unlimited:
         return
 
-    db.session.query(Invitation).filter(Invitation.id == invitation.id).update(
-        {"used": False, "used_at": None}, synchronize_session=False
+    query = db.session.query(Invitation).filter(Invitation.id == invitation.id)
+    if token is not None:
+        query = query.filter(Invitation.claim_token == token)
+
+    released = query.update(
+        {"claimed_at": None, "claim_token": None}, synchronize_session=False
     )
     db.session.commit()
-    logging.info("Released claim on invitation %s after failed provisioning", code)
+
+    if released:
+        logging.info("Released claim on invitation %s after failed provisioning", code)
+    else:
+        logging.info(
+            "Claim on invitation %s was not released; it is held by another request",
+            code,
+        )
 
 
 def _get_form_list(form: Any, key: str) -> list[str]:
@@ -315,6 +363,9 @@ def mark_server_used(
         # For unlimited invitations, this should already be True from the first usage
         inv.used = True
         inv.used_at = datetime.datetime.now(datetime.UTC)
+        # The reservation has served its purpose; `used` now guards the invite.
+        inv.claimed_at = None
+        inv.claim_token = None
 
     # Find or use the provided user who used this invitation on this server
     from app.models import User

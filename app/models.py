@@ -84,6 +84,15 @@ class Invitation(db.Model):
     used_at = db.Column(db.DateTime, nullable=True)
     created = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
 
+    # Provisional reservation held while an account is being provisioned. Kept
+    # separate from `used` on purpose: `used` means "an account was actually
+    # created", and every media-server client re-validates the code from inside
+    # `_do_join`, so reusing `used` as the claim marker made an invitation
+    # reject the very signup it had been claimed for. `claim_token` identifies
+    # the holder so a stalled request cannot release someone else's claim.
+    claimed_at = db.Column(db.DateTime, nullable=True)
+    claim_token = db.Column(db.String, nullable=True)
+
     # DEPRECATED: Legacy single-user relationship for backward compatibility
     # Will be removed in a future version - use 'users' relationship instead
     used_by_id = db.Column(

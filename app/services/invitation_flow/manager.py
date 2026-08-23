@@ -9,6 +9,7 @@ from flask import session, url_for
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
+from app.extensions import db
 from app.models import Invitation, MediaServer, WizardBundleStep
 from app.services.invites import (
     is_invite_valid,
@@ -177,9 +178,22 @@ class InvitationFlowManager:
             # only reads, and provisioning is a network round-trip, so without
             # an atomic claim two concurrent submissions of the same
             # single-use code would each create an account.
-            if not try_claim_invitation(code):
+            claim_token = try_claim_invitation(code)
+            if not claim_token:
+                # A claimed-but-unused code is not a spent one. Saying so keeps
+                # the next report diagnosable: "already been used" on a code
+                # nobody redeemed is what made this bug so hard to place.
+                db.session.refresh(invitation)
+                if invitation.used:
+                    return self._create_error_result(
+                        "Invitation has already been used."
+                    )
+                self.logger.warning(
+                    "Invitation %s is claimed by another in-flight request", code
+                )
                 return self._create_error_result(
-                    "Invitation has already been used."
+                    "This invitation is being redeemed right now. "
+                    "Please try again in a few minutes."
                 )
 
             # Process with appropriate workflow
@@ -188,13 +202,13 @@ class InvitationFlowManager:
                 result = workflow.process_submission(invitation, servers, form_data)
             except Exception:
                 # Do not burn the invitation on a provisioning failure.
-                release_invitation_claim(code)
+                release_invitation_claim(code, claim_token)
                 raise
 
             # Failures are collected rather than raised, so check the result
             # too: a media-server outage must not consume the invitation.
             if not self._result_provisioned_anything(result):
-                release_invitation_claim(code)
+                release_invitation_claim(code, claim_token)
 
             return result
 
@@ -206,17 +220,18 @@ class InvitationFlowManager:
     def _result_provisioned_anything(result: Any) -> bool:
         """Whether a workflow result represents at least one account created.
 
+        A successful server is the only evidence that counts. Statuses that
+        merely ask for more input -- OAUTH_PENDING, AUTHENTICATION_REQUIRED --
+        have provisioned nothing, so treating any non-FAILURE result as success
+        held the claim open and stranded the invitation mid-flow.
+
         Tolerant of result objects that do not implement the full
         InvitationResult protocol, so an unexpected shape never causes a valid
         invitation to be released and handed out twice.
         """
         try:
             if hasattr(result, "has_successful_servers"):
-                if result.has_successful_servers():
-                    return True
-                if hasattr(result, "is_failure"):
-                    return not result.is_failure()
-                return False
+                return bool(result.has_successful_servers())
         except Exception:
             return True
         return True

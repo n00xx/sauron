@@ -8,6 +8,12 @@ provisioned two accounts.
 
 The fix claims the invitation atomically before provisioning and releases the
 claim if every server failed, so a genuine error does not burn the invite.
+
+The reservation lives in ``claimed_at``, not in ``used``: an earlier version
+claimed via ``used`` and thereby made the invitation fail its own redemption,
+since the media-server clients re-validate the code while provisioning. See
+``test_invitation_claim_collision.py``. ``try_claim_invitation`` returns the
+claim token, so these tests assert truthiness rather than ``is True``.
 """
 
 import datetime
@@ -45,8 +51,8 @@ def test_claim_succeeds_once_for_limited_invitation(app):
     _make_invite(app, code)
     try:
         with app.app_context():
-            assert try_claim_invitation(code) is True
-            assert try_claim_invitation(code) is False, (
+            assert try_claim_invitation(code)
+            assert not try_claim_invitation(code), (
                 "A single-use invitation was claimed twice; concurrent "
                 "submissions could each provision an account"
             )
@@ -54,17 +60,22 @@ def test_claim_succeeds_once_for_limited_invitation(app):
         _cleanup(app, code)
 
 
-def test_claim_marks_invitation_used(app):
+def test_claim_records_a_reservation_without_consuming(app):
+    """The claim reserves; only real provisioning consumes."""
     from app.services.invites import try_claim_invitation
 
     code = "RACELIM02"
     _make_invite(app, code)
     try:
         with app.app_context():
-            try_claim_invitation(code)
+            token = try_claim_invitation(code)
             invitation = Invitation.query.filter_by(code=code).first()
-            assert invitation.used is True
-            assert invitation.used_at is not None
+            assert invitation.claimed_at is not None
+            assert invitation.claim_token == token
+            assert invitation.used is False, (
+                "the reservation consumed the invitation, so the media-server "
+                "client will reject the signup it was claimed for"
+            )
     finally:
         _cleanup(app, code)
 
@@ -77,9 +88,9 @@ def test_unlimited_invitation_can_be_claimed_repeatedly(app):
     _make_invite(app, code, unlimited=True)
     try:
         with app.app_context():
-            assert try_claim_invitation(code) is True
-            assert try_claim_invitation(code) is True
-            assert try_claim_invitation(code) is True
+            assert try_claim_invitation(code)
+            assert try_claim_invitation(code)
+            assert try_claim_invitation(code)
     finally:
         _cleanup(app, code)
 
@@ -91,7 +102,7 @@ def test_already_used_invitation_cannot_be_claimed(app):
     _make_invite(app, code, used=True)
     try:
         with app.app_context():
-            assert try_claim_invitation(code) is False
+            assert not try_claim_invitation(code)
     finally:
         _cleanup(app, code)
 
@@ -104,27 +115,37 @@ def test_release_restores_claimability(app):
     _make_invite(app, code)
     try:
         with app.app_context():
-            assert try_claim_invitation(code) is True
+            assert try_claim_invitation(code)
             release_invitation_claim(code)
 
             invitation = Invitation.query.filter_by(code=code).first()
             assert invitation.used is False
             assert invitation.used_at is None
-            assert try_claim_invitation(code) is True
+            assert try_claim_invitation(code)
     finally:
         _cleanup(app, code)
 
 
-def test_release_is_a_noop_for_unlimited(app):
+def test_unlimited_invitations_are_never_reserved(app):
+    """Unlimited invites bypass the reservation entirely, so nothing to release."""
     from app.services.invites import release_invitation_claim, try_claim_invitation
 
     code = "RACEUNL02"
     _make_invite(app, code, unlimited=True)
     try:
         with app.app_context():
-            try_claim_invitation(code)
-            release_invitation_claim(code)
-            assert try_claim_invitation(code) is True
+            token = try_claim_invitation(code)
+            invitation = Invitation.query.filter_by(code=code).first()
+            assert invitation.claimed_at is None, (
+                "an unlimited invite took a reservation it can never need"
+            )
+
+            release_invitation_claim(code, token)
+
+            invitation = Invitation.query.filter_by(code=code).first()
+            assert invitation.claimed_at is None
+            assert invitation.used is False
+            assert try_claim_invitation(code)
     finally:
         _cleanup(app, code)
 
@@ -134,7 +155,7 @@ def test_claim_of_unknown_code_is_false(app, missing_code):
     from app.services.invites import try_claim_invitation
 
     with app.app_context():
-        assert try_claim_invitation(missing_code) is False
+        assert try_claim_invitation(missing_code) is None
 
 
 def test_failed_provisioning_does_not_burn_the_invitation(app, monkeypatch):
@@ -177,6 +198,9 @@ def test_failed_provisioning_does_not_burn_the_invitation(app, monkeypatch):
             assert invitation.used is False, (
                 "A failed provisioning attempt consumed the invitation"
             )
+            assert invitation.claimed_at is None, (
+                "A failed provisioning attempt left the invitation reserved"
+            )
     finally:
         _cleanup(app, code)
 
@@ -205,6 +229,7 @@ def test_exception_during_provisioning_releases_the_claim(app, monkeypatch):
 
             invitation = Invitation.query.filter_by(code=code).first()
             assert invitation.used is False
+            assert invitation.claimed_at is None
     finally:
         _cleanup(app, code)
 
