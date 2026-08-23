@@ -88,6 +88,14 @@ class BaseConfig:
     # @limiter.limit decorators guarding /login and the invite endpoints are
     # inert without it.
     RATELIMIT_ENABLED = True
+    # CSRF. Flask-WTF defaults this to one hour, which is far too short for the
+    # public signup: the user opens /j/<code>, goes to fetch the email with
+    # their invitation, comes back and the token is dead. None drops the
+    # independent timer so the token lives as long as the session that issued
+    # it -- still bounded, and still behind SameSite=Lax and HttpOnly cookies.
+    # The CSRFError handler in app/error_handlers.py covers the case where the
+    # session itself is gone.
+    WTF_CSRF_TIME_LIMIT = None
     # Sessions
     SESSION_TYPE = "cachelib"  # Changed from 'filesystem' to 'cachelib'
     SESSION_CACHELIB = SESSION_CACHELIB  # Reference the module-level cache
