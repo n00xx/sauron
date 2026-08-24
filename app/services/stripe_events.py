@@ -245,8 +245,19 @@ def _extract_error(obj: dict[str, Any]) -> tuple[str | None, str | None]:
     )
 
 
-def _extract_amount(obj: dict[str, Any]) -> int | None:
-    """Amount in the smallest currency unit, per object type."""
+def _extract_amount(event_type: str, obj: dict[str, Any]) -> int | None:
+    """Amount in the smallest currency unit, per object type.
+
+    ``charge.refunded`` needs its own branch: the object is a Charge, which
+    carries BOTH ``amount`` (the original charge) and ``amount_refunded``. A
+    plain field-order fallback would report the full charge on a partial
+    refund, i.e. show money back that was never returned.
+    """
+    if event_type == "charge.refunded":
+        refunded = obj.get("amount_refunded")
+        if isinstance(refunded, int):
+            return refunded
+
     for key in ("amount_total", "amount", "amount_refunded"):
         value = obj.get(key)
         if isinstance(value, int):
@@ -315,7 +326,7 @@ def extract_fields(event: dict[str, Any]) -> dict[str, Any]:
         "payment_intent_id": payment_intent_id,
         "charge_id": _extract_charge_id(event_type, obj),
         "customer_email": _extract_email(obj),
-        "amount": _extract_amount(obj),
+        "amount": _extract_amount(event_type, obj),
         "currency": currency.lower() if isinstance(currency, str) else None,
         "status": status if isinstance(status, str) else None,
         "error_code": error_code,
@@ -394,12 +405,12 @@ def fetch_events(
     :func:`sync_stripe_events`, where the volume is trivially small.
     """
     session = requests.Session()
-    session.headers.update(
-        {
-            "Authorization": f"Bearer {api_key}",
-            "Stripe-Version": "2024-06-20",
-        }
-    )
+    # No Stripe-Version header on purpose: the account default applies. Pinning
+    # an older version would reshape exactly the two fields the dispute queue
+    # depends on (evidence_details.due_by and
+    # payment_method_details.card.network_reason_code), and extraction here is
+    # written to tolerate drift rather than to freeze a schema.
+    session.headers.update({"Authorization": f"Bearer {api_key}"})
 
     collected: list[dict[str, Any]] = []
     starting_after: str | None = None

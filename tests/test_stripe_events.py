@@ -220,6 +220,25 @@ class TestExtraction:
             assert "stripe_event_id" in fields
             assert fields["created_at_stripe"] is not None
 
+    def test_partial_refund_reports_the_refunded_amount(self):
+        """A Charge has both `amount` and `amount_refunded`.
+
+        Falling back by field order would show the full charge on a partial
+        refund — money reported as returned that never was.
+        """
+        fields = se.extract_fields(
+            _event(
+                "charge.refunded",
+                {
+                    "id": "ch_partial",
+                    "amount": 29900,
+                    "amount_refunded": 10000,
+                    "currency": "mxn",
+                },
+            )
+        )
+        assert fields["amount"] == 10000
+
     def test_payload_is_stored_verbatim(self):
         raw = _event("charge.refunded", {"id": "ch_1", "amount_refunded": 500})
         fields = se.extract_fields(raw)
@@ -401,8 +420,102 @@ class TestEvidence:
             assert "Blade Runner" in log
             assert "2026-08-01" in log
             assert "Sessions recorded: 3" in log
-            # Time-to-first-use is the most persuasive line in the packet.
-            assert "after the disputed payment" in log
+            # Time-to-first-use needs a payment event as anchor; this fixture
+            # has none, so the line is correctly absent. See
+            # test_time_to_first_use_is_anchored_to_the_payment_not_the_dispute.
+            assert "after payment" not in log
+
+    def test_time_to_first_use_is_anchored_to_the_payment_not_the_dispute(
+        self, app, purchase
+    ):
+        """A dispute is filed weeks after the charge.
+
+        Anchoring on the dispute event's own timestamp yields a negative
+        interval (silently dropped) or a wrong positive one. The anchor must be
+        the payment event on the same PaymentIntent.
+        """
+        with app.app_context():
+            event = db.session.get(StripeEvent, purchase)
+            # Realistic: the dispute lands 45 days after the sessions.
+            event.created_at_stripe = datetime(2026, 9, 20, tzinfo=UTC)
+            # The real payment, an hour before the first stream.
+            db.session.add(
+                StripeEvent(
+                    stripe_event_id="evt_the_payment",
+                    type="checkout.session.completed",
+                    category="checkout",
+                    severity="info",
+                    created_at_stripe=datetime(2026, 8, 1, 11, 0, tzinfo=UTC),
+                    livemode=True,
+                    payment_intent_id="pi_1",
+                )
+            )
+            db.session.commit()
+
+            log = sev.build_access_activity_log(event)
+            assert "Payment received: 2026-08-01 11:00 UTC" in log
+            assert "First access occurred 1h 00m after payment." in log
+
+    def test_time_to_first_use_is_omitted_without_a_payment_event(self, app, purchase):
+        """No anchor on file → drop the line rather than invent a number."""
+        with app.app_context():
+            event = db.session.get(StripeEvent, purchase)
+            event.created_at_stripe = datetime(2026, 9, 20, tzinfo=UTC)
+            db.session.commit()
+
+            log = sev.build_access_activity_log(event)
+            assert "after payment" not in log
+            # The rest of the evidence still renders.
+            assert "Sessions recorded: 3" in log
+
+    def test_fraud_warning_resolves_through_its_charge(self, app, clean_stripe_events):
+        """An EFW carries `charge` but no `payment_intent`.
+
+        It is the deflection primitive, so it must reach the deterministic path
+        via a sibling event on the same charge instead of falling through to
+        the email guess.
+        """
+        with app.app_context():
+            invitation = Invitation(code="EFWLINK", used=True)
+            db.session.add(invitation)
+            db.session.flush()
+
+            db.session.add_all(
+                [
+                    # Already-correlated sibling on the same charge.
+                    StripeEvent(
+                        stripe_event_id="evt_efw_sibling",
+                        type="charge.succeeded",
+                        category="payment",
+                        severity="info",
+                        created_at_stripe=datetime.now(UTC),
+                        livemode=True,
+                        charge_id="ch_efw",
+                        payment_intent_id="pi_efw",
+                        invitation_id=invitation.id,
+                    ),
+                    StripeEvent(
+                        stripe_event_id="evt_efw",
+                        type="radar.early_fraud_warning.created",
+                        category="fraud",
+                        severity="critical",
+                        created_at_stripe=datetime.now(UTC),
+                        livemode=True,
+                        charge_id="ch_efw",
+                        payment_intent_id=None,
+                    ),
+                ]
+            )
+            db.session.commit()
+
+            efw = StripeEvent.query.filter_by(stripe_event_id="evt_efw").one()
+            assert sev.resolve_event_links(efw, api_key=None) is True
+            assert efw.invitation_id == invitation.id
+
+            db.session.rollback()
+            StripeEvent.query.delete()
+            db.session.delete(db.session.get(Invitation, invitation.id))
+            db.session.commit()
 
     def test_ce3_elements_expose_the_matching_keys(self, app, purchase):
         with app.app_context():

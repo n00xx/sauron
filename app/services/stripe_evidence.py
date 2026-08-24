@@ -122,12 +122,29 @@ def resolve_event_links(event: StripeEvent, api_key: str | None = None) -> bool:
 
     invitation: Invitation | None = None
 
+    # An early fraud warning carries `charge` but NO `payment_intent`, and it is
+    # the dispute-deflection primitive — the one event type that most needs to
+    # resolve. Recover the PaymentIntent from a sibling event on the same charge
+    # so EFWs take the deterministic path instead of falling through to email.
+    payment_intent_id = event.payment_intent_id
+    if not payment_intent_id and event.charge_id:
+        by_charge = (
+            StripeEvent.query.filter(
+                StripeEvent.charge_id == event.charge_id,
+                StripeEvent.payment_intent_id.isnot(None),
+            )
+            .order_by(StripeEvent.id.asc())
+            .first()
+        )
+        if by_charge is not None:
+            payment_intent_id = by_charge.payment_intent_id
+
     # 1. Reuse a sibling event on the same payment that is already resolved.
     #    Cheap, and avoids re-reading the same PaymentIntent for every event.
-    if event.payment_intent_id:
+    if payment_intent_id:
         sibling = (
             StripeEvent.query.filter(
-                StripeEvent.payment_intent_id == event.payment_intent_id,
+                StripeEvent.payment_intent_id == payment_intent_id,
                 StripeEvent.invitation_id.isnot(None),
             )
             .order_by(StripeEvent.id.desc())
@@ -137,16 +154,16 @@ def resolve_event_links(event: StripeEvent, api_key: str | None = None) -> bool:
             invitation = db.session.get(Invitation, sibling.invitation_id)
 
     # 2. Authoritative: the invitation id the storefront stamped on the PI.
-    if invitation is None and event.payment_intent_id:
+    if invitation is None and payment_intent_id:
         key = api_key or get_setting("stripe_api_key")
         if key:
             try:
-                payment_intent = fetch_payment_intent(key, event.payment_intent_id)
+                payment_intent = fetch_payment_intent(key, payment_intent_id)
                 invitation = _invitation_from_metadata(payment_intent.get("metadata"))
             except StripeApiError as exc:
                 logger.debug(
                     "PaymentIntent lookup failed during correlation",
-                    payment_intent=event.payment_intent_id,
+                    payment_intent=payment_intent_id,
                     error=str(exc),
                 )
 
@@ -213,6 +230,56 @@ def _fmt_dt(value: datetime | None) -> str:
     return value.strftime("%Y-%m-%d %H:%M UTC")
 
 
+# Events that mark the moment money actually arrived, best anchor first.
+_PAYMENT_ANCHOR_TYPES = (
+    "checkout.session.completed",
+    "payment_intent.succeeded",
+    "charge.succeeded",
+)
+
+
+def _payment_time(event: StripeEvent) -> datetime | None:
+    """When the disputed payment was made — not when this event fired.
+
+    Looks for the original payment event on the same PaymentIntent (or charge).
+    Returns ``None`` when no payment event is on file: the "time to first use"
+    line is then omitted entirely rather than computed from a wrong anchor. An
+    absent line costs nothing; a wrong one submitted as evidence is worse than
+    no evidence at all.
+    """
+    if event.type in _PAYMENT_ANCHOR_TYPES:
+        return (
+            event.created_at_stripe.replace(tzinfo=UTC)
+            if event.created_at_stripe and event.created_at_stripe.tzinfo is None
+            else event.created_at_stripe
+        )
+
+    if not event.payment_intent_id and not event.charge_id:
+        return None
+
+    keys = []
+    if event.payment_intent_id:
+        keys.append(StripeEvent.payment_intent_id == event.payment_intent_id)
+    if event.charge_id:
+        keys.append(StripeEvent.charge_id == event.charge_id)
+
+    anchor = (
+        StripeEvent.query.filter(
+            db.or_(*keys),
+            StripeEvent.type.in_(_PAYMENT_ANCHOR_TYPES),
+        )
+        .order_by(StripeEvent.created_at_stripe.asc())
+        .first()
+    )
+    if anchor is None or anchor.created_at_stripe is None:
+        return None
+    return (
+        anchor.created_at_stripe
+        if anchor.created_at_stripe.tzinfo
+        else anchor.created_at_stripe.replace(tzinfo=UTC)
+    )
+
+
 def build_access_activity_log(event: StripeEvent) -> str:
     """Render Stripe's ``access_activity_log`` for this purchase.
 
@@ -249,21 +316,21 @@ def build_access_activity_log(event: StripeEvent) -> str:
         lines.append(f"Devices/clients: {', '.join(devices)}")
 
     # Time-to-first-use is the single most persuasive number in a
-    # "product not received" dispute.
-    if event.created_at_stripe and first:
-        paid = event.created_at_stripe
-        started = first
-        if paid.tzinfo is None:
-            paid = paid.replace(tzinfo=UTC)
-        if started.tzinfo is None:
-            started = started.replace(tzinfo=UTC)
+    # "product not received" dispute — which is exactly why it must be anchored
+    # to when the PAYMENT happened, never to this event's own timestamp. A
+    # dispute is filed weeks or months after the charge, so anchoring on
+    # `event.created_at_stripe` would yield a negative interval (silently
+    # dropped) or, on a refund event, a plausible-looking wrong one.
+    paid = _payment_time(event)
+    if paid and first:
+        started = first if first.tzinfo else first.replace(tzinfo=UTC)
         delta = started - paid
         if delta.total_seconds() >= 0:
             hours = int(delta.total_seconds() // 3600)
             minutes = int((delta.total_seconds() % 3600) // 60)
+            lines.append(f"Payment received: {_fmt_dt(paid)}")
             lines.append(
-                f"First access occurred {hours}h {minutes:02d}m after the "
-                f"disputed payment."
+                f"First access occurred {hours}h {minutes:02d}m after payment."
             )
 
     lines.append("")

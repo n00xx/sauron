@@ -1075,6 +1075,41 @@ def eventos_sync():
     return redirect(url_for("activity.activity_dashboard"))
 
 
+def _refresh_stripe_sync_job() -> None:
+    """(Re)register or drop the Stripe sync job to match the saved settings.
+
+    Never raises: the settings themselves are already committed by the time this
+    runs, and a scheduler hiccup must not surface as a failed save.
+    """
+    from app.extensions import scheduler
+    from app.services.stripe_events import get_setting, get_sync_interval_minutes
+
+    job_id = "sync_stripe_events"
+    try:
+        if not scheduler.running:
+            return
+
+        if not get_setting("stripe_api_key"):
+            if scheduler.get_job(job_id):
+                scheduler.remove_job(job_id)
+            return
+
+        from app.tasks.stripe_sync import sync_stripe_events_task
+
+        app = current_app._get_current_object()  # type: ignore[attr-defined]
+        scheduler.add_job(
+            id=job_id,
+            func=lambda: sync_stripe_events_task(app),
+            trigger="interval",
+            minutes=get_sync_interval_minutes(),
+            replace_existing=True,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        structlog.get_logger(__name__).warning(
+            "Could not refresh the Stripe sync job: %s", exc
+        )
+
+
 @activity_bp.route("/eventos/settings", methods=["POST"])
 @login_required
 def eventos_settings():
@@ -1083,16 +1118,22 @@ def eventos_settings():
 
     try:
         submitted_key = (request.form.get("stripe_api_key") or "").strip()
-        # An untouched masked field must never wipe the stored key.
-        if submitted_key and not submitted_key.startswith("•"):
-            set_setting("stripe_api_key", submitted_key)
-        elif request.form.get("clear_api_key") == "1":
-            set_setting("stripe_api_key", None)
-            set_setting("stripe_sync_enabled", "false")
+        clearing = request.form.get("clear_api_key") == "1"
 
+        # An untouched masked field must never wipe the stored key.
+        if clearing:
+            set_setting("stripe_api_key", None)
+        elif submitted_key and not submitted_key.startswith("•"):
+            set_setting("stripe_api_key", submitted_key)
+
+        # Clearing the key always disables sync, whatever the checkbox says —
+        # otherwise removing the key while "enabled" is ticked would leave sync
+        # switched on with nothing to authenticate with.
         set_setting(
             "stripe_sync_enabled",
-            "true" if request.form.get("stripe_sync_enabled") == "on" else "false",
+            "true"
+            if not clearing and request.form.get("stripe_sync_enabled") == "on"
+            else "false",
         )
 
         raw_interval = request.form.get("stripe_sync_interval_minutes")
@@ -1104,6 +1145,12 @@ def eventos_settings():
                 )
 
         db.session.commit()
+
+        # The scheduler job is registered at boot from the stored key. Without
+        # re-registering here, the first admin to configure Stripe would save a
+        # key and see nothing sync until the container restarted — the tab would
+        # just sit empty. replace_existing also picks up an interval change.
+        _refresh_stripe_sync_job()
 
         if get_setting("stripe_api_key"):
             flash(_("Stripe settings saved."), "success")
