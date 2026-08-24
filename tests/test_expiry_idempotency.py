@@ -189,3 +189,175 @@ def test_delete_expired_user_records_selected_and_all(app, session):
         deleted_count = delete_expired_user_records()
         assert deleted_count == 2
         assert ExpiredUser.query.count() == 0
+
+
+def test_successful_disable_is_never_mistaken_for_failure(app, session, monkeypatch):
+    """Regression: a disable that SUCCEEDS must never delete the account.
+
+    This reproduces production faithfully by letting the mocked service call
+    COMMIT, exactly as the real `_set_user_enabled_state` does. That commit ends
+    the caller's savepoint, so `savepoint.commit()` raised ResourceClosedError,
+    the handler read it as "the disable failed", and the account was DELETED —
+    right after being disabled successfully on the media server.
+
+    Note that the other mocks in this file deliberately do NOT commit (see
+    fake_delete_user above). That is precisely why the whole suite stayed green
+    while live instances deleted every expiring account: the tests avoided the
+    transaction interaction that causes the bug. Do not "simplify" this mock by
+    dropping the commit — the commit IS the test.
+    """
+    with app.app_context():
+        server = _make_jellyfin_server(session)
+        _set_expiry_action(session, "disable")
+
+        user = User(
+            token="jf-user-commit",
+            username="paying_customer",
+            email="paying@example.com",
+            code="CODE3",
+            expires=datetime.datetime.now(UTC) - timedelta(days=1),
+            server_id=server.id,
+            is_disabled=False,
+        )
+        session.add(user)
+        session.commit()
+        user_id = user.id
+
+        def committing_disable_user(uid):
+            """Mirrors the REAL disable_user: succeeds and commits."""
+            u = db.session.get(User, uid)
+            u.is_disabled = True
+            db.session.commit()
+            return True
+
+        deleted_ids = []
+
+        def spy_delete_user(uid):
+            deleted_ids.append(uid)
+
+        monkeypatch.setattr(expiry_module, "disable_user", committing_disable_user)
+        monkeypatch.setattr(expiry_module, "delete_user", spy_delete_user)
+
+        processed = disable_or_delete_user_if_expired()
+
+        # The account must SURVIVE, disabled.
+        assert deleted_ids == [], "a successful disable deleted the account"
+        assert processed == [user_id]
+        surviving = db.session.get(User, user_id)
+        assert surviving is not None, "the disabled account was deleted"
+        assert surviving.is_disabled is True
+
+
+def test_sweep_processes_every_expired_user_not_just_the_first(
+    app, session, monkeypatch
+):
+    """Regression: one committing service call must not abort the whole run.
+
+    The ResourceClosedError escaped the per-user handler (the rollback in it
+    raised a SECOND one), killing the scheduled job. Only the first expired user
+    of each 15-minute run was ever processed, so a backlog silently accumulated
+    — which is why an account expired a month earlier was still sitting there
+    untouched.
+    """
+    with app.app_context():
+        server = _make_jellyfin_server(session)
+        _set_expiry_action(session, "disable")
+
+        ids = []
+        for n in range(3):
+            u = User(
+                token=f"jf-multi-{n}",
+                username=f"multi{n}",
+                email=f"multi{n}@example.com",
+                code=f"MULTI{n}",
+                expires=datetime.datetime.now(UTC) - timedelta(days=1),
+                server_id=server.id,
+                is_disabled=False,
+            )
+            session.add(u)
+            session.flush()
+            ids.append(u.id)
+        session.commit()
+
+        def committing_disable_user(uid):
+            u = db.session.get(User, uid)
+            u.is_disabled = True
+            db.session.commit()
+            return True
+
+        monkeypatch.setattr(expiry_module, "disable_user", committing_disable_user)
+
+        processed = disable_or_delete_user_if_expired()
+
+        assert sorted(processed) == sorted(ids), "the run stopped early"
+        assert ExpiredUser.query.count() == 3
+
+
+def test_genuine_disable_failure_still_falls_back_to_deletion(
+    app, session, monkeypatch
+):
+    """The fallback must still work: a REAL refusal deletes, as designed.
+
+    Guards against over-correcting the fix into never deleting anything.
+    """
+    with app.app_context():
+        server = _make_jellyfin_server(session)
+        _set_expiry_action(session, "disable")
+
+        user = User(
+            token="jf-refused",
+            username="refused",
+            email="refused@example.com",
+            code="CODE4",
+            expires=datetime.datetime.now(UTC) - timedelta(days=1),
+            server_id=server.id,
+            is_disabled=False,
+        )
+        session.add(user)
+        session.commit()
+        user_id = user.id
+
+        deleted_ids = []
+        monkeypatch.setattr(expiry_module, "disable_user", lambda uid: False)
+        monkeypatch.setattr(
+            expiry_module, "delete_user", lambda uid: deleted_ids.append(uid)
+        )
+
+        processed = disable_or_delete_user_if_expired()
+
+        assert deleted_ids == [user_id]
+        assert processed == [user_id]
+
+
+def test_disable_raising_still_falls_back_to_deletion(app, session, monkeypatch):
+    """An exception from the media call is a genuine failure — still delete."""
+    with app.app_context():
+        server = _make_jellyfin_server(session)
+        _set_expiry_action(session, "disable")
+
+        user = User(
+            token="jf-raises",
+            username="raises",
+            email="raises@example.com",
+            code="CODE5",
+            expires=datetime.datetime.now(UTC) - timedelta(days=1),
+            server_id=server.id,
+            is_disabled=False,
+        )
+        session.add(user)
+        session.commit()
+        user_id = user.id
+
+        def exploding_disable(uid):
+            raise RuntimeError("media server unreachable")
+
+        deleted_ids = []
+        monkeypatch.setattr(expiry_module, "disable_user", exploding_disable)
+        monkeypatch.setattr(
+            expiry_module, "delete_user", lambda uid: deleted_ids.append(uid)
+        )
+
+        processed = disable_or_delete_user_if_expired()
+
+        assert deleted_ids == [user_id]
+        assert processed == [user_id]

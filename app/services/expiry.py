@@ -125,6 +125,30 @@ def set_server_specific_expiry(
     db.session.commit()
 
 
+def _commit_savepoint(savepoint) -> None:
+    """Commit a savepoint a service call may already have closed.
+
+    `delete_user()` and `_set_user_enabled_state()` commit the session
+    themselves, which ENDS the enclosing savepoint. Committing it again raises
+    ResourceClosedError — an error about transaction bookkeeping, not about the
+    operation, which used to escape and kill the whole sweep after a single
+    user (so one expired account was processed per run, and the rest waited).
+    """
+    if savepoint.is_active:
+        savepoint.commit()
+
+
+def _rollback_savepoint(savepoint) -> None:
+    """Roll back a savepoint unless a service call already closed it.
+
+    Same reason as _commit_savepoint: without the guard the rollback in the
+    error handler raises a SECOND ResourceClosedError, which replaces the real
+    failure with a misleading one and aborts the remaining users.
+    """
+    if savepoint.is_active:
+        savepoint.rollback()
+
+
 def delete_user_if_expired() -> list[int]:
     """
     Find users whose `expires` < now, delete them from their associated media servers
@@ -165,13 +189,13 @@ def delete_user_if_expired() -> list[int]:
             logging.info(
                 "🗑️ Expired user %s (%s) logged and deleted", user.id, user.username
             )
-            savepoint.commit()  # Commit the savepoint on success
+            _commit_savepoint(savepoint)
             # Add delay to prevent hammering the media server's database
             time.sleep(1)
         except Exception as exc:
             # Rollback the savepoint - this removes the ExpiredUser record
             # and keeps the User record for retry on next scheduler run
-            savepoint.rollback()
+            _rollback_savepoint(savepoint)
             logging.error(
                 "Failed to delete expired user %s – %s. Will retry on next run.",
                 user.id,
@@ -251,30 +275,39 @@ def disable_or_delete_user_if_expired() -> list[int]:
             )
 
             if should_disable:
-                # Try to disable the user using the service function
+                # Settle whether the disable ACTUALLY worked BEFORE any
+                # transaction bookkeeping runs, and keep the two apart.
+                #
+                # Deleting an account is irreversible, so the fallback below
+                # must fire only on positive evidence that the media server
+                # refused — never on an exception thrown by savepoint handling.
+                # Conflating them is exactly how a SUCCESSFUL disable ended up
+                # deleting the account: disable_user() committed, that ended the
+                # savepoint, savepoint.commit() raised ResourceClosedError, and
+                # this handler read it as "the disable failed".
                 try:
-                    if disable_user(user.id):
-                        # Successfully disabled the user - mark locally so this
-                        # user is excluded from future runs (query filter above)
-                        user.is_disabled = True
-                        processed.append(user.id)
-                        logging.info(
-                            "🔒 Expired user %s (%s) disabled on %s",
-                            user.id,
-                            user.username,
-                            user.server.server_type if user.server else "unknown",
-                        )
-                        savepoint.commit()  # Commit the savepoint on success
-                        # Add delay to prevent hammering the media server's database
-                        time.sleep(1)
-                    else:
-                        # Disable failed, fallback to deletion
-                        raise Exception("Disable operation failed")
+                    disabled_ok = disable_user(user.id)
                 except Exception as disable_exc:
+                    disabled_ok = False
                     logging.warning(
-                        "Failed to disable user %s, falling back to deletion: %s",
+                        "Disable raised for user %s: %s", user.id, disable_exc
+                    )
+
+                if disabled_ok:
+                    # Successfully disabled the user - mark locally so this
+                    # user is excluded from future runs (query filter above)
+                    user.is_disabled = True
+                    processed.append(user.id)
+                    logging.info(
+                        "🔒 Expired user %s (%s) disabled on %s",
                         user.id,
-                        disable_exc,
+                        user.username,
+                        user.server.server_type if user.server else "unknown",
+                    )
+                else:
+                    logging.warning(
+                        "Failed to disable user %s, falling back to deletion",
+                        user.id,
                     )
                     # Fallback to deletion using service function
                     delete_user(user.id)
@@ -284,9 +317,10 @@ def disable_or_delete_user_if_expired() -> list[int]:
                         user.id,
                         user.username,
                     )
-                    savepoint.commit()  # Commit the savepoint on success
-                    # Add delay to prevent hammering the media server's database
-                    time.sleep(1)
+
+                _commit_savepoint(savepoint)
+                # Add delay to prevent hammering the media server's database
+                time.sleep(1)
             else:
                 # Delete the user (either by setting or server doesn't support disable)
                 delete_user(user.id)
@@ -300,13 +334,13 @@ def disable_or_delete_user_if_expired() -> list[int]:
                     user.username,
                     action_reason,
                 )
-                savepoint.commit()  # Commit the savepoint on success
+                _commit_savepoint(savepoint)
                 # Add delay to prevent hammering the media server's database
                 time.sleep(1)
         except Exception as exc:
             # Rollback the savepoint - this removes the ExpiredUser record
             # and keeps the User record for retry on next scheduler run
-            savepoint.rollback()
+            _rollback_savepoint(savepoint)
             logging.error(
                 "Failed to process expired user %s – %s. Will retry on next run.",
                 user.id,

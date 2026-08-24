@@ -69,7 +69,20 @@ def _set_user_enabled_state(db_id: int, enabled: bool) -> bool:
         action = "enabled" if enabled else "disabled"
         if result:
             user.is_disabled = not enabled
-            db.session.commit()
+            # Persist WITHOUT taking over a transaction we do not own.
+            #
+            # disable_or_delete_user_if_expired() wraps this call in a savepoint
+            # (db.session.begin_nested) and commits that savepoint afterwards.
+            # An unconditional commit here ENDS the savepoint, so the caller's
+            # savepoint.commit() raises ResourceClosedError — and the caller
+            # reads that as "the disable failed" and DELETES the account we just
+            # successfully disabled. Flushing keeps the write inside the
+            # caller's transaction and lets it commit on its own terms; when we
+            # really are the outermost scope (the API routes), commit as before.
+            if db.session.in_nested_transaction():
+                db.session.flush()
+            else:
+                db.session.commit()
             logging.info(
                 f"Successfully {action} user {user.username} (ID: {db_id}) on {user.server.server_type}"
             )
