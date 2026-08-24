@@ -8,6 +8,7 @@ This test suite is designed specifically for Flask-RESTX APIs and handles:
 
 import hashlib
 import json
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -429,9 +430,7 @@ class TestAPIMaxActiveSessions:
         assert response.status_code == 201, response.get_json()
         assert response.get_json()["invitation"]["max_active_sessions"] == 4
 
-    def test_zero_means_unlimited_and_is_preserved(
-        self, client, api_key, sample_data
-    ):
+    def test_zero_means_unlimited_and_is_preserved(self, client, api_key, sample_data):
         """max_active_sessions=0 (Jellyfin 'unlimited') is stored as 0, not None."""
         response = self._create(
             client, api_key, sample_data["server_id"], {"max_active_sessions": 0}
@@ -679,3 +678,539 @@ class TestAPIInvitationDisableUsers:
         data = response.get_json()
         assert data["count"] == 1
         assert data["users"][0]["user_id"] == sample_data["user_id"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# sauron fork: self-service renewal support
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# The "correct" secret the fake accepts. A module constant rather than an inline
+# default so the linter does not read it as a hardcoded credential.
+FAKE_VALID_SECRET = "correct-horse"
+
+
+class FakeJellyfinClient:
+    """Stands in for JellyfinClient, emulating the real server's semantics.
+
+    The behaviours reproduced here are the ones the credential check has to
+    survive, read from Jellyfin's own source
+    (Jellyfin.Server.Implementations/Users/UserManager.cs):
+
+    - A DISABLED account is rejected with 403 before the password is even
+      checked, so it cannot prove ownership without being enabled first.
+    - Failed logins increment a counter that PERSISTS, and once it reaches
+      `lockout_after` the server disables the account itself.
+    - A successful login resets that counter to zero.
+    """
+
+    def __init__(self, password=FAKE_VALID_SECRET, disabled=False, lockout_after=3):
+        self.password = password
+        self.disabled = disabled
+        self.lockout_after = lockout_after
+        self.failed_attempts = 0
+        self.logged_out_tokens = []
+        self.max_sessions = None
+        self.auth_calls = 0
+        self.on_authenticate = None
+
+    def enable_user(self, user_id):
+        self.disabled = False
+        return True
+
+    def disable_user(self, user_id):
+        self.disabled = True
+        return True
+
+    def is_user_disabled(self, user_id):
+        return self.disabled
+
+    def authenticate_user(self, username, password):
+        self.auth_calls += 1
+        if self.on_authenticate:
+            self.on_authenticate()
+
+        if self.disabled:
+            return False, 403, None
+        if password != self.password:
+            self.failed_attempts += 1
+            if self.failed_attempts >= self.lockout_after:
+                self.disabled = True
+            return False, 401, None
+        self.failed_attempts = 0
+        return True, 200, "access-token"
+
+    def logout_token(self, token):
+        self.logged_out_tokens.append(token)
+
+    def set_max_active_sessions(self, user_id, max_sessions):
+        self.max_sessions = max_sessions
+        return True
+
+
+@pytest.fixture
+def jellyfin_user(app):
+    """A Jellyfin-backed media user — the shape a renewal actually targets."""
+    with app.app_context():
+        User.query.delete()
+        Invitation.query.delete()
+        Library.query.delete()
+        MediaServer.query.delete()
+        db.session.commit()
+
+        server = MediaServer(
+            name="Test Jellyfin",
+            server_type="jellyfin",
+            url="http://localhost:8096",
+            api_key="test_jf_key",
+            verified=True,
+        )
+        db.session.add(server)
+        db.session.flush()
+
+        user = User(
+            token="jf-user-id",
+            username="renewme",
+            email="renew@example.com",
+            code="CODE1",
+            expires=datetime.now(UTC) + timedelta(days=5),
+            server_id=server.id,
+        )
+        db.session.add(user)
+        db.session.commit()
+        return {"server_id": server.id, "user_id": user.id}
+
+
+def _set_disabled(app, user_id, value):
+    with app.app_context():
+        user = db.session.get(User, user_id)
+        user.is_disabled = value
+        db.session.commit()
+
+
+class TestAPIVerifyCredentials:
+    """sauron fork: POST /api/users/verify-credentials.
+
+    Ownership proof for a self-service renewal checkout — the buyer proves they
+    own the account they are paying to renew, before any money moves.
+    """
+
+    ENDPOINT = "/api/users/verify-credentials"
+
+    def _post(self, client, api_key, username, password):
+        return client.post(
+            self.ENDPOINT,
+            headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+            data=json.dumps({"username": username, "password": password}),
+        )
+
+    def _patch_client(self, monkeypatch, fake):
+        monkeypatch.setattr(
+            "app.services.credentials.get_client_for_media_server",
+            lambda server: fake,
+        )
+
+    def test_requires_api_key(self, client):
+        response = client.post(
+            self.ENDPOINT,
+            headers={"Content-Type": "application/json"},
+            data=json.dumps({"username": "x", "password": "y"}),
+        )
+        assert response.status_code == 401
+
+    def test_correct_password_returns_user_id(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        fake = FakeJellyfinClient()
+        self._patch_client(monkeypatch, fake)
+
+        response = self._post(client, api_key, "renewme", FAKE_VALID_SECRET)
+
+        assert response.status_code == 200
+        assert response.get_json() == {
+            "valid": True,
+            "user_id": jellyfin_user["user_id"],
+        }
+        # The session opened purely to check the password must not be left open.
+        assert fake.logged_out_tokens == ["access-token"]
+
+    def test_username_is_case_insensitive(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """A buyer typing their username from memory must not fail on case."""
+        self._patch_client(monkeypatch, FakeJellyfinClient())
+
+        response = self._post(client, api_key, "  ReNewMe ", FAKE_VALID_SECRET)
+
+        assert response.get_json()["valid"] is True
+
+    def test_wrong_password_and_unknown_user_are_indistinguishable(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """The whole point of the endpoint: no user-enumeration oracle.
+
+        Jellyfin itself answers 401 for a bad password and 403 for a disabled
+        account. If any of that reaches the response, an attacker can map which
+        usernames exist.
+        """
+        self._patch_client(monkeypatch, FakeJellyfinClient())
+        wrong_password = self._post(client, api_key, "renewme", "nope")
+
+        self._patch_client(monkeypatch, FakeJellyfinClient())
+        unknown_user = self._post(client, api_key, "ghostaccount", "nope")
+
+        assert wrong_password.status_code == unknown_user.status_code == 200
+        assert wrong_password.get_json() == unknown_user.get_json()
+        assert wrong_password.get_json() == {"valid": False, "user_id": None}
+
+    def test_disabled_account_can_still_prove_ownership(
+        self, app, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """The core case: an EXPIRED (disabled) account is what gets renewed.
+
+        Jellyfin refuses to authenticate a disabled user at all, so the check
+        has to enable it for the duration and put it back afterwards.
+        """
+        _set_disabled(app, jellyfin_user["user_id"], True)
+        fake = FakeJellyfinClient(disabled=True)
+        self._patch_client(monkeypatch, fake)
+
+        response = self._post(client, api_key, "renewme", FAKE_VALID_SECRET)
+
+        assert response.get_json()["valid"] is True
+        # Restored. Proving ownership is not paying — access comes later, from
+        # fulfillment, once Stripe confirms the charge.
+        assert fake.disabled is True
+
+    def test_disabled_account_stays_disabled_on_wrong_password(
+        self, app, client, api_key, jellyfin_user, monkeypatch
+    ):
+        _set_disabled(app, jellyfin_user["user_id"], True)
+        fake = FakeJellyfinClient(disabled=True)
+        self._patch_client(monkeypatch, fake)
+
+        response = self._post(client, api_key, "renewme", "wrong")
+
+        assert response.get_json()["valid"] is False
+        assert fake.disabled is True
+
+    def test_lockout_caused_by_this_check_is_undone(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """A public form must never become a way to disable a paying customer.
+
+        Jellyfin disables the account once failed logins reach the lockout
+        threshold. The check has to notice and reverse it.
+        """
+        fake = FakeJellyfinClient(lockout_after=1)  # trips on the first failure
+        self._patch_client(monkeypatch, fake)
+
+        response = self._post(client, api_key, "renewme", "wrong")
+
+        assert response.get_json()["valid"] is False
+        assert fake.disabled is False, "lockout was not reversed"
+
+    def test_already_disabled_account_is_not_switched_on(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """Stale-column guard.
+
+        If an admin disabled the account directly in Jellyfin, sauron's own
+        `is_disabled` column still reads False. A failed check must NOT treat
+        that as a lockout it caused and enable the account — that would hand
+        anyone a way to switch on any disabled account.
+        """
+        fake = FakeJellyfinClient(disabled=True)  # DB column left at False
+        self._patch_client(monkeypatch, fake)
+
+        response = self._post(client, api_key, "renewme", "whatever")
+
+        assert response.get_json()["valid"] is False
+        assert fake.disabled is True, "an already-disabled account was enabled"
+
+    def test_stale_column_is_corrected(
+        self, app, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """Having learned the account is really disabled, record it."""
+        self._patch_client(monkeypatch, FakeJellyfinClient(disabled=True))
+
+        self._post(client, api_key, "renewme", "whatever")
+
+        with app.app_context():
+            assert db.session.get(User, jellyfin_user["user_id"]).is_disabled is True
+
+    def test_concurrent_checks_do_not_corrupt_account_state(
+        self, app, jellyfin_user, monkeypatch
+    ):
+        """Two simultaneous checks on one disabled account.
+
+        sauron runs a single gunicorn process with 8 THREADS, so this is real
+        traffic, not a hypothetical. Without the per-account lock the two
+        sequences interleave — one restores the account to disabled while the
+        other is still authenticating, so a buyer with perfectly correct
+        credentials is told they are wrong.
+        """
+        import threading
+        from types import SimpleNamespace
+
+        from app.services.credentials import verify_media_credentials
+
+        fake = FakeJellyfinClient(disabled=True)
+        # Widen the window between enable and restore so an unserialised
+        # implementation reliably interleaves instead of passing by luck.
+        fake.on_authenticate = lambda: time.sleep(0.05)
+        monkeypatch.setattr(
+            "app.services.credentials.get_client_for_media_server",
+            lambda server: fake,
+        )
+
+        # The lookup is stubbed rather than hitting the DB: this test is about
+        # serialising the enable→authenticate→restore sequence, and two threads
+        # sharing one in-memory SQLite connection would fail on the harness
+        # rather than on the behaviour under test.
+        stub_user = SimpleNamespace(
+            id=jellyfin_user["user_id"],
+            username="renewme",
+            token="jf-user-id",
+            is_disabled=True,
+            server=SimpleNamespace(server_type="jellyfin"),
+        )
+        monkeypatch.setattr(
+            "app.services.credentials.find_user_by_username",
+            lambda username: stub_user,
+        )
+
+        results = []
+
+        def check():
+            results.append(verify_media_credentials("renewme", FAKE_VALID_SECRET))
+
+        threads = [threading.Thread(target=check) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert results == [jellyfin_user["user_id"]] * 2, (
+            "a concurrent check spuriously rejected valid credentials"
+        )
+        assert fake.disabled is True, "account left enabled after concurrent checks"
+
+    def test_missing_fields_rejected(self, client, api_key):
+        response = client.post(
+            self.ENDPOINT,
+            headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+            data=json.dumps({"username": "renewme"}),
+        )
+        assert response.status_code == 400
+
+    def test_per_username_attempts_are_capped(
+        self, app, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """The cap is the PRIMARY defense against Jellyfin's account lockout.
+
+        Jellyfin disables an account once failed logins reach
+        LoginAttemptsBeforeLockout, and its counter has no reset API, so how
+        fast an attacker can drive it up is what matters most.
+
+        conftest disables rate limiting for every test by default, so this one
+        turns it back on — otherwise the endpoint would appear capped while
+        actually running wide open. That failure mode is easy to hit: a
+        @limiter.limit stacked on the method instead of the Resource's
+        `decorators` registers against the wrong name and never fires.
+        """
+        from app.extensions import limiter
+
+        self._patch_client(monkeypatch, FakeJellyfinClient())
+        limiter.enabled = True
+        try:
+            limiter.reset()
+            codes = [
+                self._post(client, api_key, "capprobe", "wrong").status_code
+                for _ in range(4)
+            ]
+        finally:
+            limiter.reset()
+            limiter.enabled = False
+
+        assert codes[:3] == [200, 200, 200], codes
+        assert codes[3] == 429, f"4th attempt was not rate limited: {codes}"
+
+    def test_non_jellyfin_server_is_rejected_generically(
+        self, client, api_key, sample_data
+    ):
+        """sample_data is a PLEX server: no way to check a user's own password.
+
+        Must look exactly like any other failure.
+        """
+        response = self._post(client, api_key, "testuser", "anything")
+
+        assert response.status_code == 200
+        assert response.get_json() == {"valid": False, "user_id": None}
+
+
+class TestAPIMaxSessions:
+    """sauron fork: POST /api/users/<id>/max-sessions.
+
+    Upstream applies the device limit only when an invitation is redeemed, so
+    without this a renewal into a higher tier takes the money and leaves the
+    old limit in place.
+    """
+
+    def _post(self, client, api_key, user_id, body):
+        return client.post(
+            f"/api/users/{user_id}/max-sessions",
+            headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+            data=json.dumps(body),
+        )
+
+    def _patch_client(self, monkeypatch, fake):
+        monkeypatch.setattr(
+            "app.blueprints.api.api_routes.get_client_for_media_server",
+            lambda server: fake,
+        )
+
+    def test_applies_limit(self, client, api_key, jellyfin_user, monkeypatch):
+        fake = FakeJellyfinClient()
+        self._patch_client(monkeypatch, fake)
+
+        response = self._post(
+            client, api_key, jellyfin_user["user_id"], {"max_active_sessions": 4}
+        )
+
+        assert response.status_code == 200, response.get_json()
+        assert response.get_json()["max_active_sessions"] == 4
+        assert fake.max_sessions == 4
+
+    def test_zero_means_unlimited_and_is_allowed(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        fake = FakeJellyfinClient()
+        self._patch_client(monkeypatch, fake)
+
+        response = self._post(
+            client, api_key, jellyfin_user["user_id"], {"max_active_sessions": 0}
+        )
+
+        assert response.status_code == 200
+        assert fake.max_sessions == 0
+
+    def test_booleans_are_rejected(self, client, api_key, jellyfin_user, monkeypatch):
+        """bool subclasses int in Python: True would be applied as a limit of 1."""
+        self._patch_client(monkeypatch, FakeJellyfinClient())
+
+        response = self._post(
+            client, api_key, jellyfin_user["user_id"], {"max_active_sessions": True}
+        )
+
+        assert response.status_code == 400
+
+    def test_negative_rejected(self, client, api_key, jellyfin_user, monkeypatch):
+        self._patch_client(monkeypatch, FakeJellyfinClient())
+        response = self._post(
+            client, api_key, jellyfin_user["user_id"], {"max_active_sessions": -1}
+        )
+        assert response.status_code == 400
+
+    def test_non_integer_rejected(self, client, api_key, jellyfin_user, monkeypatch):
+        self._patch_client(monkeypatch, FakeJellyfinClient())
+        response = self._post(
+            client, api_key, jellyfin_user["user_id"], {"max_active_sessions": "four"}
+        )
+        assert response.status_code == 400
+
+    def test_unknown_user_404(self, client, api_key, jellyfin_user):
+        response = self._post(client, api_key, 999999, {"max_active_sessions": 2})
+        assert response.status_code == 404
+
+    def test_server_refusal_is_502_not_200(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """A refused limit must never report success — that is a mis-sale."""
+        fake = FakeJellyfinClient()
+        fake.set_max_active_sessions = lambda user_id, n: False
+        self._patch_client(monkeypatch, fake)
+
+        response = self._post(
+            client, api_key, jellyfin_user["user_id"], {"max_active_sessions": 2}
+        )
+
+        assert response.status_code == 502
+
+    def test_unsupported_server_type_is_502(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        class PlexLikeClient:
+            pass
+
+        self._patch_client(monkeypatch, PlexLikeClient())
+
+        response = self._post(
+            client, api_key, jellyfin_user["user_id"], {"max_active_sessions": 2}
+        )
+
+        assert response.status_code == 502
+
+
+class TestAPIEnableUserReportsFailure:
+    """sauron fork: POST /api/users/<id>/enable must not report a failure as 200.
+
+    Upstream answered 200 with a "Enable failed or not supported" message, so an
+    API client could not tell a reactivated account from one still disabled — a
+    paid renewal would look delivered while the buyer had no access.
+    """
+
+    def test_failure_returns_502(self, client, api_key, jellyfin_user, monkeypatch):
+        monkeypatch.setattr(
+            "app.blueprints.api.api_routes.enable_user", lambda db_id: False
+        )
+
+        response = client.post(
+            f"/api/users/{jellyfin_user['user_id']}/enable",
+            headers={"X-API-Key": api_key},
+        )
+
+        assert response.status_code == 502
+
+    def test_success_returns_200(self, client, api_key, jellyfin_user, monkeypatch):
+        monkeypatch.setattr(
+            "app.blueprints.api.api_routes.enable_user", lambda db_id: True
+        )
+
+        response = client.post(
+            f"/api/users/{jellyfin_user['user_id']}/enable",
+            headers={"X-API-Key": api_key},
+        )
+
+        assert response.status_code == 200
+
+    def test_success_clears_stale_expired_record(
+        self, app, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """A renewed customer must stop showing up under "expired users"."""
+        from app.models import ExpiredUser
+
+        with app.app_context():
+            db.session.add(
+                ExpiredUser(
+                    original_user_id=jellyfin_user["user_id"],
+                    username="renewme",
+                    email="renew@example.com",
+                    server_id=jellyfin_user["server_id"],
+                    expired_at=datetime.now(UTC) - timedelta(days=1),
+                    deleted_at=datetime.now(UTC) - timedelta(days=1),
+                )
+            )
+            db.session.commit()
+
+        monkeypatch.setattr(
+            "app.blueprints.api.api_routes.enable_user", lambda db_id: True
+        )
+        client.post(
+            f"/api/users/{jellyfin_user['user_id']}/enable",
+            headers={"X-API-Key": api_key},
+        )
+
+        with app.app_context():
+            remaining = ExpiredUser.query.filter_by(email="renew@example.com").count()
+            assert remaining == 0

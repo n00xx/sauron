@@ -5,13 +5,14 @@ import hashlib
 import logging
 import traceback
 from functools import wraps
+from typing import ClassVar
 
 from flask import Blueprint, request
 from flask_login import current_user
 from flask_restx import Resource, abort
 from sqlalchemy import func
 
-from app.extensions import api, db
+from app.extensions import api, db, limiter, scaled_limit
 from app.models import (
     AdminAccount,
     ApiKey,
@@ -21,11 +22,14 @@ from app.models import (
     User,
     WebAuthnCredential,
 )
+from app.services.credentials import verify_media_credentials
+from app.services.expiry import cleanup_expired_user_by_email
 from app.services.invites import create_invite
 from app.services.media.service import (
     delete_user,
     disable_user,
     enable_user,
+    get_client_for_media_server,
     list_users_all_servers,
 )
 from app.services.server_name_resolver import get_display_name_info
@@ -44,8 +48,12 @@ from .models import (
     user_extend_request,
     user_extend_response,
     user_list_model,
+    user_max_sessions_request,
+    user_max_sessions_response,
     user_update_expiry_request,
     user_update_expiry_response,
+    user_verify_credentials_request,
+    user_verify_credentials_response,
 )
 
 # Create the Blueprint for the API
@@ -415,12 +423,18 @@ class UserEnableResource(Resource):
     @api.response(200, "User enabled successfully", success_message_model)
     @api.response(401, "Invalid or missing API key", error_model)
     @api.response(404, "User not found", error_model)
+    @api.response(502, "Media server refused or does not support enabling", error_model)
     @api.response(500, "Internal server error", error_model)
     @require_api_key
     def post(self, user_id):
         """Enable a specific user by ID.
 
         This will enable the user account on the media server if the server supports it.
+
+        Returns 502 when the media server refuses or does not support enabling.
+        This used to answer 200 with a "Enable failed..." message, which made
+        success and failure indistinguishable to an API client — a paid renewal
+        would report as delivered while the account stayed disabled.
         """
         # Find user first, outside try block
         user = db.session.get(User, user_id)
@@ -439,16 +453,23 @@ class UserEnableResource(Resource):
             # Try to enable user
             result = enable_user(user.id)
 
-            if result:
-                return {"message": f"User {user.username} enabled successfully"}
-            # If enable failed or not supported,
-            logger.info(
-                "Enable failed or not supported for user %s",
-                user_id,
-            )
-            return {
-                "message": f"Enable failed or not supported for user {user.username}"
-            }
+            if not result:
+                logger.warning(
+                    "Enable failed or not supported for user %s",
+                    user_id,
+                )
+                return {
+                    "error": f"Enable failed or not supported for user {user.username}"
+                }, 502
+
+            # The account is live again, so the expiry sweep's record of it is
+            # stale — without this the admin UI keeps listing a renewed customer
+            # under "expired users". Mirrors cleanup_expired_user_by_email's
+            # existing use on re-signup.
+            if user.email:
+                cleanup_expired_user_by_email(user.email)
+
+            return {"message": f"User {user.username} enabled successfully"}
 
         except Exception as e:
             logger.error("Error enabling user %s: %s", user_id, str(e))
@@ -611,6 +632,180 @@ class UserUpdateExpiryResource(Resource):
 
         except Exception as e:
             logger.error("Error updating user %s expiry: %s", user_id, str(e))
+            logger.error(traceback.format_exc())
+            return {"error": "Internal server error"}, 500
+
+
+def _verify_credentials_rate_key() -> str:
+    """Rate-limit key for the credential check: the submitted username.
+
+    Normalised so "Juan", "juan" and " juan " share one allowance instead of
+    handing an attacker three. Namespaced so it can never collide with the
+    per-IP bucket on the same endpoint.
+
+    Applies to whatever string was submitted, existing account or not — the
+    limiter must not become the enumeration oracle the endpoint itself avoids.
+    """
+    payload = request.get_json(silent=True) or {}
+    username = payload.get("username")
+    if not isinstance(username, str):
+        return "verifycreds:__malformed__"
+    return f"verifycreds:{username.strip().lower()[:64]}"
+
+
+@users_ns.route("/verify-credentials")
+class UserVerifyCredentialsResource(Resource):
+    """Prove ownership of a media account with its own username + password.
+
+    Built for self-service renewal checkouts: before taking money to renew
+    account X, the payment flow has to know the buyer actually owns X.
+
+    ── Enumeration ──────────────────────────────────────────────────────────
+    ALWAYS answers 200 with the same body shape. Unknown username, wrong
+    password, disabled account and unsupported server type are indistinguishable
+    from outside. Do not "improve" the error reporting here: Jellyfin itself
+    leaks this distinction (401 vs 403) and collapsing it is the point.
+
+    ── Account lockout ──────────────────────────────────────────────────────
+    Jellyfin disables an account after LoginAttemptsBeforeLockout failed logins,
+    so an uncapped public form here would let anyone disable a paying customer's
+    account. Two mitigations, and the second is the one that actually holds:
+
+      1. The caps below. They bound the rate, but NOT the total: Jellyfin's
+         InvalidLoginAttemptCount persists and only resets on a SUCCESSFUL
+         login, so failures accumulate across windows.
+      2. app/services/credentials.py detects a lockout it caused and re-enables
+         the account. A successful check also resets Jellyfin's counter to zero,
+         which is what actually heals an account that has been probed.
+    """
+
+    # Class-level rather than per-method: this is the shape flask-restx supports
+    # for Flask-Limiter. A @limiter.limit stacked directly on `post` registers
+    # against the METHOD's qualname, while at request time Flask-Limiter resolves
+    # limits through the endpoint's view function — which for a Resource is the
+    # dispatcher, not the method — so the decorated limit is never found and the
+    # endpoint silently runs uncapped. Safe here because `post` is the only
+    # method on this Resource.
+    decorators: ClassVar[list] = [
+        limiter.limit(scaled_limit("20 per hour")),
+        limiter.limit(
+            scaled_limit("3 per hour"), key_func=_verify_credentials_rate_key
+        ),
+        limiter.limit(
+            scaled_limit("10 per day"), key_func=_verify_credentials_rate_key
+        ),
+    ]
+
+    @api.doc("verify_user_credentials", security="apikey")
+    @api.expect(user_verify_credentials_request)
+    @api.response(
+        200, "Check completed (see `valid`)", user_verify_credentials_response
+    )
+    @api.response(400, "Malformed request body", error_model)
+    @api.response(401, "Invalid or missing API key", error_model)
+    @api.response(429, "Too many attempts", error_model)
+    @require_api_key
+    def post(self):
+        """Verify a media account's username and password."""
+        data = api.payload or {}
+        username = data.get("username")
+        password = data.get("password")
+
+        # Shape check only. A missing field is a caller bug, not a failed login,
+        # so it is safe to report — it says nothing about any account.
+        if not isinstance(username, str) or not isinstance(password, str):
+            return {"error": "username and password are required strings"}, 400
+
+        try:
+            # The password is passed straight through as a local and never
+            # logged, echoed, or persisted anywhere in this call.
+            user_id = verify_media_credentials(username, password)
+        except Exception as e:
+            # Log the failure WITHOUT the payload, then answer exactly like a
+            # rejected password: an internal error must not become a signal
+            # that distinguishes one account from another.
+            logger.error("Error verifying credentials: %s", str(e))
+            logger.error(traceback.format_exc())
+            return {"valid": False, "user_id": None}
+
+        if user_id is None:
+            logger.info("API: credential check rejected")
+            return {"valid": False, "user_id": None}
+
+        logger.info("API: credential check passed for user %s", user_id)
+        return {"valid": True, "user_id": user_id}
+
+
+@users_ns.route("/<int:user_id>/max-sessions")
+class UserMaxSessionsResource(Resource):
+    """Set the simultaneous-stream limit on an EXISTING account.
+
+    Upstream applies max_active_sessions only when an invitation is redeemed,
+    which covers a first purchase but not a renewal: a buyer who upgrades tier
+    already has an account, so without this the money is taken for "4
+    dispositivos" and the account keeps whatever limit it had.
+    """
+
+    @api.doc("set_user_max_sessions", security="apikey")
+    @api.expect(user_max_sessions_request)
+    @api.response(200, "Limit applied", user_max_sessions_response)
+    @api.response(400, "Invalid max_active_sessions", error_model)
+    @api.response(401, "Invalid or missing API key", error_model)
+    @api.response(404, "User not found", error_model)
+    @api.response(
+        502, "Media server refused or does not support the limit", error_model
+    )
+    @api.response(500, "Internal server error", error_model)
+    @require_api_key
+    def post(self, user_id):
+        """Set a user's Jellyfin MaxActiveSessions (0 = unlimited)."""
+        user = db.session.get(User, user_id)
+        if not user:
+            abort(404, error="User not found")
+            return None  # Type narrowing: unreachable but helps type checker
+
+        server = db.session.get(MediaServer, user.server_id)
+        if not server:
+            abort(404, error="Server not found for user")
+            return None
+
+        data = api.payload or {}
+        max_sessions = data.get("max_active_sessions")
+        # Reject bools explicitly: bool is a subclass of int in Python, so
+        # `True` would otherwise sail through and be applied as a limit of 1.
+        if isinstance(max_sessions, bool) or not isinstance(max_sessions, int):
+            return {"error": "max_active_sessions must be an integer"}, 400
+        if max_sessions < 0:
+            return {"error": "max_active_sessions must be >= 0"}, 400
+
+        try:
+            client = get_client_for_media_server(server)
+            setter = getattr(client, "set_max_active_sessions", None)
+            if setter is None:
+                # Not a hypothetical: only the Jellyfin/Emby client implements
+                # this. Fail loudly rather than reporting a limit that was
+                # never applied.
+                return {
+                    "error": f"{server.server_type} does not support session limits"
+                }, 502
+
+            logger.info(
+                "API: setting max_active_sessions=%s for user %s",
+                max_sessions,
+                user_id,
+            )
+            if not setter(user.token, max_sessions):
+                return {
+                    "error": f"Media server refused the limit for user {user.username}"
+                }, 502
+
+            return {
+                "message": f"User {user.username} limited to {max_sessions} session(s)",
+                "max_active_sessions": max_sessions,
+            }
+
+        except Exception as e:
+            logger.error("Error setting max sessions for user %s: %s", user_id, str(e))
             logger.error(traceback.format_exc())
             return {"error": "Internal server error"}, 500
 

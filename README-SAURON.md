@@ -17,7 +17,7 @@ existing redemption flow applies it to the Jellyfin user's Policy
 
 ## The delta from upstream
 
-One commit, ~18 lines across two files (plus tests):
+The original change, ~18 lines across two files (plus tests):
 
 - `app/blueprints/api/models.py` — add `max_active_sessions` to the API request
   model and to the invitation response model (Swagger + echo).
@@ -29,8 +29,11 @@ One commit, ~18 lines across two files (plus tests):
   integer-doesn't-500, zero-preserved, omitted-stays-none).
 
 The invitation model field, the web-form parsing, and the Jellyfin policy
-application at redemption **already exist upstream** and are unchanged. This keeps
-the fork trivial to rebase onto future Wizarr releases:
+application at redemption **already exist upstream** and are unchanged.
+
+The fork has since grown past that one commit — see "Self-service renewal API"
+below and the CHANGELOG — but the same rule still applies: every addition is
+additive and namespaced, so rebasing onto a future Wizarr release stays cheap:
 
 ```bash
 git fetch upstream
@@ -45,6 +48,73 @@ curl -X POST https://<host>/api/invitations \
   -d '{"server_ids":[1],"duration":"30","unlimited":false,"max_active_sessions":2}'
 # -> 201, .invitation.max_active_sessions == 2   (0 = unlimited; omit = unset)
 ```
+
+## Self-service renewal API
+
+A second group of endpoints exists so a public checkout can renew an EXISTING
+account: prove the buyer owns it, then extend and reactivate it once they pay.
+
+### `POST /api/users/verify-credentials`
+
+Ownership proof — checks a media account's own username and password.
+
+```bash
+curl -X POST https://<host>/api/users/verify-credentials \
+  -H "X-API-Key: <key>" -H "Content-Type: application/json" \
+  -d '{"username":"someone","password":"their-password"}'
+# -> 200 {"valid": true,  "user_id": 42}
+# -> 200 {"valid": false, "user_id": null}
+```
+
+**Always 200, always the same body shape.** Unknown username, wrong password,
+disabled account and unsupported server type are indistinguishable by design —
+Jellyfin itself answers 401 vs 403 for those, which is a user-enumeration
+oracle, and collapsing it is the whole point. Do not "improve" the error
+reporting.
+
+Two Jellyfin behaviours this has to work around, both read from
+`Jellyfin.Server.Implementations/Users/UserManager.cs`:
+
+- **A disabled account cannot authenticate at all** (403 before the password is
+  even checked). Since expired accounts are exactly the ones being renewed, the
+  endpoint enables the account for the duration of the check and restores it
+  afterwards — under a per-account lock, restoring from sauron's own
+  `user.is_disabled` column rather than a live policy read. A live read races
+  against a concurrent check of the same account (one gunicorn process, 8
+  threads) and can leave a lapsed account enabled without payment.
+- **Failed logins lock the account out.** Jellyfin disables an account once
+  `InvalidLoginAttemptCount` reaches `LoginAttemptsBeforeLockout`, so a public
+  form in front of it is a remote account-disabling weapon. The endpoint detects
+  a lockout it caused and reverses it, and is rate limited to 3/hour and 10/day
+  per username plus 20/hour per IP. Note the counter itself has **no reset API**
+  and only zeroes on a successful login — the rate limits bound how fast it can
+  climb, and a successful check is what actually heals a probed account.
+
+Jellyfin and Emby only. Anything else answers `valid: false`.
+
+### `POST /api/users/<id>/max-sessions`
+
+```bash
+curl -X POST https://<host>/api/users/42/max-sessions \
+  -H "X-API-Key: <key>" -H "Content-Type: application/json" \
+  -d '{"max_active_sessions":4}'
+# -> 200 {"message":"...","max_active_sessions":4}
+# -> 502 when the media server refuses or does not support session limits
+```
+
+Upstream applies `max_active_sessions` only at invite redemption, which covers a
+first purchase but not a renewal: a buyer upgrading tier already has an account.
+Without this the money is taken for "4 devices" and the old limit stays.
+
+### `POST /api/users/<id>/enable` — behaviour change
+
+Now answers **502** when the media server refuses or does not support enabling.
+It previously returned 200 with an `"Enable failed or not supported"` message,
+so an API client could not tell a reactivated account from one still disabled —
+a paid renewal would report as delivered while the buyer had no access.
+
+Also clears any stale `ExpiredUser` record on success, so a renewed customer
+stops showing up under "expired users" in the admin UI.
 
 ## Building & publishing the image
 

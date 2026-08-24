@@ -54,6 +54,21 @@ HOME_SECTION_NONE = "none"
 # own a guarantee — that part lives in Jellyfin's own configuration.
 PLAYLISTS_COLLECTION_TYPE = "playlists"
 
+# ── Media-user credential verification ───────────────────────────────────────
+# Identifies sauron to Jellyfin on AuthenticateByName and on the logout that
+# follows it. Jellyfin refuses AuthenticateByName without a client-identification
+# Authorization header, and the DeviceId is what ties the two calls to the same
+# session so the token can be revoked again. Kept distinct from any real client
+# string so these sessions are recognisable in Jellyfin's dashboard.
+VERIFY_CLIENT = "sauron"
+VERIFY_DEVICE = "sauron-verify"
+VERIFY_DEVICE_ID = "sauron-credential-check"
+VERIFY_VERSION = "1.0.0"
+
+# Shorter than RestApiMixin's 60s: this call sits in front of a checkout form,
+# where a hung media server should fail fast rather than hold the buyer.
+VERIFY_TIMEOUT_SECONDS = 15
+
 
 @register_media_client("jellyfin")
 class JellyfinClient(RestApiMixin):
@@ -427,6 +442,137 @@ class JellyfinClient(RestApiMixin):
             return response.status_code in {204, 200}
         except Exception as e:
             structlog.get_logger().error(f"Failed to disable Jellyfin user: {e}")
+            return False
+
+    def is_user_disabled(self, user_id: str) -> bool | None:
+        """Read the LIVE `IsDisabled` flag from Jellyfin.
+
+        Returns None when the answer can't be established (transport error,
+        missing user) so callers can tell "not disabled" apart from "don't
+        know" — the credential-verification path must never act on a guess.
+        """
+        try:
+            raw_user = self.get(f"/Users/{user_id}").json()
+            if not raw_user:
+                return None
+            return bool(raw_user.get("Policy", {}).get("IsDisabled", False))
+        except Exception as e:
+            structlog.get_logger().error(f"Failed to read Jellyfin user policy: {e}")
+            return None
+
+    def authenticate_user(
+        self, username: str, password: str
+    ) -> tuple[bool, int | None, str | None]:
+        """Check a media user's OWN password against Jellyfin.
+
+        Returns ``(ok, http_status, access_token)``.
+
+        Deliberately bypasses ``RestApiMixin.post``: that helper calls
+        ``raise_for_status()``, and here a rejected password is an expected
+        answer rather than a transport fault. It also needs a DIFFERENT
+        Authorization header — client identification with no token, because
+        proving the password is the whole point of the call.
+
+        The status code is returned for ONE internal purpose: telling a
+        lockout we caused apart from an account that was already disabled
+        before we knocked (see app/services/credentials.py). Jellyfin maps the
+        two distinctly — Jellyfin.Api/Middleware/ExceptionMiddleware.cs:
+
+            401 AuthenticationException — unknown user OR wrong password
+            403 SecurityException       — account exists but is disabled
+
+        That difference is a user-enumeration oracle, so it must NEVER reach an
+        API response. Callers collapse it to a single generic answer.
+        """
+        if self.url is None:
+            return False, None, None
+
+        url = f"{self.url.rstrip('/')}/Users/AuthenticateByName"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            # Jellyfin rejects AuthenticateByName without a client-identification
+            # header. No token goes in it — this request IS the authentication.
+            "Authorization": (
+                f'MediaBrowser Client="{VERIFY_CLIENT}", '
+                f'Device="{VERIFY_DEVICE}", '
+                f'DeviceId="{VERIFY_DEVICE_ID}", '
+                f'Version="{VERIFY_VERSION}"'
+            ),
+        }
+        try:
+            # NOTE: the password appears only in this body. It is never logged,
+            # never placed in a URL or header, and never persisted.
+            response = requests.post(
+                url,
+                headers=headers,
+                json={"Username": username, "Pw": password},
+                timeout=VERIFY_TIMEOUT_SECONDS,
+            )
+        except Exception as e:
+            structlog.get_logger().error(f"Jellyfin authentication request failed: {e}")
+            return False, None, None
+
+        if response.status_code != 200:
+            return False, response.status_code, None
+
+        try:
+            token = response.json().get("AccessToken")
+        except Exception:
+            token = None
+        return True, 200, token
+
+    def logout_token(self, access_token: str) -> None:
+        """Revoke the session that `authenticate_user` just opened.
+
+        Best effort: a leaked-but-unused session is far less bad than failing a
+        verification that already succeeded, so this never raises.
+        """
+        if self.url is None:
+            return
+        try:
+            requests.post(
+                f"{self.url.rstrip('/')}/Sessions/Logout",
+                headers={
+                    "Authorization": (
+                        f'MediaBrowser Token="{access_token}", '
+                        f'Client="{VERIFY_CLIENT}", '
+                        f'Device="{VERIFY_DEVICE}", '
+                        f'DeviceId="{VERIFY_DEVICE_ID}", '
+                        f'Version="{VERIFY_VERSION}"'
+                    )
+                },
+                timeout=VERIFY_TIMEOUT_SECONDS,
+            )
+        except Exception as e:
+            structlog.get_logger().warning(f"Could not revoke Jellyfin session: {e}")
+
+    def set_max_active_sessions(self, user_id: str, max_sessions: int) -> bool:
+        """Set `MaxActiveSessions` on an EXISTING Jellyfin user.
+
+        Upstream only ever applies this at invite redemption
+        (`_apply_invitation_policy` below), which is enough for a first
+        purchase but not for a renewal: a buyer moving to a higher tier already
+        has an account, so the device limit has to be writable after the fact.
+
+        Read-modify-write on the whole Policy object, mirroring enable_user /
+        disable_user — Jellyfin's Policy endpoint replaces the document, so
+        sending a partial one would silently reset every other permission.
+        """
+        try:
+            raw_user = self.get(f"/Users/{user_id}").json()
+            if not raw_user:
+                return False
+
+            policy = raw_user.get("Policy", {})
+            policy["MaxActiveSessions"] = max_sessions
+
+            response = self.post(f"/Users/{user_id}/Policy", json=policy)
+            return response.status_code in {204, 200}
+        except Exception as e:
+            structlog.get_logger().error(
+                f"Failed to set MaxActiveSessions on Jellyfin user: {e}"
+            )
             return False
 
     def _get_server_users(self) -> list[User]:

@@ -97,6 +97,47 @@ user_update_expiry_response = api.model(
     },
 )
 
+user_verify_credentials_request = api.model(
+    "UserVerifyCredentialsRequest",
+    {
+        "username": fields.String(required=True, description="Media account username"),
+        "password": fields.String(
+            required=True, description="The media account's own password"
+        ),
+    },
+)
+
+user_verify_credentials_response = api.model(
+    "UserVerifyCredentialsResponse",
+    {
+        "valid": fields.Boolean(
+            description="True only when the username and password both match"
+        ),
+        "user_id": fields.Integer(
+            description="Wizarr user id, present only when valid is true",
+            allow_null=True,
+        ),
+    },
+)
+
+user_max_sessions_request = api.model(
+    "UserMaxSessionsRequest",
+    {
+        "max_active_sessions": fields.Integer(
+            required=True,
+            description="Jellyfin simultaneous stream limit; 0 = unlimited",
+        ),
+    },
+)
+
+user_max_sessions_response = api.model(
+    "UserMaxSessionsResponse",
+    {
+        "message": fields.String(description="Success message"),
+        "max_active_sessions": fields.Integer(description="The limit that was applied"),
+    },
+)
+
 # Invitation Models
 invitation_model = api.model(
     "Invitation",
