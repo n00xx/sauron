@@ -5,6 +5,11 @@
 
 @source '../../templates/**/*.html';
 @source '../../templates/*.html';
+/* The Activity blueprint keeps its own template folder (template_folder="../templates"
+   on the blueprint), so it is NOT covered by the two globs above. Without this line
+   any class used *only* under app/activity/templates is never generated and silently
+   does nothing — which is how a dark-mode panel ended up rendering white-on-white. */
+@source '../../activity/templates/**/*.html';
 @source '../node_modules/flowbite/**/*.js';
 @source '../../../wizard_steps/**/*.md';
 

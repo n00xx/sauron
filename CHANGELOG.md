@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.8.5] (2026-08-24)
+
+### Fixed
+
+- **Tailwind nunca escaneó las plantillas de Activity, así que la mitad de sus
+  estilos no existían.** El blueprint de Activity tiene su propia carpeta de
+  plantillas (`template_folder="../templates"` → `app/activity/templates`), y
+  los `@source` de `style.css` solo cubrían `app/templates/**`. Cualquier clase
+  usada **únicamente** en la pestaña Activity jamás se generaba y no hacía nada
+  — en silencio, sin error ni en build ni en runtime. Llevaba así desde que
+  existe la pestaña: `dark:bg-amber-900/10`, `dark:border-red-800/60`, `h-3.5`,
+  `xl:grid-cols-6` y una veintena más estaban muertas.
+
+  Se notó ahora porque el panel «Last sync result» emparejó un fondo inexistente
+  (`dark:bg-gray-900/40`) con un color de texto que sí existía: en modo oscuro el
+  panel se quedaba claro y los números salían blancos sobre blanco, invisibles.
+  Añadido el `@source` que faltaba; el build de Docker ya regenera `main.css`,
+  así que se arregla ese panel y de paso todo lo demás que llevaba tiempo
+  degradado.
+
 ## [2026.8.4] (2026-08-24)
 
 ### Fixed
