@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.8.2] (2026-08-23)
+
+### Added
+
+- **Pestaña «Eventos» en Activity**: espejo de los eventos de Stripe con la
+  evidencia que solo esta instancia puede producir. Stripe sabe que hubo un
+  pago; la tienda sabe que se emitió una invitación; ninguno sabe si el
+  comprador **usó** el servicio. Eso vive en `ActivitySession` — qué reprodujo,
+  cuándo, desde qué IPs y dispositivos — y para una disputa de bienes digitales
+  es el artefacto decisivo, el que Stripe llama `access_activity_log`.
+- **Ingesta por polling, no webhook.** sauron no es endpoint de webhook a
+  propósito: ese es de la tienda, que es quien cumple los pedidos. Meterlo en la
+  ruta de entrega de Stripe significaría un segundo secreto, una ruta pública en
+  una instancia auto-hospedada, y que el uptime de sauron aparezca como
+  "endpoint failing" en el dashboard de otro. `GET /v1/events` además no está
+  sujeto a la lista `enabled_events` del webhook (hoy limitada a 3 tipos), y
+  rellena los 30 días de retención en la primera corrida: la pestaña nace
+  poblada en vez de vacía.
+- **Solo lectura.** La llave esperada es restringida y de solo lectura; nada
+  escribe a Stripe. El clic que mueve dinero o envía evidencia se queda en el
+  dashboard de Stripe, donde hay confirmaciones y rastro de auditoría.
+- **19 tipos monitoreados**, encabezados por `radar.early_fraud_warning.created`
+  — el primitivo de *dispute deflection*: reembolsar dentro de la ventana evita
+  el chargeback entero, sin fee y sin impacto en la tasa de disputas. Quedan
+  fuera `invoice.*` y `customer.subscription.*` (la tienda vende Checkout
+  Sessions de pago único) y `checkout.session.async_payment_*` (OXXO descartado;
+  solo tarjeta): nunca podrían dispararse.
+- **Cola de acción** ordenada por fecha límite de respuesta, porque una disputa
+  sin contestar es una disputa perdida por omisión.
+- **Elementos de Visa CE 3.0** (IP de compra, dispositivo, account ID, email) y
+  marca del reason code 10.4, el elegible para contrarespuesta.
+- Un evento sin correlacionar se muestra **como** no correlacionado, nunca se
+  oculta: el operador necesita saber que falta el enlace justo cuando cae una
+  disputa.
+
+### Changed
+
+- La correlación Stripe ↔ sauron es determinista vía el id de invitación que la
+  tienda sella en el PaymentIntent, con respaldo por email — que solo se acepta
+  si es inequívoco, porque identifica a una **persona** y no a una **compra**.
+  Visa CE 3.0 exige resolución por transacción, así que el email solo no basta
+  para un cliente recurrente, que es justo el más defendible.
+
 ## [2026.8.1] (2026-08-23)
 
 ### Fixed
