@@ -6,6 +6,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.8.6] (2026-08-24)
+
+### Added
+
+- **API de renovación autoservicio.** Tres cambios para que un checkout público
+  pueda renovar una cuenta existente en vez de emitir siempre una invitación
+  nueva.
+
+  `POST /api/users/verify-credentials` comprueba el usuario y la contraseña de
+  una cuenta de medios: es la prueba de propiedad que se exige antes de cobrar.
+  **Siempre responde 200 con la misma forma** — usuario inexistente, contraseña
+  incorrecta, cuenta deshabilitada y servidor no soportado son indistinguibles
+  desde fuera. Jellyfin distingue esos casos con 401 y 403, y esa diferencia es
+  un oráculo de enumeración de usuarios; colapsarla es justamente el objetivo.
+
+  Dos comportamientos de Jellyfin obligaron a que esto no sea un wrapper de tres
+  líneas (leídos de `Jellyfin.Server.Implementations/Users/UserManager.cs`):
+
+  - **Una cuenta deshabilitada no puede autenticarse.** Lanza `SecurityException`
+    antes siquiera de revisar la contraseña, y como las cuentas vencidas quedan
+    deshabilitadas, son exactamente las que no podrían demostrar propiedad. Se
+    habilitan durante la comprobación y se restauran después, bajo un lock por
+    cuenta y restaurando desde la columna `user.is_disabled` de sauron y no de
+    una lectura viva de la Policy: con un proceso gunicorn y 8 hilos, dos
+    comprobaciones simultáneas de la misma cuenta se pisan y pueden dejarla
+    habilitada sin que nadie haya pagado.
+  - **Los intentos fallidos bloquean la cuenta.** Jellyfin la deshabilita al
+    llegar a `LoginAttemptsBeforeLockout`, así que un formulario público sin
+    tope es un arma de bloqueo remoto contra clientes que pagan. Se detecta el
+    bloqueo propio y se revierte, con límites de 3/hora y 10/día por usuario más
+    20/hora por IP. El contador de Jellyfin no tiene API de reseteo y sólo se
+    pone a cero con un login exitoso, así que los límites acotan la velocidad y
+    una comprobación correcta es lo que realmente sana una cuenta sondeada.
+
+- `POST /api/users/<id>/max-sessions` aplica el límite de streams simultáneos a
+  una cuenta **ya existente**. Upstream sólo lo aplica al canjear una invitación,
+  lo que sirve para una primera compra pero no para una renovación: quien sube
+  de plan ya tiene cuenta, y sin esto se cobra "4 dispositivos" y se deja el
+  límite viejo.
+
+### Fixed
+
+- **`POST /api/users/<id>/enable` devolvía 200 aunque el enable fallara**, con un
+  mensaje `"Enable failed or not supported"`. Un cliente de la API no podía
+  distinguir una cuenta reactivada de una que seguía deshabilitada, así que una
+  renovación pagada se reportaba como entregada mientras el comprador no tenía
+  acceso. Ahora responde 502.
+
+- Al reactivar un usuario se limpia su registro obsoleto en `ExpiredUser`, para
+  que un cliente renovado deje de aparecer bajo "expired users" en el admin.
+
+
 ## [2026.8.5] (2026-08-24)
 
 ### Fixed
