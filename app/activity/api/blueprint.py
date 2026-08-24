@@ -5,6 +5,7 @@ Provides routes for activity dashboard, analytics, and API endpoints
 for managing and viewing media playback activity data.
 """
 
+import contextlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -224,6 +225,26 @@ def format_duration_filter(value):
             return f"{hours}h {minutes}m"
         return f"{hours}h"
     return f"{minutes}m"
+
+
+@activity_bp.app_template_filter("days_until")
+def days_until_filter(value):
+    """Time left until a deadline, as a short badge string.
+
+    Used for dispute response windows, where "2d left" is the number that
+    decides what the operator does next.
+    """
+    if not value:
+        return "-"
+    deadline = value if value.tzinfo else value.replace(tzinfo=UTC)
+    remaining = deadline - datetime.now(UTC)
+    if remaining.total_seconds() <= 0:
+        return _("overdue")
+    days = remaining.days
+    if days >= 1:
+        return _("%(n)sd left", n=days)
+    hours = int(remaining.total_seconds() // 3600)
+    return _("%(n)sh left", n=max(1, hours))
 
 
 @activity_bp.route("/", methods=["GET"], strict_slashes=False)
@@ -808,3 +829,293 @@ def historical_data_stats(server_id: int):
             ),
             500,
         )
+
+
+# ─────────────────────────── Stripe events (Eventos) ───────────────────────
+#
+# Read-only by design. sauron holds a RESTRICTED, READ-ONLY Stripe key and never
+# writes to Stripe: the click that moves money or submits evidence stays in the
+# Stripe dashboard, where it has confirmations and an audit trail. What this tab
+# adds is the evidence Stripe cannot produce on its own — proof the buyer
+# actually used the service.
+
+EVENTOS_PAGE_SIZE = 25
+
+
+def _eventos_filters() -> dict[str, object]:
+    """Read filter args once, so tab and grid always agree on the query."""
+    return {
+        "category": request.args.get("category") or None,
+        "severity": request.args.get("severity") or None,
+        "event_type": request.args.get("event_type") or None,
+        "search": (request.args.get("search") or "").strip() or None,
+        # Default to live traffic: sandbox events share the table and must never
+        # be mistaken for real money.
+        "livemode": request.args.get("livemode", "true"),
+        "days": request.args.get("days", type=int),
+    }
+
+
+def _eventos_query(filters: dict[str, object]):
+    from app.models import StripeEvent
+
+    query = StripeEvent.query
+
+    if filters["livemode"] in ("true", "false"):
+        query = query.filter(StripeEvent.livemode.is_(filters["livemode"] == "true"))
+    if filters["category"]:
+        query = query.filter(StripeEvent.category == filters["category"])
+    if filters["severity"]:
+        query = query.filter(StripeEvent.severity == filters["severity"])
+    if filters["event_type"]:
+        query = query.filter(StripeEvent.type == filters["event_type"])
+    if filters["days"]:
+        cutoff = datetime.now(UTC) - timedelta(days=int(filters["days"]))
+        query = query.filter(StripeEvent.created_at_stripe >= cutoff)
+    if filters["search"]:
+        term = f"%{filters['search']}%"
+        query = query.filter(
+            db.or_(
+                StripeEvent.customer_email.ilike(term),
+                StripeEvent.object_id.ilike(term),
+                StripeEvent.payment_intent_id.ilike(term),
+                StripeEvent.charge_id.ilike(term),
+                StripeEvent.stripe_event_id.ilike(term),
+            )
+        )
+    return query
+
+
+@activity_bp.route("/eventos")
+@login_required
+def eventos_tab():
+    """Display the Stripe events tab."""
+    from app.services.stripe_events import (
+        MONITORED_EVENT_TYPES,
+        get_setting,
+        is_sync_enabled,
+    )
+
+    try:
+        from app.models import StripeEvent
+
+        filters = _eventos_filters()
+
+        # "all" means no mode filter. Without this branch the summary cards
+        # would silently fall back to test-mode counts while the table below
+        # showed both — two different numbers on one screen.
+        base = StripeEvent.query
+        if filters["livemode"] in ("true", "false"):
+            base = base.filter(StripeEvent.livemode.is_(filters["livemode"] == "true"))
+
+        # The action queue: disputes still inside their response window, plus
+        # unresolved fraud warnings. Ordered by deadline — an unanswered dispute
+        # is a lost dispute.
+        open_disputes = (
+            base.filter(
+                StripeEvent.category == "dispute",
+                StripeEvent.dispute_due_by.isnot(None),
+                StripeEvent.dispute_due_by >= datetime.now(UTC),
+            )
+            .order_by(StripeEvent.dispute_due_by.asc())
+            .limit(20)
+            .all()
+        )
+        fraud_warnings = (
+            base.filter(StripeEvent.type == "radar.early_fraud_warning.created")
+            .order_by(StripeEvent.created_at_stripe.desc())
+            .limit(20)
+            .all()
+        )
+
+        def _count(**kwargs) -> int:
+            query = base
+            for key, value in kwargs.items():
+                query = query.filter(getattr(StripeEvent, key) == value)
+            return query.count()
+
+        stats = {
+            "total": base.count(),
+            "payments_ok": _count(type="payment_intent.succeeded"),
+            "payments_failed": _count(type="payment_intent.payment_failed"),
+            "refunds": _count(type="charge.refunded"),
+            "disputes": _count(category="dispute"),
+            "disputes_open": len(open_disputes),
+            "fraud_warnings": len(fraud_warnings),
+            "errors": base.filter(
+                StripeEvent.severity.in_(["error", "critical"])
+            ).count(),
+        }
+
+        return render_template(
+            "activity/eventos_tab.html",
+            stats=stats,
+            open_disputes=open_disputes,
+            fraud_warnings=fraud_warnings,
+            filters=filters,
+            event_types=sorted(MONITORED_EVENT_TYPES),
+            configured=bool(get_setting("stripe_api_key")),
+            sync_enabled=is_sync_enabled(),
+            last_sync=get_setting("stripe_last_sync_at"),
+            last_error=get_setting("stripe_sync_last_error"),
+            interval=get_setting("stripe_sync_interval_minutes", "15"),
+        )
+    except Exception as exc:
+        structlog.get_logger(__name__).error(
+            "Failed to load eventos tab: %s", exc, exc_info=True
+        )
+        return render_template(
+            "activity/eventos_tab.html",
+            error=_("Failed to load Stripe events"),
+            stats={},
+            open_disputes=[],
+            fraud_warnings=[],
+            filters=_eventos_filters(),
+            event_types=[],
+            configured=False,
+            sync_enabled=False,
+        )
+
+
+@activity_bp.route("/eventos/grid")
+@login_required
+def eventos_grid():
+    """Paginated Stripe event table."""
+    from app.models import StripeEvent
+
+    try:
+        filters = _eventos_filters()
+        page = max(1, request.args.get("page", 1, type=int))
+        query = _eventos_query(filters)
+
+        total_count = query.count()
+        events = (
+            query.order_by(StripeEvent.created_at_stripe.desc())
+            .offset((page - 1) * EVENTOS_PAGE_SIZE)
+            .limit(EVENTOS_PAGE_SIZE)
+            .all()
+        )
+
+        total_pages = (total_count + EVENTOS_PAGE_SIZE - 1) // EVENTOS_PAGE_SIZE
+        return render_template(
+            "activity/_eventos_table.html",
+            events=events,
+            page=page,
+            total_count=total_count,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1,
+            filters=filters,
+        )
+    except Exception as exc:
+        structlog.get_logger(__name__).error(
+            "Failed to load eventos grid: %s", exc, exc_info=True
+        )
+        return render_template(
+            "activity/_eventos_table.html",
+            events=[],
+            error=_("Failed to load Stripe events"),
+            filters=_eventos_filters(),
+        )
+
+
+@activity_bp.route("/eventos/<int:event_id>")
+@login_required
+def eventos_detail(event_id: int):
+    """Event detail with the sauron-side evidence packet."""
+    from app.models import StripeEvent
+    from app.services.stripe_evidence import build_evidence_packet
+
+    event = db.session.get(StripeEvent, event_id)
+    if event is None:
+        return render_template(
+            "activity/_eventos_detail.html", event=None, error=_("Event not found")
+        ), 404
+
+    try:
+        packet = build_evidence_packet(event)
+    except Exception as exc:
+        structlog.get_logger(__name__).error(
+            "Failed to build evidence packet: %s", exc, exc_info=True
+        )
+        packet = None
+
+    return render_template("activity/_eventos_detail.html", event=event, packet=packet)
+
+
+@activity_bp.route("/eventos/sync", methods=["POST"])
+@login_required
+def eventos_sync():
+    """Run a sync now, instead of waiting for the next scheduled tick."""
+    from app.services.stripe_events import sync_stripe_events
+    from app.services.stripe_evidence import resolve_pending_links
+
+    try:
+        summary = sync_stripe_events(force=True)
+        if not summary.get("error"):
+            summary["correlated"] = resolve_pending_links()
+        if summary.get("error"):
+            flash(_("Stripe sync failed: %(err)s", err=summary["error"]), "error")
+        elif summary.get("skipped"):
+            flash(_("Stripe sync skipped: no API key configured."), "error")
+        else:
+            flash(
+                _(
+                    "Stripe sync completed: %(new)s new events.",
+                    new=summary.get("inserted", 0),
+                ),
+                "success",
+            )
+    except Exception as exc:
+        structlog.get_logger(__name__).error(
+            "Manual Stripe sync failed: %s", exc, exc_info=True
+        )
+        flash(_("Stripe sync failed."), "error")
+
+    return redirect(url_for("activity.activity_dashboard"))
+
+
+@activity_bp.route("/eventos/settings", methods=["POST"])
+@login_required
+def eventos_settings():
+    """Save the Stripe polling settings."""
+    from app.services.stripe_events import get_setting, set_setting
+
+    try:
+        submitted_key = (request.form.get("stripe_api_key") or "").strip()
+        # An untouched masked field must never wipe the stored key.
+        if submitted_key and not submitted_key.startswith("•"):
+            set_setting("stripe_api_key", submitted_key)
+        elif request.form.get("clear_api_key") == "1":
+            set_setting("stripe_api_key", None)
+            set_setting("stripe_sync_enabled", "false")
+
+        set_setting(
+            "stripe_sync_enabled",
+            "true" if request.form.get("stripe_sync_enabled") == "on" else "false",
+        )
+
+        raw_interval = request.form.get("stripe_sync_interval_minutes")
+        if raw_interval:
+            # A non-numeric interval just keeps the stored one.
+            with contextlib.suppress(ValueError):
+                set_setting(
+                    "stripe_sync_interval_minutes", str(max(1, int(raw_interval)))
+                )
+
+        db.session.commit()
+
+        if get_setting("stripe_api_key"):
+            flash(_("Stripe settings saved."), "success")
+        else:
+            flash(
+                _("Stripe settings saved. Add an API key to start syncing."), "success"
+            )
+    except Exception as exc:
+        db.session.rollback()
+        structlog.get_logger(__name__).error(
+            "Failed to save Stripe settings: %s", exc, exc_info=True
+        )
+        flash(_("Failed to save Stripe settings."), "error")
+
+    return redirect(url_for("activity.activity_dashboard"))

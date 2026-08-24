@@ -227,6 +227,40 @@ def init_extensions(app):
             replace_existing=True,
         )
 
+        # Add the Stripe event sync (only if a key is configured). Registered
+        # unconditionally when configured; the task itself re-checks the enabled
+        # flag on every tick, so toggling it off in the UI takes effect without
+        # a restart.
+        # NOTE: init_extensions runs OUTSIDE an app context, so any DB read here
+        # must push one explicitly (the LDAP block below does not, which is why
+        # its query silently fails into the except).
+        try:
+            from app.services.stripe_events import (
+                get_setting as _stripe_setting,
+            )
+            from app.services.stripe_events import (
+                get_sync_interval_minutes,
+            )
+            from app.tasks.stripe_sync import sync_stripe_events_task
+
+            with app.app_context():
+                stripe_configured = bool(_stripe_setting("stripe_api_key"))
+                stripe_interval = get_sync_interval_minutes()
+
+            if stripe_configured:
+                scheduler.add_job(
+                    id="sync_stripe_events",
+                    func=lambda: sync_stripe_events_task(app),
+                    trigger="interval",
+                    minutes=stripe_interval,
+                    replace_existing=True,
+                )
+        except Exception:
+            # Table may not exist yet if migrations haven't run.
+            app.logger.debug(
+                "Stripe sync job not registered (settings table may not exist yet)"
+            )
+
         # Add LDAP user sync task (only if LDAP is configured)
         from app.tasks.ldap_sync import _get_ldap_sync_interval, sync_ldap_users
 

@@ -1,0 +1,260 @@
+<!-- Eventos (Stripe) Tab Content -->
+{#
+  Read-only monitoring of Stripe events, plus the evidence only this instance
+  can produce for a dispute. sauron never writes to Stripe: the action queue
+  below tells the operator what needs answering and hands them the evidence to
+  paste, but the click that moves money stays in the Stripe dashboard.
+#}
+<div id="eventos-root">
+  {% if error %}
+    <div class="bg-red-50 dark:bg-red-900/50 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
+      <div class="flex">
+        <svg class="flex-shrink-0 w-5 h-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+        </svg>
+        <div class="ml-3"><h3 class="text-sm font-medium text-red-800 dark:text-red-200">{{ error }}</h3></div>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if not configured %}
+    {# Empty state: nothing works until a restricted read-only key is stored. #}
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center mb-6">
+      <div class="mx-auto w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+        <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
+        </svg>
+      </div>
+      <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ _("Stripe is not connected yet") }}</h3>
+      <p class="mt-2 text-sm text-gray-600 dark:text-gray-400 max-w-xl mx-auto">
+        {{ _("Add a restricted, read-only Stripe API key below to start collecting events. sauron only reads from Stripe — it never creates refunds or submits evidence.") }}
+      </p>
+    </div>
+  {% endif %}
+
+  {# ───────────────── Action queue ─────────────────
+     The only part of this tab with real urgency: disputes inside their response
+     window and unresolved fraud warnings, deadline first. #}
+  {% if open_disputes or fraud_warnings %}
+    <div class="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {% if open_disputes %}
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-red-200 dark:border-red-800/60">
+          <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
+            <span class="inline-flex h-6 w-6 items-center justify-center rounded bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-300">
+              <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+            </span>
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ _("Disputes awaiting response") }}</h3>
+          </div>
+          <ul class="divide-y divide-gray-200 dark:divide-gray-700">
+            {% for d in open_disputes %}
+              <li class="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer"
+                  hx-get="{{ url_for('activity.eventos_detail', event_id=d.id) }}"
+                  hx-target="#eventos-detail" hx-swap="innerHTML">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="text-sm font-medium text-gray-900 dark:text-white truncate">
+                      {{ d.customer_email or d.charge_id or d.object_id }}
+                    </p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                      {{ d.dispute_reason or _("unknown reason") }}
+                      {% if d.amount %} · {{ "%.2f"|format(d.amount / 100) }} {{ (d.currency or "")|upper }}{% endif %}
+                      {% if d.network_reason_code == "10.4" %}
+                        · <span class="text-primary font-medium">{{ _("CE 3.0 eligible") }}</span>
+                      {% endif %}
+                    </p>
+                  </div>
+                  <span class="shrink-0 text-xs font-semibold px-2 py-1 rounded bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200">
+                    {{ d.dispute_due_by | days_until }}
+                  </span>
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      {% if fraud_warnings %}
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-amber-200 dark:border-amber-800/60">
+          <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
+            <span class="inline-flex h-6 w-6 items-center justify-center rounded bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-300">
+              <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+            </span>
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ _("Early fraud warnings") }}</h3>
+          </div>
+          <div class="px-4 py-2 bg-amber-50 dark:bg-amber-900/10 border-b border-gray-200 dark:border-gray-700">
+            <p class="text-xs text-amber-800 dark:text-amber-200">
+              {{ _("Refunding inside the warning window prevents the chargeback entirely — no dispute fee, no impact on your dispute rate.") }}
+            </p>
+          </div>
+          <ul class="divide-y divide-gray-200 dark:divide-gray-700">
+            {% for f in fraud_warnings %}
+              <li class="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer"
+                  hx-get="{{ url_for('activity.eventos_detail', event_id=f.id) }}"
+                  hx-target="#eventos-detail" hx-swap="innerHTML">
+                <p class="text-sm font-medium text-gray-900 dark:text-white truncate">
+                  {{ f.customer_email or f.charge_id or f.object_id }}
+                </p>
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ f.dispute_reason or _("fraud warning") }} · {{ f.created_at_stripe.strftime('%Y-%m-%d %H:%M') if f.created_at_stripe }}
+                </p>
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {# ───────────────── Summary cards ───────────────── #}
+  <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
+    {% set cards = [
+      (_("Total events"), stats.get('total', 0), 'text-gray-900 dark:text-white'),
+      (_("Payments OK"), stats.get('payments_ok', 0), 'text-green-600 dark:text-green-400'),
+      (_("Payments failed"), stats.get('payments_failed', 0), 'text-red-600 dark:text-red-400'),
+      (_("Refunds"), stats.get('refunds', 0), 'text-amber-600 dark:text-amber-400'),
+      (_("Disputes"), stats.get('disputes', 0), 'text-red-600 dark:text-red-400'),
+      (_("Fraud warnings"), stats.get('fraud_warnings', 0), 'text-amber-600 dark:text-amber-400')
+    ] %}
+    {% for label, value, colour in cards %}
+      <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+        <p class="text-xs font-medium text-gray-500 dark:text-gray-400 truncate">{{ label }}</p>
+        <p class="mt-1 text-2xl font-bold {{ colour }}">{{ value }}</p>
+      </div>
+    {% endfor %}
+  </div>
+
+  {# ───────────────── Filters ───────────────── #}
+  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-4">
+    <div class="flex flex-wrap items-end gap-3">
+      {# Mode reloads the WHOLE tab, not just the table: it also changes the
+         summary cards and the action queue above, and refreshing only the grid
+         would leave two different sets of numbers on one screen. #}
+      <div>
+        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ _("Mode") }}</label>
+        <select name="livemode"
+                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-36 p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                hx-get="{{ url_for('activity.eventos_tab') }}"
+                hx-target="#activity-tab-body" hx-swap="innerHTML"
+                hx-trigger="change">
+          <option value="true" {% if filters.livemode == 'true' %}selected{% endif %}>{{ _("Live") }}</option>
+          <option value="false" {% if filters.livemode == 'false' %}selected{% endif %}>{{ _("Test / sandbox") }}</option>
+          <option value="all" {% if filters.livemode == 'all' %}selected{% endif %}>{{ _("Both") }}</option>
+        </select>
+      </div>
+
+      <div id="eventos-filters" class="contents"
+           hx-get="{{ url_for('activity.eventos_grid') }}"
+           hx-target="#eventos-grid" hx-swap="innerHTML"
+           hx-trigger="change from:find select, keyup changed delay:400ms from:find input[name='search']"
+           hx-include="#eventos-filters, [name='livemode']">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ _("Category") }}</label>
+        <select name="category" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-40 p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+          <option value="">{{ _("All") }}</option>
+          {% for c in ['checkout', 'payment', 'refund', 'dispute', 'fraud'] %}
+            <option value="{{ c }}" {% if filters.category == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ _("Severity") }}</label>
+        <select name="severity" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-36 p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+          <option value="">{{ _("All") }}</option>
+          {% for s in ['info', 'warning', 'error', 'critical'] %}
+            <option value="{{ s }}" {% if filters.severity == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ _("Event type") }}</label>
+        <select name="event_type" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-64 p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+          <option value="">{{ _("All") }}</option>
+          {% for t in event_types %}
+            <option value="{{ t }}" {% if filters.event_type == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex-1 min-w-[200px]">
+        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ _("Search") }}</label>
+        <input type="text" name="search" value="{{ filters.search or '' }}"
+               placeholder="{{ _('email, pi_…, ch_…, evt_…') }}"
+               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+      </div>
+      </div>
+    </div>
+  </div>
+
+  {# ───────────────── Table + detail ───────────────── #}
+  <div id="eventos-grid"
+       hx-get="{{ url_for('activity.eventos_grid', livemode=filters.livemode) }}"
+       hx-trigger="load" hx-swap="innerHTML"></div>
+
+  <div id="eventos-detail" class="mt-4"></div>
+
+  {# ───────────────── Connection settings ───────────────── #}
+  <div class="mt-8 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+    <div class="p-6">
+      <div class="border-b border-gray-200 dark:border-gray-700 pb-3 mb-4">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ _("Stripe connection") }}</h2>
+        <p class="text-sm text-gray-600 dark:text-gray-400">
+          {{ _("sauron polls the Stripe Events API on a schedule. It is not a webhook endpoint and never writes to Stripe.") }}
+        </p>
+      </div>
+
+      <div class="mb-4 rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/10 px-4 py-3">
+        <p class="text-sm text-amber-800 dark:text-amber-200">
+          <strong>{{ _("Use a restricted key.") }}</strong>
+          {{ _("Grant read-only access to Events, Charges, PaymentIntents and Disputes. Never store a full secret key here: this instance is self-hosted, and a key that can move money turns a server compromise into a financial one.") }}
+        </p>
+      </div>
+
+      <form method="post" action="{{ url_for('activity.eventos_settings') }}" class="space-y-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ _("Restricted API key") }}</label>
+            <input type="password" name="stripe_api_key" autocomplete="off"
+                   placeholder="{% if configured %}{{ _('•••••••• (stored — leave blank to keep)') }}{% else %}rk_live_…{% endif %}"
+                   class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ _("Sync interval (minutes)") }}</label>
+            <input type="number" min="1" name="stripe_sync_interval_minutes" value="{{ interval or 15 }}"
+                   class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+          </div>
+        </div>
+
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="stripe_sync_enabled" {% if sync_enabled %}checked{% endif %}
+                 class="w-4 h-4 text-primary bg-gray-100 border-gray-300 rounded focus:ring-primary dark:bg-gray-700 dark:border-gray-600">
+          <span class="text-sm text-gray-700 dark:text-gray-300">{{ _("Enable scheduled sync") }}</span>
+        </label>
+
+        {% if configured %}
+          <label class="flex items-center gap-2">
+            <input type="checkbox" name="clear_api_key" value="1"
+                   class="w-4 h-4 text-red-600 bg-gray-100 border-gray-300 rounded focus:ring-red-500 dark:bg-gray-700 dark:border-gray-600">
+            <span class="text-sm text-red-700 dark:text-red-300">{{ _("Remove the stored API key") }}</span>
+          </label>
+        {% endif %}
+
+        <div class="flex flex-wrap items-center gap-3 pt-2">
+          <button type="submit" class="px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary_hover">
+            {{ _("Save") }}
+          </button>
+          <button type="submit" formaction="{{ url_for('activity.eventos_sync') }}"
+                  class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">
+            {{ _("Sync now") }}
+          </button>
+          <span class="text-xs text-gray-500 dark:text-gray-400">
+            {% if last_sync %}{{ _("Last sync:") }} {{ last_sync[:16].replace('T', ' ') }} UTC{% else %}{{ _("Never synced") }}{% endif %}
+          </span>
+        </div>
+
+        {% if last_error %}
+          <p class="text-xs text-red-600 dark:text-red-400">{{ _("Last error:") }} {{ last_error }}</p>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+</div>

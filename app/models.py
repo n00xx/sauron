@@ -1193,3 +1193,104 @@ class LDAPGroup(db.Model):
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
+
+
+class StripeEvent(db.Model):
+    """A Stripe event mirrored into sauron for monitoring and dispute defence.
+
+    Stripe keeps events for 30 days; this table is the durable archive. Rows are
+    written by the polling sync (``app.services.stripe_events``), never by a
+    webhook — sauron reads the Events API and is not on Stripe's delivery path.
+
+    The columns above ``payload`` are denormalised *out of* the raw event so the
+    UI can filter and sort without parsing JSON on every row. ``payload`` always
+    holds the untouched event, so nothing is lost to a denormalisation gap.
+    """
+
+    __tablename__ = "stripe_event"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # Stripe's own event id (evt_...). UNIQUE — this is the idempotency key that
+    # makes re-syncing an overlapping window a no-op.
+    stripe_event_id = db.Column(db.String, nullable=False, unique=True, index=True)
+
+    type = db.Column(db.String, nullable=False, index=True)
+    # Coarse bucket derived from `type` (payment/refund/dispute/fraud/...), so
+    # the UI can group without hardcoding the full type list in a template.
+    category = db.Column(db.String, nullable=False, index=True)
+    # info | warning | error | critical — drives colour and the action queue.
+    severity = db.Column(db.String, nullable=False, index=True)
+
+    created_at_stripe = db.Column(db.DateTime, nullable=False, index=True)
+    # Test-mode and live-mode events land in the same table; every query filters
+    # on this so sandbox traffic can never be mistaken for real money.
+    livemode = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    api_version = db.Column(db.String, nullable=True)
+
+    # --- Correlation keys -------------------------------------------------
+    # The id of the object the event carries (cs_/pi_/ch_/dp_/re_...).
+    object_id = db.Column(db.String, nullable=True, index=True)
+    # PaymentIntent is the spine: checkout, charge, refund and dispute events on
+    # the same purchase all resolve back to it.
+    payment_intent_id = db.Column(db.String, nullable=True, index=True)
+    charge_id = db.Column(db.String, nullable=True, index=True)
+    customer_email = db.Column(db.String, nullable=True, index=True)
+
+    amount = db.Column(db.BigInteger, nullable=True)  # smallest currency unit
+    currency = db.Column(db.String, nullable=True)
+    status = db.Column(db.String, nullable=True, index=True)
+
+    # --- Failure detail ---------------------------------------------------
+    error_code = db.Column(db.String, nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+
+    # --- Dispute detail ---------------------------------------------------
+    dispute_reason = db.Column(db.String, nullable=True)
+    # The response deadline. This is what orders the action queue — a dispute
+    # you never answer is a dispute you lose by default.
+    dispute_due_by = db.Column(db.DateTime, nullable=True, index=True)
+    # Visa network reason code; "10.4" is the one eligible for CE 3.0.
+    network_reason_code = db.Column(db.String, nullable=True)
+
+    # --- Resolved link into sauron's own data -----------------------------
+    # Populated by app.services.stripe_evidence. Nullable on purpose: an event
+    # that cannot be matched is shown as unmatched rather than hidden.
+    wizarr_user_id = db.Column(
+        db.Integer, db.ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    invitation_id = db.Column(
+        db.Integer,
+        db.ForeignKey("invitation.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    payload = db.Column(db.Text, nullable=True)  # raw event JSON
+    ingested_at = db.Column(
+        db.DateTime, default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    wizarr_user = db.relationship("User", foreign_keys=[wizarr_user_id])
+    invitation = db.relationship("Invitation", foreign_keys=[invitation_id])
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    @property
+    def payload_dict(self) -> dict[str, Any]:
+        """Raw event as a dict, or ``{}`` when absent/corrupt.
+
+        Never raises: this feeds a detail template, and a single bad row must
+        not take the page down.
+        """
+        if not self.payload:
+            return {}
+        try:
+            parsed = json.loads(self.payload)
+        except (ValueError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def __repr__(self) -> str:
+        return f"<StripeEvent {self.stripe_event_id} {self.type}>"
