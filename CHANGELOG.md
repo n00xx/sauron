@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.8.7] (2026-08-24)
+
+### Fixed
+
+- **Deshabilitar una cuenta vencida ya no la borra.** Con
+  `Expiry Action = "Disable User"`, el barrido de expiración deshabilitaba la
+  cuenta correctamente en Jellyfin y **acto seguido la borraba**. El disable
+  nunca falló: lo que reventaba era la contabilidad de la transacción.
+
+  `disable_user()` hace `db.session.commit()`, lo cual **cierra el savepoint**
+  que abrió `disable_or_delete_user_if_expired()`. El `savepoint.commit()`
+  posterior lanzaba `ResourceClosedError`, y el `except` lo interpretaba como
+  "el disable falló" y ejecutaba el borrado de respaldo.
+
+  Ahora `_set_user_enabled_state` hace `flush` cuando corre dentro de un
+  savepoint ajeno y solo commitea cuando es el ámbito externo; el barrido
+  resuelve si el disable funcionó **antes** de tocar la transacción, y el
+  fallback a borrado exige evidencia positiva de fallo — borrar es
+  irreversible y no puede dispararlo un error de savepoint.
+
+- **El barrido vuelve a procesar todos los usuarios vencidos, no solo el
+  primero.** El mismo `ResourceClosedError` escapaba del manejador por usuario
+  (el `rollback` lanzaba un segundo error) y mataba el job programado. Se
+  procesaba **una** cuenta por corrida de 15 minutos y el resto se acumulaba en
+  una cola invisible.
+
+  Nota de origen: el patrón de savepoints viene de upstream (`5c9b6d93`), donde
+  `delete_user()` también commitea — así que las instancias upstream comparten
+  el fallo del job, aunque sin la pérdida de datos, que la introdujo este fork
+  en `d52b612b`.
+
 ## [2026.8.6] (2026-08-24)
 
 ### Added
