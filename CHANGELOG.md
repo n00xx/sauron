@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.8.3] (2026-08-24)
+
+### Fixed
+
+- **La pestaña Eventos no daba señales de vida al configurarla.** Guardar y
+  «Sync now» hacían `flash()` + redirect, pero **nada en esta app renderiza
+  `get_flashed_messages`** — así que el mensaje, incluido un error de Stripe
+  como "401: revisa la llave restringida", era literalmente invisible. Encima el
+  redirect caía en la pestaña Dashboard, no en Eventos. El resultado combinado:
+  pegabas la llave, no pasaba nada visible, volvías a Eventos y la veías vacía
+  sin ninguna explicación. Ambas acciones ahora vuelven a dibujar la pestaña en
+  el sitio, con el resultado arriba y el error de Stripe textual.
+- **El modo por defecto dejaba vacía una cuenta solo-sandbox.** La pestaña abría
+  siempre en Live; con eventos únicamente de prueba, una sincronización exitosa
+  se veía idéntica a una rota. Ahora, si no hay tráfico live pero sí de prueba,
+  abre en Test — y el selector muestra cuál ganó, así que no se oculta nada.
+- El mensaje de sincronización distingue los tres casos que antes se veían
+  igual: eventos nuevos guardados, eventos ya conocidos, y cero eventos
+  devueltos por Stripe (con el aviso de que la llave quizá no es `rk_test_`).
+
 ## [2026.8.2] (2026-08-23)
 
 ### Added

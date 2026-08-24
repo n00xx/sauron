@@ -842,6 +842,29 @@ def historical_data_stats(server_id: int):
 EVENTOS_PAGE_SIZE = 25
 
 
+def _default_livemode() -> str:
+    """Which mode to show when the user has not picked one.
+
+    Live by default — sandbox events share this table and must never be mistaken
+    for real money. But if there is no live traffic at all and test events do
+    exist, show those instead: the alternative is an empty tab right after a
+    successful sync, which reads as "it's broken" rather than "wrong mode". The
+    selector still shows which mode won, so nothing is hidden.
+    """
+    from app.models import StripeEvent
+
+    try:
+        if StripeEvent.query.filter(StripeEvent.livemode.is_(True)).first():
+            return "true"
+        if StripeEvent.query.filter(StripeEvent.livemode.is_(False)).first():
+            return "false"
+    except Exception as exc:  # pragma: no cover - table may not exist yet
+        structlog.get_logger(__name__).debug(
+            "Could not pick a default Stripe mode: %s", exc
+        )
+    return "true"
+
+
 def _eventos_filters() -> dict[str, object]:
     """Read filter args once, so tab and grid always agree on the query."""
     return {
@@ -849,9 +872,7 @@ def _eventos_filters() -> dict[str, object]:
         "severity": request.args.get("severity") or None,
         "event_type": request.args.get("event_type") or None,
         "search": (request.args.get("search") or "").strip() or None,
-        # Default to live traffic: sandbox events share the table and must never
-        # be mistaken for real money.
-        "livemode": request.args.get("livemode", "true"),
+        "livemode": request.args.get("livemode") or _default_livemode(),
         "days": request.args.get("days", type=int),
     }
 
@@ -890,6 +911,16 @@ def _eventos_query(filters: dict[str, object]):
 @login_required
 def eventos_tab():
     """Display the Stripe events tab."""
+    return _render_eventos_tab()
+
+
+def _render_eventos_tab(message: str | None = None, message_kind: str = "success"):
+    """Render the Eventos tab, optionally with a result banner.
+
+    Save and "Sync now" render through here rather than redirecting: nothing in
+    this app renders `get_flashed_messages`, so a flashed sync error would be
+    invisible — the admin would see an empty tab and no reason why.
+    """
     from app.services.stripe_events import (
         MONITORED_EVENT_TYPES,
         get_setting,
@@ -959,6 +990,8 @@ def eventos_tab():
             last_sync=get_setting("stripe_last_sync_at"),
             last_error=get_setting("stripe_sync_last_error"),
             interval=get_setting("stripe_sync_interval_minutes", "15"),
+            message=message,
+            message_kind=message_kind,
         )
     except Exception as exc:
         structlog.get_logger(__name__).error(
@@ -1052,27 +1085,42 @@ def eventos_sync():
 
     try:
         summary = sync_stripe_events(force=True)
-        if not summary.get("error"):
-            summary["correlated"] = resolve_pending_links()
         if summary.get("error"):
-            flash(_("Stripe sync failed: %(err)s", err=summary["error"]), "error")
-        elif summary.get("skipped"):
-            flash(_("Stripe sync skipped: no API key configured."), "error")
-        else:
-            flash(
-                _(
-                    "Stripe sync completed: %(new)s new events.",
-                    new=summary.get("inserted", 0),
-                ),
-                "success",
+            # Surfaced verbatim: "401 — check the restricted key" is actionable,
+            # a generic "sync failed" is not.
+            return _render_eventos_tab(
+                _("Stripe sync failed: %(err)s", err=summary["error"]), "error"
             )
+        if summary.get("skipped"):
+            return _render_eventos_tab(
+                _("Stripe sync skipped: no API key configured."), "error"
+            )
+
+        resolve_pending_links()
+        inserted = summary.get("inserted", 0)
+        fetched = summary.get("fetched", 0)
+
+        if inserted:
+            message = _("Sync completed: %(new)s new events stored.", new=inserted)
+        elif fetched:
+            # Reached Stripe and saw events, but none were new or monitored.
+            # Saying so beats a bare "0 new", which reads like a failure.
+            message = _(
+                "Sync completed: no new events (%(seen)s already known or not "
+                "monitored).",
+                seen=fetched,
+            )
+        else:
+            message = _(
+                "Sync completed, but Stripe returned no events. If you expected "
+                "sandbox data, check that the key is a test-mode key (rk_test_…)."
+            )
+        return _render_eventos_tab(message, "success")
     except Exception as exc:
         structlog.get_logger(__name__).error(
             "Manual Stripe sync failed: %s", exc, exc_info=True
         )
-        flash(_("Stripe sync failed."), "error")
-
-    return redirect(url_for("activity.activity_dashboard"))
+        return _render_eventos_tab(_("Stripe sync failed."), "error")
 
 
 def _refresh_stripe_sync_job() -> None:
@@ -1153,16 +1201,13 @@ def eventos_settings():
         _refresh_stripe_sync_job()
 
         if get_setting("stripe_api_key"):
-            flash(_("Stripe settings saved."), "success")
+            message = _('Settings saved. Click "Sync now" to pull events.')
         else:
-            flash(
-                _("Stripe settings saved. Add an API key to start syncing."), "success"
-            )
+            message = _("Settings saved. Add an API key to start syncing.")
+        return _render_eventos_tab(message, "success")
     except Exception as exc:
         db.session.rollback()
         structlog.get_logger(__name__).error(
             "Failed to save Stripe settings: %s", exc, exc_info=True
         )
-        flash(_("Failed to save Stripe settings."), "error")
-
-    return redirect(url_for("activity.activity_dashboard"))
+        return _render_eventos_tab(_("Failed to save Stripe settings."), "error")

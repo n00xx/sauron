@@ -17,6 +17,17 @@
     </div>
   {% endif %}
 
+  {% if message %}
+    {% set ok = message_kind != 'error' %}
+    <div class="rounded-lg border px-4 py-3 mb-6
+                {{ 'border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/20'
+                   if ok else 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' }}">
+      <p class="text-sm font-medium {{ 'text-green-800 dark:text-green-100' if ok else 'text-red-800 dark:text-red-100' }}">
+        {{ message }}
+      </p>
+    </div>
+  {% endif %}
+
   {% if not configured %}
     {# Empty state: nothing works until a restricted read-only key is stored. #}
     <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center mb-6">
@@ -208,7 +219,12 @@
         </p>
       </div>
 
-      <form method="post" action="{{ url_for('activity.eventos_settings') }}" class="space-y-4">
+      {# HTMX, not a plain POST+redirect: a redirect lands on the Dashboard tab
+         and nothing in this app renders flashed messages, so a sync error would
+         be invisible. Both actions re-render this tab in place, with the result. #}
+      <form class="space-y-4"
+            hx-post="{{ url_for('activity.eventos_settings') }}"
+            hx-target="#activity-tab-body" hx-swap="innerHTML">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -242,10 +258,16 @@
           <button type="submit" class="px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary_hover">
             {{ _("Save") }}
           </button>
-          <button type="submit" formaction="{{ url_for('activity.eventos_sync') }}"
+          <button type="button"
+                  hx-post="{{ url_for('activity.eventos_sync') }}"
+                  hx-target="#activity-tab-body" hx-swap="innerHTML"
+                  hx-indicator="#sync-spinner"
                   class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">
             {{ _("Sync now") }}
           </button>
+          <span id="sync-spinner" class="htmx-indicator text-xs text-gray-500 dark:text-gray-400">
+            {{ _("Syncing…") }}
+          </span>
           <span class="text-xs text-gray-500 dark:text-gray-400">
             {% if last_sync %}{{ _("Last sync:") }} {{ last_sync[:16].replace('T', ' ') }} UTC{% else %}{{ _("Never synced") }}{% endif %}
           </span>

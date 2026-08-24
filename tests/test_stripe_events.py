@@ -697,6 +697,54 @@ class TestRendering:
         assert response.status_code == 200
         assert b"card_declined" in response.data
 
+    def test_sync_result_is_visible_on_the_tab(self, app, logged_in):
+        """Nothing in this app renders flashed messages.
+
+        A flashed sync error would be invisible: the admin would see an empty
+        tab and no reason why. Both actions must re-render the tab WITH the
+        result in the body.
+        """
+        with app.app_context():
+            se.set_setting("stripe_api_key", None)
+            db.session.commit()
+
+        response = logged_in.post("/activity/eventos/sync")
+        assert response.status_code == 200
+        assert b"no API key configured" in response.data
+
+        saved = logged_in.post(
+            "/activity/eventos/settings", data={"stripe_api_key": ""}
+        )
+        assert saved.status_code == 200
+        assert b"Add an API key" in saved.data
+
+    def test_mode_defaults_to_test_when_only_test_events_exist(
+        self, app, logged_in, clean_stripe_events
+    ):
+        """A sandbox-only account must not open on an empty Live view.
+
+        Defaulting to Live with no live events makes a successful sync look
+        broken.
+        """
+        with app.app_context():
+            db.session.add(
+                StripeEvent(
+                    stripe_event_id="evt_only_test",
+                    type="payment_intent.succeeded",
+                    category="payment",
+                    severity="info",
+                    created_at_stripe=datetime.now(UTC),
+                    livemode=False,
+                    customer_email="sandbox-default@example.com",
+                )
+            )
+            db.session.commit()
+
+        response = logged_in.get("/activity/eventos")
+        assert response.status_code == 200
+        # The test-mode option is the selected one.
+        assert b'value="false" selected' in response.data
+
     def test_missing_event_is_a_404_not_a_crash(self, logged_in):
         assert logged_in.get("/activity/eventos/999999").status_code == 404
 
