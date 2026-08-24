@@ -334,6 +334,224 @@ class TestSync:
             db.session.commit()
             assert se.get_sync_interval_minutes() == 15
 
+    def test_one_bad_event_does_not_discard_the_batch(
+        self, app, clean_stripe_events, monkeypatch
+    ):
+        """A single unwritable event must cost exactly one event.
+
+        The regression this pins: a bare rollback() in the ingest loop discarded
+        every row already flushed in the batch while the counter kept counting
+        them, so the sync reported "2 new events stored" and stored one.
+        """
+        events = [
+            _event("payment_intent.succeeded", {"id": "pi_ok1"}, id="evt_ok1"),
+            _event("payment_intent.succeeded", {"id": "pi_bad"}, id="evt_bad"),
+            _event("payment_intent.succeeded", {"id": "pi_ok2"}, id="evt_ok2"),
+        ]
+        monkeypatch.setattr(se, "fetch_events", lambda *a, **k: events)
+
+        real_extract = se.extract_fields
+
+        def _poison_the_middle_one(event):
+            fields = real_extract(event)
+            if event.get("id") == "evt_bad":
+                fields["type"] = None  # violates NOT NULL
+            return fields
+
+        monkeypatch.setattr(se, "extract_fields", _poison_the_middle_one)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.commit()
+            summary = se.sync_stripe_events(force=True)
+
+            assert summary["inserted"] == 2
+            assert summary["failed"] == 1
+            # The count is the real assertion: what was reported must be what
+            # survived the commit.
+            assert StripeEvent.query.count() == summary["inserted"]
+
+    def test_summary_separates_not_monitored_from_already_known(
+        self, app, clean_stripe_events, monkeypatch
+    ):
+        """A quiet sync has two opposite causes; they must not look alike."""
+        events = [
+            _event("payment_intent.succeeded", {"id": "pi_1"}, id="evt_known"),
+            _event("account.updated", {"id": "acct_1"}, id="evt_ignored_1"),
+            _event("account.updated", {"id": "acct_2"}, id="evt_ignored_2"),
+            _event("payout.paid", {"id": "po_1"}, id="evt_ignored_3"),
+        ]
+        monkeypatch.setattr(se, "fetch_events", lambda *a, **k: events)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.commit()
+
+            se.sync_stripe_events(force=True)
+            second = se.sync_stripe_events(force=True)
+
+            assert second["fetched"] == 4
+            assert second["monitored"] == 1
+            assert second["skipped"] == 1  # already known
+            assert second["inserted"] == 0
+            # The histogram is what identifies a key aimed at another account.
+            assert dict(second["unmonitored_types"]) == {
+                "account.updated": 2,
+                "payout.paid": 1,
+            }
+
+    def test_summary_reports_the_livemode_split(
+        self, app, clean_stripe_events, monkeypatch
+    ):
+        """Stripe stamps every event with its mode — no second call needed."""
+        events = [
+            _event(
+                "payment_intent.succeeded", {"id": "pi_1"}, id="evt_l", livemode=True
+            ),
+            _event("charge.succeeded", {"id": "ch_1"}, id="evt_t", livemode=False),
+        ]
+        monkeypatch.setattr(se, "fetch_events", lambda *a, **k: events)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.commit()
+            summary = se.sync_stripe_events(force=True)
+
+            assert summary["fetched_livemode"] == 1
+            assert summary["fetched_testmode"] == 1
+            assert summary["key_mode"] == "test"
+
+    def test_key_mode_is_read_off_the_prefix(self):
+        """A restricted key may not be allowed to read /v1/account."""
+        assert se.describe_key_mode("rk_test_abc") == "test"
+        assert se.describe_key_mode("sk_test_abc") == "test"
+        assert se.describe_key_mode("rk_live_abc") == "live"
+        assert se.describe_key_mode("sk_live_abc") == "live"
+        assert se.describe_key_mode("garbage") == "unknown"
+        assert se.describe_key_mode(None) == "unknown"
+
+    def test_resetting_the_watermark_restores_the_full_lookback(self, app):
+        """The fix for a key swapped while the watermark pointed elsewhere."""
+        with app.app_context():
+            se.set_setting("stripe_last_sync_at", datetime.now(UTC).isoformat())
+            db.session.commit()
+            resumed = se._sync_window_start()
+            assert (datetime.now(UTC) - resumed) < timedelta(hours=1)
+
+            se.reset_sync_watermark()
+            db.session.commit()
+            full = se._sync_window_start()
+            assert (datetime.now(UTC) - full) > timedelta(days=29)
+
+    def test_full_backfill_ignores_the_watermark(self, app):
+        """The backfill button must not resume from the saved position."""
+        with app.app_context():
+            se.set_setting("stripe_last_sync_at", datetime.now(UTC).isoformat())
+            db.session.commit()
+            window = se._sync_window_start(full_backfill=True)
+            assert (datetime.now(UTC) - window) > timedelta(days=29)
+
+    def test_last_summary_survives_for_scheduled_runs(
+        self, app, clean_stripe_events, monkeypatch
+    ):
+        """A background tick must be as inspectable as a clicked one."""
+        events = [_event("payment_intent.succeeded", {"id": "pi_1"}, id="evt_s")]
+        monkeypatch.setattr(se, "fetch_events", lambda *a, **k: events)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.commit()
+            se.sync_stripe_events(force=True)
+
+            stored = se.get_last_sync_summary()
+            assert stored["fetched"] == 1
+            assert stored["inserted"] == 1
+            assert stored["key_mode"] == "test"
+
+    def test_last_summary_tolerates_corruption(self, app):
+        """A bad settings row must not take the tab down."""
+        with app.app_context():
+            se.set_setting("stripe_sync_last_summary", "{not json")
+            db.session.commit()
+            assert se.get_last_sync_summary() == {}
+
+
+# ---------------------------------------------------------------- messaging
+
+
+class TestSyncMessages:
+    """The sentence an admin reads must name the actual outcome.
+
+    These four cases all used to render as one green "no new events" banner,
+    which is what made a key aimed at the wrong account indistinguishable from
+    a healthy steady state.
+    """
+
+    def _message(self, app, summary):
+        from app.activity.api.blueprint import _sync_result_message
+
+        with app.app_context():
+            return _sync_result_message(summary)
+
+    def _summary(self, **overrides):
+        base = {
+            "fetched": 0,
+            "monitored": 0,
+            "inserted": 0,
+            "skipped": 0,
+            "failed": 0,
+            "fetched_livemode": 0,
+            "fetched_testmode": 0,
+            "unmonitored_types": [],
+            "window_start": "2026-07-25T00:00:00+00:00",
+        }
+        base.update(overrides)
+        return base
+
+    def test_new_events_read_as_success(self, app):
+        message, kind = self._message(
+            app, self._summary(fetched=5, monitored=5, inserted=5)
+        )
+        assert kind == "success"
+        assert "5 new events" in message
+
+    def test_all_known_reads_as_a_healthy_no_op(self, app):
+        message, kind = self._message(
+            app, self._summary(fetched=5, monitored=5, inserted=0, skipped=5)
+        )
+        assert kind == "success"
+        assert "already stored" in message
+
+    def test_nothing_monitored_warns_and_names_the_types(self, app):
+        """The case that cost an afternoon: Stripe answered, nothing matched."""
+        message, kind = self._message(
+            app,
+            self._summary(
+                fetched=37,
+                monitored=0,
+                unmonitored_types=[["account.updated", 12], ["payout.paid", 5]],
+                fetched_testmode=37,
+            ),
+        )
+        assert kind == "warning"
+        assert "37" in message
+        assert "account.updated ×12" in message
+        # It must point at the actual cause, not just report a number.
+        assert "different account" in message
+        assert "test-mode" in message
+
+    def test_empty_response_is_distinct_from_nothing_monitored(self, app):
+        message, kind = self._message(app, self._summary(fetched=0))
+        assert kind == "warning"
+        assert "no events at all" in message
+
+    def test_unwritable_events_are_never_hidden_behind_success(self, app):
+        message, kind = self._message(
+            app, self._summary(fetched=3, monitored=3, inserted=2, failed=1)
+        )
+        assert kind == "error"
+        assert "could not be stored" in message
+
 
 # ---------------------------------------------------------------- evidence
 
@@ -747,6 +965,105 @@ class TestRendering:
 
     def test_missing_event_is_a_404_not_a_crash(self, logged_in):
         assert logged_in.get("/activity/eventos/999999").status_code == 404
+
+    def test_changing_the_api_key_resets_the_sync_position(self, app, logged_in):
+        """Pointing at a new account must re-arm the 30-day backfill.
+
+        Carrying the old watermark over means the new account is only ever
+        asked for events since the old account's last tick — the tab stays
+        empty while every sync reports success.
+        """
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_old")
+            se.set_setting("stripe_last_sync_at", datetime.now(UTC).isoformat())
+            db.session.commit()
+
+        response = logged_in.post(
+            "/activity/eventos/settings", data={"stripe_api_key": "rk_test_new"}
+        )
+        assert response.status_code == 200
+        # Silently resetting would look identical to the bug it fixes.
+        assert b"full 30-day history" in response.data
+
+        with app.app_context():
+            assert se.get_setting("stripe_last_sync_at") is None
+
+    def test_saving_without_touching_the_key_keeps_the_position(self, app, logged_in):
+        """Editing the interval must not force a needless full re-read."""
+        stamp = datetime.now(UTC).isoformat()
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_same")
+            se.set_setting("stripe_last_sync_at", stamp)
+            db.session.commit()
+
+        response = logged_in.post(
+            "/activity/eventos/settings",
+            data={"stripe_api_key": "", "stripe_sync_interval_minutes": "30"},
+        )
+        assert response.status_code == 200
+
+        with app.app_context():
+            assert se.get_setting("stripe_last_sync_at") == stamp
+
+    def test_tab_shows_what_the_last_sync_actually_saw(
+        self, app, logged_in, clean_stripe_events, monkeypatch
+    ):
+        """The whole point of the fix: no container log required.
+
+        A sync that reaches Stripe and matches nothing must say so on the tab,
+        naming the types it ignored.
+        """
+        events = [
+            _event("account.updated", {"id": "acct_1"}, id=f"evt_ign_{n}")
+            for n in range(3)
+        ]
+        monkeypatch.setattr(se, "fetch_events", lambda *a, **k: events)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.commit()
+
+        response = logged_in.post("/activity/eventos/sync")
+        assert response.status_code == 200
+        body = response.data.decode()
+
+        assert "account.updated" in body
+        assert "different account" in body
+        # The diagnostics panel must survive a plain reload, not just the POST.
+        reloaded = logged_in.get("/activity/eventos").data.decode()
+        assert "Last sync result" in reloaded
+        assert "account.updated" in reloaded
+
+    def test_full_backfill_button_reaches_the_service(
+        self, app, logged_in, clean_stripe_events, monkeypatch
+    ):
+        seen: dict = {}
+
+        def _capture(api_key, created_gte, **kwargs):
+            seen["created_gte"] = created_gte
+            return []
+
+        monkeypatch.setattr(se, "fetch_events", _capture)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            se.set_setting("stripe_last_sync_at", datetime.now(UTC).isoformat())
+            db.session.commit()
+
+        logged_in.post("/activity/eventos/sync", data={"full_backfill": "1"})
+        assert (datetime.now(UTC) - seen["created_gte"]) > timedelta(days=29)
+
+    def test_key_mode_badge_is_shown(self, app, logged_in):
+        """A masked key hides which account it reads; the prefix must not."""
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_live_secret")
+            db.session.commit()
+        assert b"LIVE mode key" in logged_in.get("/activity/eventos").data
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_secret")
+            db.session.commit()
+        assert b"Test / sandbox key" in logged_in.get("/activity/eventos").data
 
     def test_grid_filters_out_test_mode_by_default(
         self, app, logged_in, clean_stripe_events

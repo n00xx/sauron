@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.8.4] (2026-08-24)
+
+### Fixed
+
+- **Cambiar la llave de Stripe no rearmaba el backfill, y el fallo era mudo.**
+  `stripe_last_sync_at` marca una posición en el stream de eventos de **una**
+  cuenta. Al guardar una llave distinta esa marca se conservaba, así que sauron
+  solo le pedía a la cuenta nueva los eventos posteriores al último tick de la
+  cuenta vieja: sus 30 días de historia no se leían nunca. La pestaña se quedaba
+  vacía mientras cada sincronización reportaba éxito. Ahora guardar una llave
+  distinta (o borrarla) resetea la marca, y una migración la limpia una vez al
+  actualizar — sin eso, una instancia ya envenenada seguiría reanudando desde la
+  posición mala y el arreglo parecería no funcionar.
+- **Un solo evento ilegible descartaba el lote entero y aun así reportaba
+  éxito.** El `rollback()` dentro del bucle de ingesta tiraba también las filas
+  ya *flusheadas* del mismo lote, mientras el contador las seguía contando: la
+  sincronización decía "2 eventos nuevos guardados" y guardaba uno. Ahora cada
+  evento va en su propio SAVEPOINT, así que un evento malo cuesta exactamente un
+  evento, y los que no se pudieron escribir se reportan aparte.
+
+### Added
+
+- **La pestaña explica lo que la sincronización vio de verdad.** «Sin eventos
+  nuevos» tenía dos causas opuestas que se renderizaban idénticas: "todo lo que
+  vi ya estaba guardado" (sano) y "vi eventos pero ninguno de un tipo que esta
+  integración pueda producir" (llave apuntando a otra cuenta). Ahora cada
+  desenlace tiene su propia frase, con un tercer estado ámbar que no es ni éxito
+  ni error, y un panel «Last sync result» con lo devuelto por Stripe, lo
+  monitoreado, lo nuevo, lo ya conocido, la ventana leída, el reparto
+  test/live y el histograma de tipos ignorados (`account.updated ×12`…). El
+  panel se guarda, así que una corrida **programada** es tan inspeccionable como
+  una que hiciste a mano — antes la única forma de distinguir los casos era leer
+  el log del contenedor.
+- **Badge de modo de la llave.** Una llave enmascarada esconde a qué cuenta
+  apunta. El prefijo (`_test_` / `_live_`) se lee sin llamada a la API y sin
+  permisos, y una llave restringida puede no tener acceso a `GET /v1/account`
+  justo cuando más falta hace saberlo.
+- **Botón «Re-sincronizar 30 días»**: ignora la posición guardada y relee toda
+  la ventana de retención de Stripe. Idempotente — el índice único sobre
+  `stripe_event_id` convierte la relectura en un no-op.
+
 ## [2026.8.3] (2026-08-24)
 
 ### Fixed

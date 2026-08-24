@@ -923,6 +923,8 @@ def _render_eventos_tab(message: str | None = None, message_kind: str = "success
     """
     from app.services.stripe_events import (
         MONITORED_EVENT_TYPES,
+        describe_key_mode,
+        get_last_sync_summary,
         get_setting,
         is_sync_enabled,
     )
@@ -990,6 +992,8 @@ def _render_eventos_tab(message: str | None = None, message_kind: str = "success
             last_sync=get_setting("stripe_last_sync_at"),
             last_error=get_setting("stripe_sync_last_error"),
             interval=get_setting("stripe_sync_interval_minutes", "15"),
+            key_mode=describe_key_mode(get_setting("stripe_api_key")),
+            last_summary=_decorate_summary(get_last_sync_summary()),
             message=message,
             message_kind=message_kind,
         )
@@ -1007,6 +1011,8 @@ def _render_eventos_tab(message: str | None = None, message_kind: str = "success
             event_types=[],
             configured=False,
             sync_enabled=False,
+            key_mode="unknown",
+            last_summary={},
         )
 
 
@@ -1076,15 +1082,143 @@ def eventos_detail(event_id: int):
     return render_template("activity/_eventos_detail.html", event=event, packet=packet)
 
 
+def _format_window(iso: str | None) -> str:
+    """ISO timestamp → 'YYYY-MM-DD HH:MM UTC', or the raw value if unparseable."""
+    if not iso:
+        return "?"
+    try:
+        parsed = datetime.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return str(iso)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _describe_unmonitored(pairs: list) -> str:
+    """'account.updated x12, payout.paid x5' from the summary's histogram."""
+    return ", ".join(
+        f"{pair[0]} ×{pair[1]}"
+        for pair in pairs
+        if isinstance(pair, list | tuple) and len(pair) == 2
+    )
+
+
+def _decorate_summary(summary: dict) -> dict:
+    """Add display-ready fields to a stored sync summary.
+
+    Returns ``{}`` unchanged for "never synced", so the template can treat a
+    falsy summary as "no diagnostics yet".
+    """
+    if not summary:
+        return {}
+    decorated = dict(summary)
+    decorated["window_label"] = _format_window(summary.get("window_start"))
+    decorated["finished_label"] = _format_window(summary.get("finished_at"))
+    decorated["unmonitored_label"] = _describe_unmonitored(
+        summary.get("unmonitored_types") or []
+    )
+    return decorated
+
+
+def _sync_result_message(summary: dict) -> tuple[str, str]:
+    """Turn a sync summary into (message, kind).
+
+    Every outcome that used to collapse into "no new events" gets its own
+    sentence. The distinction that matters most: "everything I saw was already
+    stored" is a healthy steady state, while "I saw events but none of a type
+    this integration can produce" means the key is pointed somewhere else — and
+    those two used to render identically.
+    """
+    inserted = summary.get("inserted", 0)
+    fetched = summary.get("fetched", 0)
+    monitored = summary.get("monitored", 0)
+    already = summary.get("skipped", 0)
+    failed = summary.get("failed", 0)
+    window = _format_window(summary.get("window_start"))
+
+    failure_note = (
+        " "
+        + _(
+            "%(failed)s could not be stored — check the log.",
+            failed=failed,
+        )
+        if failed
+        else ""
+    )
+
+    if inserted:
+        return (
+            _("Sync completed: %(new)s new events stored.", new=inserted)
+            + failure_note,
+            "error" if failed else "success",
+        )
+
+    if not fetched:
+        return (
+            _(
+                "Sync completed, but Stripe returned no events at all since "
+                "%(window)s. The key works — this account simply has no event "
+                "history in that window.",
+                window=window,
+            ),
+            "warning",
+        )
+
+    if not monitored:
+        # The loud case. Stripe answered with a full page of events and not one
+        # of them was a payment, refund, dispute or fraud signal — which a
+        # storefront cannot be true of.
+        detail = _describe_unmonitored(summary.get("unmonitored_types") or [])
+        mode_note = ""
+        live = summary.get("fetched_livemode", 0)
+        test = summary.get("fetched_testmode", 0)
+        if live and not test:
+            mode_note = " " + _("All of them are live-mode events.")
+        elif test and not live:
+            mode_note = " " + _("All of them are test-mode events.")
+        return (
+            _(
+                "Sync completed, but none of the %(seen)s events Stripe returned "
+                "since %(window)s are types sauron monitors (%(types)s). That "
+                "usually means this key belongs to a different account or "
+                "sandbox than the one taking payments.",
+                seen=fetched,
+                window=window,
+                types=detail or _("no recognisable types"),
+            )
+            + mode_note,
+            "warning",
+        )
+
+    return (
+        _(
+            "Sync completed: nothing new. All %(known)s monitored events since "
+            "%(window)s were already stored.",
+            known=already,
+            window=window,
+        )
+        + failure_note,
+        "error" if failed else "success",
+    )
+
+
 @activity_bp.route("/eventos/sync", methods=["POST"])
 @login_required
 def eventos_sync():
-    """Run a sync now, instead of waiting for the next scheduled tick."""
+    """Run a sync now, instead of waiting for the next scheduled tick.
+
+    ``full_backfill`` re-reads Stripe's whole 30-day retention window instead of
+    resuming from the watermark. That is the escape hatch for a key that was
+    swapped while the watermark still pointed into another account's stream.
+    """
     from app.services.stripe_events import sync_stripe_events
     from app.services.stripe_evidence import resolve_pending_links
 
+    full_backfill = request.form.get("full_backfill") == "1"
+
     try:
-        summary = sync_stripe_events(force=True)
+        summary = sync_stripe_events(force=True, full_backfill=full_backfill)
         if summary.get("error"):
             # Surfaced verbatim: "401 — check the restricted key" is actionable,
             # a generic "sync failed" is not.
@@ -1097,25 +1231,8 @@ def eventos_sync():
             )
 
         resolve_pending_links()
-        inserted = summary.get("inserted", 0)
-        fetched = summary.get("fetched", 0)
-
-        if inserted:
-            message = _("Sync completed: %(new)s new events stored.", new=inserted)
-        elif fetched:
-            # Reached Stripe and saw events, but none were new or monitored.
-            # Saying so beats a bare "0 new", which reads like a failure.
-            message = _(
-                "Sync completed: no new events (%(seen)s already known or not "
-                "monitored).",
-                seen=fetched,
-            )
-        else:
-            message = _(
-                "Sync completed, but Stripe returned no events. If you expected "
-                "sandbox data, check that the key is a test-mode key (rk_test_…)."
-            )
-        return _render_eventos_tab(message, "success")
+        message, kind = _sync_result_message(summary)
+        return _render_eventos_tab(message, kind)
     except Exception as exc:
         structlog.get_logger(__name__).error(
             "Manual Stripe sync failed: %s", exc, exc_info=True
@@ -1162,17 +1279,37 @@ def _refresh_stripe_sync_job() -> None:
 @login_required
 def eventos_settings():
     """Save the Stripe polling settings."""
-    from app.services.stripe_events import get_setting, set_setting
+    from app.services.stripe_events import (
+        describe_key_mode,
+        get_setting,
+        reset_sync_watermark,
+        set_setting,
+    )
 
     try:
         submitted_key = (request.form.get("stripe_api_key") or "").strip()
         clearing = request.form.get("clear_api_key") == "1"
+        previous_key = get_setting("stripe_api_key")
 
         # An untouched masked field must never wipe the stored key.
         if clearing:
             set_setting("stripe_api_key", None)
         elif submitted_key and not submitted_key.startswith("•"):
             set_setting("stripe_api_key", submitted_key)
+
+        # A different key means a different event stream. The watermark records
+        # a position in the OLD account's stream; keeping it would ask the new
+        # account only for events since the old account's last tick, so its 30
+        # days of history would never be read and the tab would stay empty while
+        # every sync reported success.
+        key_changed = bool(
+            not clearing
+            and submitted_key
+            and not submitted_key.startswith("•")
+            and submitted_key != previous_key
+        )
+        if key_changed or clearing:
+            reset_sync_watermark()
 
         # Clearing the key always disables sync, whatever the checkbox says —
         # otherwise removing the key while "enabled" is ticked would leave sync
@@ -1200,10 +1337,18 @@ def eventos_settings():
         # just sit empty. replace_existing also picks up an interval change.
         _refresh_stripe_sync_job()
 
-        if get_setting("stripe_api_key"):
-            message = _('Settings saved. Click "Sync now" to pull events.')
-        else:
+        if not get_setting("stripe_api_key"):
             message = _("Settings saved. Add an API key to start syncing.")
+        elif key_changed:
+            # Say the backfill is armed. Silently resetting the watermark would
+            # look identical to the bug it fixes.
+            message = _(
+                "New API key saved (%(mode)s mode). The sync position was reset, "
+                'so the next "Sync now" reads Stripe\'s full 30-day history.',
+                mode=describe_key_mode(get_setting("stripe_api_key")),
+            )
+        else:
+            message = _('Settings saved. Click "Sync now" to pull events.')
         return _render_eventos_tab(message, "success")
     except Exception as exc:
         db.session.rollback()

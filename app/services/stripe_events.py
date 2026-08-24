@@ -22,6 +22,7 @@ module writes to Stripe.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -49,6 +50,12 @@ INITIAL_LOOKBACK_DAYS = 30
 # what keeps a gap from forming. Re-reads are free: the unique constraint on
 # stripe_event_id turns them into no-ops.
 OVERLAP_MINUTES = 15
+
+# How many distinct non-monitored event types a summary names before it stops.
+# The point is to let an admin recognise what the key is actually looking at
+# ("account.updated x12" says "wrong account" at a glance), not to enumerate
+# every type Stripe has.
+UNMONITORED_SAMPLE_SIZE = 8
 
 
 # --------------------------------------------------------------------------
@@ -366,6 +373,35 @@ def is_sync_enabled() -> bool:
     )
 
 
+def describe_key_mode(api_key: str | None) -> str:
+    """``"test"`` | ``"live"`` | ``"unknown"``, from the key prefix alone.
+
+    Read off the prefix rather than from ``GET /v1/account`` on purpose: a
+    restricted key may have no Account read permission, so an API call would
+    403 exactly when the admin most needs to be told which mode they are in.
+    The prefix is always present and always truthful.
+    """
+    if not api_key:
+        return "unknown"
+    if "_test_" in api_key:
+        return "test"
+    if "_live_" in api_key:
+        return "live"
+    return "unknown"
+
+
+def reset_sync_watermark() -> None:
+    """Forget where the last sync got to, so the next one backfills in full.
+
+    Must be called whenever the API key changes. The watermark records a
+    position in *one account's* event stream; carrying it over to a different
+    key means the new account is only ever asked for events since the old
+    account's last tick, and its 30 days of history are never read. That failure
+    is silent — the sync reports success and stores nothing.
+    """
+    set_setting("stripe_last_sync_at", None)
+
+
 def get_sync_interval_minutes(default: int = 15) -> int:
     raw = get_setting("stripe_sync_interval_minutes")
     try:
@@ -479,13 +515,17 @@ def fetch_events(
 # --------------------------------------------------------------------------
 
 
-def _sync_window_start() -> datetime:
+def _sync_window_start(*, full_backfill: bool = False) -> datetime:
     """Where this run starts reading from.
 
     First run reaches back the full retention window so the tab is populated
     immediately; later runs re-read a short overlap so no event slips through a
-    boundary.
+    boundary. ``full_backfill`` ignores the watermark entirely, which is what
+    "Re-sync last 30 days" in the UI runs.
     """
+    if full_backfill:
+        return datetime.now(UTC) - timedelta(days=INITIAL_LOOKBACK_DAYS)
+
     last = get_setting("stripe_last_sync_at")
     if not last:
         return datetime.now(UTC) - timedelta(days=INITIAL_LOOKBACK_DAYS)
@@ -498,10 +538,18 @@ def _sync_window_start() -> datetime:
     return parsed - timedelta(minutes=OVERLAP_MINUTES)
 
 
-def sync_stripe_events(*, force: bool = False) -> dict[str, Any]:
+def sync_stripe_events(
+    *, force: bool = False, full_backfill: bool = False
+) -> dict[str, Any]:
     """Pull new Stripe events into the local archive.
 
     Returns a summary dict. Must be called inside an app context.
+
+    The summary distinguishes every reason an event can fail to land — not
+    monitored, already known, or unwritable. Collapsing those into one "nothing
+    new" number makes a misconfigured key indistinguishable from a healthy
+    steady state, which is the difference between a one-line fix and an
+    afternoon of guessing.
     """
     if not force and not is_sync_enabled():
         return {"skipped": True, "reason": "disabled"}
@@ -511,7 +559,7 @@ def sync_stripe_events(*, force: bool = False) -> dict[str, Any]:
         return {"skipped": True, "reason": "no_api_key"}
 
     started_at = datetime.now(UTC)
-    window_start = _sync_window_start()
+    window_start = _sync_window_start(full_backfill=full_backfill)
 
     try:
         raw_events = fetch_events(api_key, window_start)
@@ -527,8 +575,21 @@ def sync_stripe_events(*, force: bool = False) -> dict[str, Any]:
         event for event in raw_events if event.get("type") in MONITORED_EVENT_TYPES
     ]
 
+    # What came back that we deliberately ignore. A key pointed at the wrong
+    # account still returns a full page of events; naming the types is what
+    # makes that visible ("account.updated x12" is not a storefront).
+    unmonitored_types = Counter(
+        str(event.get("type") or "?")
+        for event in raw_events
+        if event.get("type") not in MONITORED_EVENT_TYPES
+    )
+    # Stripe stamps every event with the mode it belongs to, so this settles
+    # "is this key looking at test or live data?" without a second API call.
+    fetched_livemode = sum(1 for event in raw_events if event.get("livemode") is True)
+
     inserted = 0
     skipped = 0
+    failed = 0
     for event in monitored:
         event_id = event.get("id")
         if not isinstance(event_id, str) or not event_id:
@@ -540,25 +601,56 @@ def sync_stripe_events(*, force: bool = False) -> dict[str, Any]:
             skipped += 1
             continue
         try:
-            db.session.add(StripeEvent(**extract_fields(event)))
-            db.session.flush()
+            # SAVEPOINT per event. A plain rollback() here would discard every
+            # row already flushed in this batch while `inserted` kept counting
+            # them — one malformed event late in a page would drop the whole
+            # page and still report success.
+            with db.session.begin_nested():
+                db.session.add(StripeEvent(**extract_fields(event)))
             inserted += 1
         except Exception as exc:
-            db.session.rollback()
+            failed += 1
             logger.warning(
                 "Skipping unparseable Stripe event", event_id=event_id, error=str(exc)
             )
 
     set_setting("stripe_last_sync_at", started_at.isoformat())
     set_setting("stripe_sync_last_error", None)
-    db.session.commit()
 
     summary = {
         "fetched": len(raw_events),
         "monitored": len(monitored),
         "inserted": inserted,
         "skipped": skipped,
+        "failed": failed,
+        "fetched_livemode": fetched_livemode,
+        "fetched_testmode": len(raw_events) - fetched_livemode,
+        "key_mode": describe_key_mode(api_key),
+        "unmonitored_types": unmonitored_types.most_common(UNMONITORED_SAMPLE_SIZE),
         "window_start": window_start.isoformat(),
+        "full_backfill": full_backfill,
+        "finished_at": datetime.now(UTC).isoformat(),
     }
+    # Persisted so the tab can explain a *scheduled* run too. Without this the
+    # only run an admin can ever see the shape of is one they clicked.
+    set_setting("stripe_sync_last_summary", json.dumps(summary, ensure_ascii=False))
+    db.session.commit()
+
     logger.info("Stripe event sync completed", **summary)
     return summary
+
+
+def get_last_sync_summary() -> dict[str, Any]:
+    """The stored summary of the most recent completed sync, or ``{}``.
+
+    Never raises: this feeds a template, and a corrupt settings row must not
+    take the tab down.
+    """
+    raw = get_setting("stripe_sync_last_summary")
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
