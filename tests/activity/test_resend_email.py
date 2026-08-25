@@ -496,3 +496,54 @@ def test_clearing_the_key_also_disables_sending(app, admin_client):
         assert service.get_setting(service.SETTING_API_KEY) is None
         assert service.get_setting(service.SETTING_ENABLED) == "false"
         assert service.is_enabled() is False
+
+
+def test_configured_but_disabled_is_flagged_on_the_tab(app, admin_client):
+    """The other "looks healthy, delivers nothing" state.
+
+    A test send only needs a key, so it succeeds and paints the tab green while
+    every real password reset refuses with not_enabled. Nothing else on screen
+    would say so.
+    """
+    with app.app_context():
+        _configure(enabled=False)
+
+    response = admin_client.get("/activity/resend")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Outbound email is turned off" in body
+    # The unconfigured empty state must not also fire — the key IS saved.
+    assert "Email delivery is not connected yet" not in body
+
+
+def test_saving_with_sending_off_is_a_warning_not_a_success(app, admin_client):
+    response = admin_client.post(
+        "/activity/resend/settings",
+        data={
+            "resend_api_key": "re_test_key",
+            "resend_from_address": "sauron <no-reply@example.com>",
+            "resend_public_base_url": "https://sauron.example.com",
+            # "resend_enabled" deliberately absent — the unticked checkbox.
+        },
+    )
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "outbound email is turned off" in body
+    assert 'Use "Send test" to verify your domain' not in body
+
+
+def test_successful_test_send_still_warns_while_sending_is_off(app, admin_client):
+    """A passing test proves the key and domain, not that resets will go out."""
+    with app.app_context():
+        _configure(enabled=False)
+
+    with patch("requests.post", return_value=_response(200, {"id": "test-1"})):
+        response = admin_client.post(
+            "/activity/resend/test", data={"test_recipient": "me@example.com"}
+        )
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "still turned off" in body

@@ -34,13 +34,16 @@ from __future__ import annotations
 import html as html_escape
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import requests
 import structlog
 
 from app.extensions import db
 from app.models import ResendEmail, Settings, User
+
+if TYPE_CHECKING:
+    from app.models import PasswordResetToken
 
 logger = structlog.get_logger(__name__)
 
@@ -477,7 +480,7 @@ siendo válida.
 def send_password_reset_email(
     user: User,
     *,
-    token: Any | None = None,
+    token: PasswordResetToken | None = None,
     request_base_url: str | None = None,
 ) -> SendResult:
     """Email ``user`` a password reset link, minting a token if none is given.

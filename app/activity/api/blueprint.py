@@ -1585,6 +1585,15 @@ def resend_settings():
                 "Settings saved. Add an API key and a 'From' address to start sending."
             )
             kind = "warning"
+        elif not resend_service.is_enabled():
+            # Saving a complete config with the switch off is not a success:
+            # test sends still work (they only need a key), so everything looks
+            # healthy while every real password reset is refused.
+            message = _(
+                "Settings saved, but outbound email is turned off. Password reset "
+                'emails will not be sent until you tick "Enable outbound email".'
+            )
+            kind = "warning"
         elif resend_service.uses_sandbox_sender():
             # Not an error and not a success: sends will work for the Resend
             # account owner and fail for every real user. Rendering this green
@@ -1623,6 +1632,18 @@ def resend_test():
     result = resend_service.send_test_email(recipient)
 
     if result.ok:
+        # A passing test proves the key and the domain, not that sauron will
+        # mail anyone: sending can still be switched off. Say so here rather
+        # than letting a green banner imply the reset path is live.
+        if not resend_service.is_enabled():
+            return _render_resend_tab(
+                _(
+                    "Test email accepted by Resend (check %(inbox)s), but outbound "
+                    "email is still turned off, so password resets will not be sent.",
+                    inbox=recipient,
+                ),
+                "warning",
+            )
         return _render_resend_tab(
             _("Test email accepted by Resend. Check %(inbox)s.", inbox=recipient),
             "success",
