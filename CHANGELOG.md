@@ -32,6 +32,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   filtro del propio barrido, así que marcarla tras un disable fallido excluiría
   para siempre a una cuenta que sigue habilitada en el servidor de medios.
 
+- **El mismo fallo estaba en dos endpoints de la API, no solo en el barrido.**
+
+  - `POST /api/users/<id>/disable`: si el disable fallaba, **borraba** la cuenta
+    y respondía **200** con un mensaje de éxito. El llamador no podía distinguir
+    "deshabilitado" de "destruido". Ahora devuelve **502** y no borra nada.
+  - `POST /api/invitations/<id>/disable-users`: misma escalada. Ahora los fallos
+    se reportan en un array `failed` y la cuenta queda intacta. `count` sigue
+    siendo el número de cuentas realmente **deshabilitadas**, así que un cliente
+    viejo que solo lea `count` sigue leyendo un número cierto.
+
+  Importa porque es la ruta que usa neexy para revocar por reembolso y
+  chargeback: un disable fallido borraba la cuenta del cliente mientras neexy
+  registraba "deshabilitado".
+
 ### Changed
 
 - Los tests `test_genuine_disable_failure_still_falls_back_to_deletion` y

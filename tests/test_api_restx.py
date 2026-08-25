@@ -579,7 +579,8 @@ class TestAPIInvitationDisableUsers:
 
     Resolves the invitation→users many-to-many mapping and disables every
     user who redeemed the invitation (falling back to delete when the media
-    server can't disable, same semantics as POST /users/<id>/disable).
+    server can't disable, it is reported in `failed` and NEVER deleted - same
+semantics as POST /users/<id>/disable, which returns 502 instead).
     """
 
     def _link_user(self, app, sample_data):
@@ -626,9 +627,15 @@ class TestAPIInvitationDisableUsers:
         assert data["users"][0]["action"] == "disabled"
         assert disabled_ids == [sample_data["user_id"]]
 
-    def test_falls_back_to_delete_when_disable_unsupported(
+    def test_failed_disable_is_reported_never_deleted(
         self, app, client, api_key, sample_data, monkeypatch
     ):
+        """Revoking access must not be able to destroy the account.
+
+        Deletion is irreversible; the caller asked to DISABLE. A failure is
+        reported in `failed` so the caller can alert a human, and `count` stays
+        honest about how many were actually disabled.
+        """
         self._link_user(app, sample_data)
         deleted_ids = []
         monkeypatch.setattr(
@@ -645,8 +652,12 @@ class TestAPIInvitationDisableUsers:
         )
 
         assert response.status_code == 200
-        assert response.get_json()["users"][0]["action"] == "deleted"
-        assert deleted_ids == [sample_data["user_id"]]
+        data = response.get_json()
+        assert deleted_ids == [], "a failed disable must never delete"
+        assert data["count"] == 0
+        assert data["users"] == []
+        assert data["failed"][0]["user_id"] == sample_data["user_id"]
+        assert data["failed"][0]["action"] == "failed"
 
     def test_unredeemed_invitation_returns_zero(self, client, api_key, sample_data):
         response = client.post(
@@ -655,7 +666,7 @@ class TestAPIInvitationDisableUsers:
         )
         assert response.status_code == 200
         data = response.get_json()
-        assert data == {"count": 0, "users": []}
+        assert data == {"count": 0, "users": [], "failed": []}
 
     def test_legacy_used_by_fallback(
         self, app, client, api_key, sample_data, monkeypatch
@@ -1150,6 +1161,50 @@ class TestAPIMaxSessions:
         )
 
         assert response.status_code == 502
+
+
+class TestAPIDisableUserNeverDeletes:
+    """sauron fork: POST /api/users/<id>/disable must never escalate to deletion.
+
+    Upstream deleted the account when the disable failed, and answered 200 as if
+    it had done what was asked. For a paying customer that turns "revoke access"
+    into unrecoverable data loss, and the caller cannot even tell: neexy's
+    revocation path reads this endpoint's result as success.
+    """
+
+    def test_failed_disable_returns_502_and_keeps_the_account(
+        self, app, client, api_key, jellyfin_user, monkeypatch
+    ):
+        deleted_ids = []
+        monkeypatch.setattr(
+            "app.blueprints.api.api_routes.disable_user", lambda db_id: False
+        )
+        monkeypatch.setattr(
+            "app.blueprints.api.api_routes.delete_user",
+            lambda db_id: deleted_ids.append(db_id),
+        )
+
+        response = client.post(
+            f"/api/users/{jellyfin_user['user_id']}/disable",
+            headers={"X-API-Key": api_key},
+        )
+
+        assert response.status_code == 502
+        assert deleted_ids == [], "a failed disable must never delete"
+        with app.app_context():
+            assert db.session.get(User, jellyfin_user["user_id"]) is not None
+
+    def test_success_returns_200(self, client, api_key, jellyfin_user, monkeypatch):
+        monkeypatch.setattr(
+            "app.blueprints.api.api_routes.disable_user", lambda db_id: True
+        )
+
+        response = client.post(
+            f"/api/users/{jellyfin_user['user_id']}/disable",
+            headers={"X-API-Key": api_key},
+        )
+
+        assert response.status_code == 200
 
 
 class TestAPIEnableUserReportsFailure:

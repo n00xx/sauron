@@ -488,8 +488,9 @@ class UserDisableResource(Resource):
     def post(self, user_id):
         """Disable a specific user by ID.
 
-        This will disable the user account on the media server if the server supports it.
-        If the server doesn't support disabling users, it will fall back to deleting the user.
+        Never falls back to deleting. A failed disable returns 502 so the caller
+        can retry or alert: deletion is irreversible, and a caller that asked to
+        DISABLE an account has not consented to losing it.
         """
         # Find user first, outside try block
         user = db.session.get(User, user_id)
@@ -510,15 +511,18 @@ class UserDisableResource(Resource):
 
             if result:
                 return {"message": f"User {user.username} disabled successfully"}
-            # If disable failed or not supported, fall back to delete
-            logger.info(
-                "Disable failed or not supported, falling back to delete for user %s",
+
+            # Do NOT delete. The caller asked to disable; escalating to an
+            # irreversible delete on failure is how paying customers lose their
+            # accounts. Report the failure and let the caller decide.
+            logger.error(
+                "Disable failed for user %s on %s - refusing to delete instead",
                 user_id,
+                server.server_type,
             )
-            delete_user(user.id)
             return {
-                "message": f"User {user.username} deleted (disable not supported by server)"
-            }
+                "error": f"Could not disable user {user.username} on {server.server_type}"
+            }, 502
 
         except Exception as e:
             logger.error("Error disabling user %s: %s", user_id, str(e))
@@ -1085,6 +1089,7 @@ class InvitationDisableUsersResource(Resource):
                 users = [invitation.used_by]
 
             results = []
+            failed = []
             for user in users:
                 logger.info(
                     "API: Disabling user %s (invitation %s revocation)",
@@ -1100,21 +1105,26 @@ class InvitationDisableUsersResource(Resource):
                         }
                     )
                 else:
-                    # Same fallback as POST /users/<id>/disable: a server that
-                    # can't disable gets the user deleted instead.
-                    logger.info(
-                        "Disable not supported, deleting user %s instead", user.id
+                    # Never escalate to deletion: revoking access must not be
+                    # able to destroy the account. Report it so the caller can
+                    # alert a human instead of assuming success.
+                    logger.error(
+                        "Disable failed for user %s (invitation %s) - refusing "
+                        "to delete instead",
+                        user.id,
+                        invitation_id,
                     )
-                    delete_user(user.id)
-                    results.append(
+                    failed.append(
                         {
                             "user_id": user.id,
                             "username": user.username,
-                            "action": "deleted",
+                            "action": "failed",
                         }
                     )
 
-            return {"count": len(results), "users": results}
+            # `count` stays the number of users actually DISABLED, so an older
+            # caller that only reads count keeps reading a true number.
+            return {"count": len(results), "users": results, "failed": failed}
 
         except Exception as e:
             logger.error(
