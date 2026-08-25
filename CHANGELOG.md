@@ -6,6 +6,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.9.2] (2026-08-25)
+
+### Added
+
+- **`POST /api/users/password-reset-request`: la puerta que le faltaba a
+  "olvidé mi contraseña".** 2026.9.1 dejó lista la entrega
+  (`send_password_reset_email`) pero solo como función de Python, alcanzable
+  únicamente desde dentro del proceso — el modal de admin. La tienda solo tiene
+  un username y ninguna forma de llamarla. Esta ruta es esa forma.
+
+  Lo más cercano que ya existía, `POST /api/users/<id>/reset-password`, no
+  servía: acuña el token y devuelve la ruta, pero no manda nada, pide el `id`
+  numérico y no toca ni el registro de envíos ni los contadores de cuota.
+
+  Decisiones que vale la pena dejar escritas:
+
+  * **Siempre responde `200 {"accepted": true}`.** Usuario inexistente, cuenta
+    sin correo, Resend apagado, Resend rechazando el envío, dos cuentas con el
+    mismo nombre — todo idéntico desde afuera. El formulario que la consume es
+    público y sin autenticar, así que cualquier diferencia en la respuesta es un
+    oráculo gratis de "¿existe esta cuenta?". `accepted` dice que se recibió la
+    petición, **no** que se haya enviado un correo. El resultado real va al log
+    y a Activity > Resend, que es donde un operador puede actuar.
+
+    La única excepción es un cuerpo malformado (400): eso es un bug del que
+    llama y no dice nada de ninguna cuenta.
+
+  * **El cuerpo es uniforme; el reloj no.** Un acierto escribe en la base y
+    habla con Resend; un fallo vuelve tras un `SELECT`. Cerrar esa diferencia le
+    toca a quien llama —neexy sostiene toda respuesta hasta un piso fijo—, y lo
+    que la acota aquí es el tope por IP, porque separar esas dos distribuciones
+    exige muchas muestras. Para poder dimensionar ese piso con datos y no a ojo,
+    `send_email` ahora registra `elapsed_ms`.
+
+  * **El tope por IP es 10/hora, más estricto que los 20 de
+    `verify-credentials`.** Cada llamada aquí gasta cuota real de Resend (100 al
+    día en el plan gratis) y mete correo en la bandeja de alguien. El radio de
+    una inundación es una cuota quemada más un cliente spameado, no CPU
+    desperdiciada. Los topes por usuario (3/hora, 10/día) sí son espejo.
+
+  * **Un username ambiguo no le manda correo a nadie.** sauron guarda una fila
+    por servidor, y un token de reseteo pertenece a UNA fila y cambia la
+    contraseña solo en ese servidor. Elegir una al azar resetearía una cuenta
+    que quizá no era la pedida y dejaría la otra intacta. Se rechaza y se
+    registran los ids para que el operador mande el enlace a mano.
+
+  * **Pedir un reseteo invalida el enlace anterior**, porque
+    `create_reset_token` marca como usados los tokens sin usar del usuario. Eso
+    lo hereda esta ruta: alguien puede invalidar el enlace que el dueño tiene en
+    la mano. No puede *leerlo* —la entrega siempre va al correo registrado—, así
+    que el peor caso es que el dueño tenga que pedirlo otra vez, y los topes son
+    lo que impide que eso sea una molestia usable.
+
+  * **`no_email` solo deja rastro en el log.** `send_password_reset_email`
+    vuelve antes de `send_email`, así que no se escribe fila en `resend_email` y
+    el caso no aparece en Activity > Resend. Es el caso que de verdad ocurre
+    (filas viejas importadas antes de que el correo fuera obligatorio), así que
+    se registra como `warning` con el id del usuario.
+
 ## [2026.9.1] (2026-08-25)
 
 ### Added
