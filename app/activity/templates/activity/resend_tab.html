@@ -1,0 +1,262 @@
+<!-- Resend (outbound email) Tab Content -->
+{#
+  sauron already mints password reset tokens and already serves /reset/<code>.
+  What it never had was a way to put that link in front of the user without an
+  admin copying it by hand. This tab is that delivery path.
+
+  The screen is built around one failure mode: on Resend's free tier, a saved
+  API key with an UNVERIFIED sending domain looks identical to a working setup
+  until a real user's reset silently dies. So the domain state is called out
+  above everything else, and the test send is a first-class control, not a
+  footnote.
+#}
+<div id="resend-root">
+  {% if error %}
+    <div class="bg-red-50 dark:bg-red-900/50 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
+      <div class="flex">
+        <svg class="flex-shrink-0 w-5 h-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+        </svg>
+        <div class="ml-3"><h3 class="text-sm font-medium text-red-800 dark:text-red-200">{{ error }}</h3></div>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if message %}
+    {# Three tones, not two. "Saved, but you are on the sandbox domain" is
+       neither success nor failure — painting it green is exactly how a broken
+       password reset ships. #}
+    {% set tone = {
+      'error':   'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-100',
+      'warning': 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 text-amber-900 dark:text-amber-100',
+      'success': 'border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-100',
+    }.get(message_kind, 'border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-100') %}
+    <div class="rounded-lg border px-4 py-3 mb-6 {{ tone }}">
+      <p class="text-sm font-medium">{{ message }}</p>
+    </div>
+  {% endif %}
+
+  {% if not configured %}
+    {# Empty state: nothing can be delivered until a key AND a sender exist. #}
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center mb-6">
+      <div class="mx-auto w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+        <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+        </svg>
+      </div>
+      <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ _("Email delivery is not connected yet") }}</h3>
+      <p class="mt-2 text-sm text-gray-600 dark:text-gray-400 max-w-xl mx-auto">
+        {{ _("Add a Resend API key and a verified sender below. Until this is set up, password reset links have to be copied and delivered by hand.") }}
+      </p>
+    </div>
+  {% elif sandbox_sender %}
+    {# The dangerous middle state: sends succeed for the account owner and fail
+       for everyone else. Loud on purpose. #}
+    <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-lg p-4 mb-6">
+      <div class="flex gap-3">
+        <svg class="flex-shrink-0 w-5 h-5 text-amber-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+        </svg>
+        <div>
+          <h3 class="text-sm font-semibold text-amber-900 dark:text-amber-100">{{ _("Sending from Resend's shared onboarding domain") }}</h3>
+          <p class="mt-1 text-sm text-amber-800 dark:text-amber-200">
+            {{ _("This sender only delivers to your own Resend account address. Every other recipient is rejected. Verify your own domain in Resend before real users depend on password reset emails.") }}
+          </p>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  {# ───────────────── Free-tier usage + delivery counters ───────────────── #}
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    {% set daily_pct = ((usage.today or 0) / (usage.today_limit or 100) * 100) | round(0, 'ceil') | int %}
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ _("Sent today") }}</p>
+      <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
+        {{ usage.today or 0 }}<span class="text-base font-normal text-gray-400"> / {{ usage.today_limit or 100 }}</span>
+      </p>
+      <div class="mt-2 h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+        <div class="h-full rounded-full {{ 'bg-red-500' if daily_pct >= 90 else 'bg-amber-500' if daily_pct >= 70 else 'bg-primary' }}"
+             style="width: {{ [daily_pct, 100] | min }}%"></div>
+      </div>
+    </div>
+
+    {% set monthly_pct = ((usage.month or 0) / (usage.month_limit or 3000) * 100) | round(0, 'ceil') | int %}
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ _("Sent this month") }}</p>
+      <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
+        {{ usage.month or 0 }}<span class="text-base font-normal text-gray-400"> / {{ usage.month_limit or 3000 }}</span>
+      </p>
+      <div class="mt-2 h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+        <div class="h-full rounded-full {{ 'bg-red-500' if monthly_pct >= 90 else 'bg-amber-500' if monthly_pct >= 70 else 'bg-primary' }}"
+             style="width: {{ [monthly_pct, 100] | min }}%"></div>
+      </div>
+    </div>
+
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ _("Reset links mailed") }}</p>
+      <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-white">{{ stats.resets or 0 }}</p>
+      <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ _("all time") }}</p>
+    </div>
+
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border {{ 'border-red-200 dark:border-red-800' if stats.failed else 'border-gray-200 dark:border-gray-700' }} p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ _("Failed") }}</p>
+      <p class="mt-1 text-2xl font-bold {{ 'text-red-600 dark:text-red-400' if stats.failed else 'text-gray-900 dark:text-white' }}">{{ stats.failed or 0 }}</p>
+      <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ _("of %(total)s attempts", total=stats.total or 0) }}</p>
+    </div>
+  </div>
+
+  {% if last_error %}
+    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3 mb-6">
+      <p class="text-xs font-semibold uppercase tracking-wide text-red-700 dark:text-red-300">{{ _("Last delivery error") }}</p>
+      <p class="mt-1 text-sm text-red-800 dark:text-red-200 break-words">{{ last_error }}</p>
+    </div>
+  {% endif %}
+
+  {# ───────────────── Configuration ───────────────── #}
+  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+      <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ _("Resend configuration") }}</h3>
+      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+        {{ _("Free tier: 3,000 emails per month, 100 per day, one verified domain.") }}
+      </p>
+    </div>
+
+    <form hx-post="{{ url_for('activity.resend_settings') }}"
+          hx-target="#activity-tab-body"
+          hx-swap="innerHTML"
+          class="p-4 space-y-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div>
+          <label for="resend_api_key" class="block mb-1 text-sm font-medium text-gray-900 dark:text-white">{{ _("API key") }}</label>
+          <input type="password" id="resend_api_key" name="resend_api_key" autocomplete="off"
+                 value="{{ masked_key }}"
+                 placeholder="re_..."
+                 class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary-500 focus:border-primary-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ _("A sending-only key is enough. Leave the masked value untouched to keep the stored key.") }}
+          </p>
+        </div>
+
+        <div>
+          <label for="resend_from_address" class="block mb-1 text-sm font-medium text-gray-900 dark:text-white">{{ _("From address") }}</label>
+          <input type="text" id="resend_from_address" name="resend_from_address"
+                 value="{{ from_address }}"
+                 placeholder="sauron &lt;no-reply@tudominio.com&gt;"
+                 class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary-500 focus:border-primary-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ _("Must be on a domain verified in Resend, or nothing reaches real users.") }}
+          </p>
+        </div>
+
+        <div>
+          <label for="resend_public_base_url" class="block mb-1 text-sm font-medium text-gray-900 dark:text-white">{{ _("Public URL of this sauron") }}</label>
+          <input type="text" id="resend_public_base_url" name="resend_public_base_url"
+                 value="{{ public_url }}"
+                 placeholder="https://sauron.tudominio.com"
+                 class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary-500 focus:border-primary-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ _("Reset links are built on this. Behind a reverse proxy the address sauron sees is often an internal one that recipients cannot open.") }}
+          </p>
+        </div>
+
+        <div>
+          <label for="resend_reply_to" class="block mb-1 text-sm font-medium text-gray-900 dark:text-white">{{ _("Reply-to (optional)") }}</label>
+          <input type="text" id="resend_reply_to" name="resend_reply_to"
+                 value="{{ reply_to }}"
+                 placeholder="soporte@tudominio.com"
+                 class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary-500 focus:border-primary-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <input type="checkbox" id="resend_enabled" name="resend_enabled" {% if enabled %}checked{% endif %}
+               class="w-4 h-4 text-primary bg-gray-100 border-gray-300 rounded focus:ring-primary dark:bg-gray-700 dark:border-gray-600">
+        <label for="resend_enabled" class="text-sm text-gray-900 dark:text-white">{{ _("Enable outbound email") }}</label>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+        <button type="submit"
+                class="text-white bg-primary hover:bg-primary_hover focus:ring-4 focus:outline-none focus:ring-primary/50 font-medium rounded-lg text-sm px-5 py-2.5 text-center">
+          {{ _("Save settings") }}
+        </button>
+        {% if configured %}
+          <button type="submit" name="clear_api_key" value="1"
+                  class="text-red-700 dark:text-red-300 bg-transparent border border-red-300 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 font-medium rounded-lg text-sm px-5 py-2.5 text-center">
+            {{ _("Remove API key") }}
+          </button>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+
+  {# ───────────────── Test send ─────────────────
+     Not a convenience. An unverified sending domain is invisible on every other
+     screen; an actual send is the only thing that proves it. #}
+  {% if configured %}
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
+      <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ _("Verify delivery") }}</h3>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {{ _("Sends one real email. This is the only way to confirm your domain is verified — a saved key alone proves nothing.") }}
+        </p>
+      </div>
+      <form hx-post="{{ url_for('activity.resend_test') }}"
+            hx-target="#activity-tab-body"
+            hx-swap="innerHTML"
+            class="p-4 flex flex-col sm:flex-row gap-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="email" name="test_recipient" required
+               placeholder="{{ _('Address to send the test to') }}"
+               class="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary-500 focus:border-primary-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+        <button type="submit"
+                class="shrink-0 text-white bg-primary hover:bg-primary_hover focus:ring-4 focus:outline-none focus:ring-primary/50 font-medium rounded-lg text-sm px-5 py-2.5">
+          {{ _("Send test") }}
+        </button>
+      </form>
+    </div>
+  {% endif %}
+
+  {# ───────────────── Delivery log ───────────────── #}
+  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div>
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ _("Delivery log") }}</h3>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {{ _("Kept locally: Resend drops free-tier data after 30 days.") }}
+        </p>
+      </div>
+      {# One hx-get for the whole filter group, matching the Eventos tab: three
+         controls each firing their own request would race, and the last reply
+         to land — not the last control touched — would win. #}
+      <div id="resend-filters" class="flex flex-wrap items-center gap-2"
+           hx-get="{{ url_for('activity.resend_grid') }}"
+           hx-target="#resend-table" hx-swap="innerHTML"
+           hx-trigger="change from:find select, keyup changed delay:400ms from:find input[name='search']"
+           hx-include="#resend-filters">
+        <input type="search" name="search" value="{{ filters.search or '' }}"
+               placeholder="{{ _('Search address or error') }}"
+               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary-500 focus:border-primary-500 p-2 w-48 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+        <select name="status"
+                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+          <option value="">{{ _("All statuses") }}</option>
+          <option value="sent" {% if filters.status == 'sent' %}selected{% endif %}>{{ _("Sent") }}</option>
+          <option value="failed" {% if filters.status == 'failed' %}selected{% endif %}>{{ _("Failed") }}</option>
+        </select>
+        <select name="kind"
+                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+          <option value="">{{ _("All types") }}</option>
+          <option value="password_reset" {% if filters.kind == 'password_reset' %}selected{% endif %}>{{ _("Password reset") }}</option>
+          <option value="test" {% if filters.kind == 'test' %}selected{% endif %}>{{ _("Test") }}</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="resend-table"
+         hx-get="{{ url_for('activity.resend_grid') }}"
+         hx-trigger="load"
+         hx-swap="innerHTML"></div>
+  </div>
+</div>

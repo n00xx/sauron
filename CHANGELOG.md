@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.9.1] (2026-08-25)
+
+### Added
+
+- **Envío de correo por Resend, y con él la vía para "olvidé mi contraseña".**
+  sauron ya sabía generar tokens de reseteo (`password_reset_token`) y ya servía
+  `/reset/<code>`, pero no tenía forma de poner ese enlace delante del usuario:
+  había que copiarlo a mano desde el modal de admin y mandarlo por fuera. Esa
+  era la pieza que faltaba para el botón de "olvidé mi contraseña" que viene
+  después — el enlace existía, la entrega no.
+
+  Nueva pestaña **Activity > Resend** con la configuración, el estado y el
+  registro de envíos, y `send_password_reset_email(user)` como única función que
+  ese futuro formulario público tendrá que llamar.
+
+  Decisiones que vale la pena dejar escritas:
+
+  * **Se llama a la API REST con `requests`, no con el SDK `resend`.** Un POST a
+    un endpoint no justifica una dependencia, y así el fallo se ve como lo que
+    es (código de estado + `name` del error) en vez de envuelto en excepciones
+    del SDK. Mismo criterio que `stripe_events`.
+
+  * **La restricción real del free-tier no es la cuota, es el dominio.** Resend
+    solo envía desde un dominio verificado (uno en el plan gratis). Sin
+    verificar, el único remitente que funciona es `onboarding@resend.dev` y
+    *solo entrega al correo del dueño de la cuenta de Resend*; cualquier otro
+    destinatario se rechaza. Es decir: se puede guardar la clave, ver la
+    pestaña en verde y no poder mandarle un reseteo a un solo usuario. Por eso
+    el botón de envío de prueba no es un extra — es lo único que demuestra que
+    el dominio está verificado — y por eso guardar con remitente `resend.dev`
+    sale en ámbar y no en verde.
+
+  * **La URL pública es un ajuste propio, no `request.url_root`.** Detrás del
+    proxy inverso de TrueNAS lo que sauron ve suele ser una dirección interna:
+    el enlace le funciona al admin que lo generó y a nadie que lo reciba.
+
+  * **No se consulta el estado de entrega.** `GET /emails/{id}` devuelve
+    `restricted_api_key` (401) con una clave de solo envío, y el free-tier borra
+    los datos a los 30 días. El resultado del envío es la única foto honesta y
+    duradera, así que se guarda en `resend_email` — que además es de donde salen
+    los contadores de cuota, porque Resend no expone un endpoint de uso.
+
+  * **Los tres 429 se distinguen.** `daily_quota_exceeded`,
+    `monthly_quota_exceeded` y `rate_limit_exceeded` significan cosas distintas
+    y cada uno lleva su propio consejo; el mensaje de Resend se muestra tal cual
+    en el registro, porque un error de proveedor parafraseado es un ticket de
+    soporte que nadie puede responder.
+
+- **Botón "Enviar" en el modal de reseteo de contraseña.** Manda por correo el
+  token que ya está en pantalla en vez de acuñar uno nuevo: `create_reset_token`
+  invalida los tokens sin usar anteriores, así que generar otro aquí dejaría al
+  admin mirando un enlace muerto mientras al usuario le llega uno distinto. Si
+  la cuenta no tiene correo, lo dice en lugar de ofrecer un botón que fallaría.
+
 ## [2026.8.10] (2026-08-25)
 
 ### Fixed

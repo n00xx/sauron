@@ -1257,7 +1257,10 @@ class StripeEvent(db.Model):
     # Populated by app.services.stripe_evidence. Nullable on purpose: an event
     # that cannot be matched is shown as unmatched rather than hidden.
     wizarr_user_id = db.Column(
-        db.Integer, db.ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True
+        db.Integer,
+        db.ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     invitation_id = db.Column(
         db.Integer,
@@ -1294,3 +1297,56 @@ class StripeEvent(db.Model):
 
     def __repr__(self) -> str:
         return f"<StripeEvent {self.stripe_event_id} {self.type}>"
+
+
+class ResendEmail(db.Model):
+    """One outbound email attempt made through Resend.
+
+    sauron keeps its own log instead of leaning on Resend's dashboard for two
+    reasons: the free tier retains data for only 30 days, and a send-only
+    restricted API key gets ``restricted_api_key`` (401) when asked to read
+    ``GET /emails/{id}`` — so the send-time result is the only status sauron can
+    be sure of. This table is that durable record.
+
+    It is also what the Activity > Resend tab counts against the free-tier caps
+    (100/day, 3.000/month): Resend does not expose a quota endpoint, so the
+    local count is the only usage figure available before a 429 arrives.
+    """
+
+    __tablename__ = "resend_email"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    to_address = db.Column(db.String, nullable=False, index=True)
+    subject = db.Column(db.String, nullable=True)
+    # password_reset | test — what the send was for, so a quota spike can be
+    # attributed to real user traffic rather than an admin hammering "test".
+    kind = db.Column(db.String, nullable=False, index=True)
+    # sent | failed
+    status = db.Column(db.String, nullable=False, index=True)
+
+    # Resend's own id (uuid) on success. Nullable: a rejected request has none.
+    resend_id = db.Column(db.String, nullable=True, index=True)
+
+    # Resend's error `name` (rate_limit_exceeded, daily_quota_exceeded, ...) and
+    # its message, kept verbatim. The tab shows these unchanged — a paraphrased
+    # provider error is a support ticket nobody can answer.
+    error_code = db.Column(db.String, nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+
+    # Which sauron account the mail was about. SET NULL, not CASCADE: deleting a
+    # user must not erase the record that a reset link was mailed to them.
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    user = db.relationship("User", backref=db.backref("resend_emails", lazy=True))
+
+    created_at = db.Column(
+        db.DateTime, default=lambda: datetime.now(UTC), nullable=False, index=True
+    )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def __repr__(self) -> str:
+        return f"<ResendEmail {self.kind} {self.to_address} {self.status}>"

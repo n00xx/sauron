@@ -1026,6 +1026,9 @@ def reset_password_modal(user_id: int):
         return render_template(
             "modals/password-reset-link.html",
             username=user.username,
+            # Needed by the "email this link" action, which posts back per-user.
+            user_id=user.id,
+            user_email=user.email,
             reset_url=reset_url,
             code=existing_token.code,
             expires_at=expires_at,
@@ -1036,6 +1039,7 @@ def reset_password_modal(user_id: int):
         "modals/password-reset-link.html",
         username=user.username,
         user_id=user.id,
+        user_email=user.email,
         has_token=False,
     )
 
@@ -1071,6 +1075,8 @@ def generate_reset_link(user_id: int):
         return render_template(
             "modals/password-reset-link.html",
             username=user.username,
+            user_id=user.id,
+            user_email=user.email,
             reset_url=reset_url,
             code=token.code,
             expires_at=expires_at,
@@ -1092,6 +1098,53 @@ def generate_reset_link(user_id: int):
             user_id=user.id,
             has_token=False,
         ), 500
+
+
+@admin_bp.post("/users/<int:user_id>/email-reset-link")
+@login_required
+def email_reset_link(user_id: int):
+    """Mail the user their existing reset link instead of copying it by hand.
+
+    Deliberately reuses the token already on screen rather than minting a fresh
+    one: ``create_reset_token`` invalidates previous unused tokens, so minting
+    here would leave the admin staring at a link that no longer works while the
+    user received a different one.
+    """
+    from datetime import UTC, datetime
+
+    from app.services.resend_email import describe_error, send_password_reset_email
+
+    user = db.get_or_404(User, user_id)
+
+    token = (
+        PasswordResetToken.query.filter_by(user_id=user.id, used=False)
+        .filter(PasswordResetToken.expires_at > datetime.now(UTC))
+        .order_by(PasswordResetToken.created_at.desc())
+        .first()
+    )
+
+    def _render(**extra):
+        """Re-render the modal in whatever state it was already in."""
+        base = {
+            "username": user.username,
+            "user_id": user.id,
+            "user_email": user.email,
+            "has_token": bool(token),
+        }
+        if token:
+            base["reset_url"] = request.url_root.rstrip("/") + f"/reset/{token.code}"
+            base["code"] = token.code
+            base["expires_at"] = token.expires_at.strftime("%Y-%m-%d %H:%M UTC")
+        return render_template("modals/password-reset-link.html", **{**base, **extra})
+
+    if not token:
+        return _render(email_error="No valid reset link to send. Generate one first.")
+
+    result = send_password_reset_email(user, token=token)
+
+    if result.ok:
+        return _render(email_sent=user.email)
+    return _render(email_error=describe_error(result.error_code, result.error_message))
 
 
 # Helper: group and enrich users for display
@@ -1462,14 +1515,10 @@ def notify_expiring_streaming():
         from app.services.expiry_notify import notify_expiring_streaming_users
 
         result = notify_expiring_streaming_users()
-        return render_template(
-            "_partials/expiry_notify_result.html", result=result
-        )
+        return render_template("_partials/expiry_notify_result.html", result=result)
     except Exception as e:
         logging.error(f"Failed to notify expiring streaming users: {e}")
-        return render_template(
-            "_partials/expiry_notify_result.html", error=str(e)
-        )
+        return render_template("_partials/expiry_notify_result.html", error=str(e))
 
 
 @admin_bp.route("/hx/users/sync")

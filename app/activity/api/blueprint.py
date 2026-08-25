@@ -26,7 +26,7 @@ from sqlalchemy.orm import joinedload
 try:
     from flask_babel import gettext as _
 
-    from app.extensions import db
+    from app.extensions import db, limiter, scaled_limit
     from app.models import HistoricalImportJob, MediaServer
 except ImportError:
     # For testing without Flask app context
@@ -36,6 +36,21 @@ except ImportError:
 
     def _(x):  # type: ignore
         return x
+
+    # Rate-limit decorators are applied at import time, so this fallback has to
+    # produce a working pass-through decorator rather than None.
+    def scaled_limit(limit_string: str):  # type: ignore
+        return limit_string
+
+    class _NoopLimiter:
+        @staticmethod
+        def limit(*_args, **_kwargs):
+            def decorator(func):
+                return func
+
+            return decorator
+
+    limiter = _NoopLimiter()  # type: ignore
 
 
 from app.activity.domain.models import ActivityQuery
@@ -1356,3 +1371,267 @@ def eventos_settings():
             "Failed to save Stripe settings: %s", exc, exc_info=True
         )
         return _render_eventos_tab(_("Failed to save Stripe settings."), "error")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Resend tab — outbound transactional email
+# ══════════════════════════════════════════════════════════════════════════
+#
+# The tab that makes "olvidé mi contraseña" possible. sauron already mints
+# password reset tokens (app.services.password_reset) and already serves
+# /reset/<code>; what it never had was a way to put that link in front of the
+# user without an admin copying it by hand. This is that way.
+#
+# Everything renders through _render_resend_tab rather than redirecting, for
+# the same reason the Eventos tab does: nothing in this app renders
+# get_flashed_messages, so a flashed error is an error nobody sees.
+
+RESEND_PAGE_SIZE = 25
+
+
+def _resend_filters() -> dict[str, object]:
+    """Read filter args once, so tab and grid always agree on the query."""
+    return {
+        "status": request.args.get("status") or None,
+        "kind": request.args.get("kind") or None,
+        "search": (request.args.get("search") or "").strip() or None,
+    }
+
+
+def _resend_query(filters: dict[str, object]):
+    from app.models import ResendEmail
+
+    query = ResendEmail.query
+
+    if filters["status"]:
+        query = query.filter(ResendEmail.status == filters["status"])
+    if filters["kind"]:
+        query = query.filter(ResendEmail.kind == filters["kind"])
+    if filters["search"]:
+        term = f"%{filters['search']}%"
+        query = query.filter(
+            db.or_(
+                ResendEmail.to_address.ilike(term),
+                ResendEmail.subject.ilike(term),
+                ResendEmail.error_code.ilike(term),
+            )
+        )
+    return query
+
+
+@activity_bp.route("/resend")
+@login_required
+def resend_tab():
+    """Display the Resend (outbound email) tab."""
+    return _render_resend_tab()
+
+
+def _render_resend_tab(message: str | None = None, message_kind: str = "success"):
+    """Render the Resend tab, optionally with a result banner."""
+    from app.services import resend_email as resend_service
+
+    try:
+        from app.models import ResendEmail
+
+        # The log itself is fetched by the table's own hx-trigger="load", the
+        # way the Eventos grid does it — rendering rows here too would paint
+        # them twice on every save.
+        filters = _resend_filters()
+
+        stats = {
+            "total": ResendEmail.query.count(),
+            "sent": ResendEmail.query.filter_by(
+                status=resend_service.STATUS_SENT
+            ).count(),
+            "failed": ResendEmail.query.filter_by(
+                status=resend_service.STATUS_FAILED
+            ).count(),
+            "resets": ResendEmail.query.filter_by(
+                kind=resend_service.KIND_PASSWORD_RESET
+            ).count(),
+        }
+
+        return render_template(
+            "activity/resend_tab.html",
+            stats=stats,
+            usage=resend_service.quota_usage(),
+            filters=filters,
+            configured=resend_service.is_configured(),
+            enabled=resend_service.is_enabled(),
+            sandbox_sender=resend_service.uses_sandbox_sender(),
+            masked_key=resend_service.mask_api_key(
+                resend_service.get_setting(resend_service.SETTING_API_KEY)
+            ),
+            from_address=resend_service.get_setting(resend_service.SETTING_FROM, ""),
+            reply_to=resend_service.get_setting(resend_service.SETTING_REPLY_TO, ""),
+            # Pre-fill from the request when unset so the operator sees the value
+            # that would be used anyway, and can correct it if the proxy lies.
+            public_url=resend_service.get_setting(
+                resend_service.SETTING_PUBLIC_URL, request.url_root.rstrip("/")
+            ),
+            last_error=resend_service.get_setting(resend_service.SETTING_LAST_ERROR),
+            message=message,
+            message_kind=message_kind,
+        )
+    except Exception as exc:
+        structlog.get_logger(__name__).error(
+            "Failed to load resend tab: %s", exc, exc_info=True
+        )
+        return render_template(
+            "activity/resend_tab.html",
+            error=_("Failed to load email delivery log"),
+            stats={},
+            usage={},
+            filters=_resend_filters(),
+            configured=False,
+            enabled=False,
+            sandbox_sender=False,
+            masked_key="",
+            from_address="",
+            reply_to="",
+            public_url="",
+        )
+
+
+@activity_bp.route("/resend/grid")
+@login_required
+def resend_grid():
+    """Paginated outbound email log."""
+    from app.models import ResendEmail
+
+    try:
+        filters = _resend_filters()
+        page = max(1, request.args.get("page", 1, type=int))
+        query = _resend_query(filters)
+
+        total_count = query.count()
+        emails = (
+            query.order_by(ResendEmail.created_at.desc())
+            .offset((page - 1) * RESEND_PAGE_SIZE)
+            .limit(RESEND_PAGE_SIZE)
+            .all()
+        )
+
+        total_pages = (total_count + RESEND_PAGE_SIZE - 1) // RESEND_PAGE_SIZE
+        return render_template(
+            "activity/_resend_table.html",
+            emails=emails,
+            page=page,
+            total_count=total_count,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1,
+            filters=filters,
+        )
+    except Exception as exc:
+        structlog.get_logger(__name__).error(
+            "Failed to load resend grid: %s", exc, exc_info=True
+        )
+        return render_template(
+            "activity/_resend_table.html",
+            emails=[],
+            error=_("Failed to load email delivery log"),
+            filters=_resend_filters(),
+        )
+
+
+@activity_bp.route("/resend/settings", methods=["POST"])
+@login_required
+def resend_settings():
+    """Save the Resend configuration."""
+    from app.services import resend_email as resend_service
+
+    try:
+        submitted_key = (request.form.get("resend_api_key") or "").strip()
+        clearing = request.form.get("clear_api_key") == "1"
+
+        # An untouched masked field must never wipe the stored key — the form
+        # renders the mask, so the browser posts bullets back on every save.
+        if clearing:
+            resend_service.set_setting(resend_service.SETTING_API_KEY, None)
+        elif submitted_key and not submitted_key.startswith("•"):
+            resend_service.set_setting(resend_service.SETTING_API_KEY, submitted_key)
+
+        resend_service.set_setting(
+            resend_service.SETTING_FROM,
+            (request.form.get("resend_from_address") or "").strip() or None,
+        )
+        resend_service.set_setting(
+            resend_service.SETTING_REPLY_TO,
+            (request.form.get("resend_reply_to") or "").strip() or None,
+        )
+        # Stored without the trailing slash so the reset link is never built
+        # with a double slash — some proxies 404 on those.
+        resend_service.set_setting(
+            resend_service.SETTING_PUBLIC_URL,
+            (request.form.get("resend_public_base_url") or "").strip().rstrip("/")
+            or None,
+        )
+
+        # Clearing the key always disables sending, whatever the checkbox says:
+        # otherwise removing the key with "enabled" ticked leaves sauron
+        # believing it can mail users with nothing to authenticate with.
+        resend_service.set_setting(
+            resend_service.SETTING_ENABLED,
+            "true"
+            if not clearing and request.form.get("resend_enabled") == "on"
+            else "false",
+        )
+
+        db.session.commit()
+
+        if not resend_service.is_configured():
+            message = _(
+                "Settings saved. Add an API key and a 'From' address to start sending."
+            )
+            kind = "warning"
+        elif resend_service.uses_sandbox_sender():
+            # Not an error and not a success: sends will work for the Resend
+            # account owner and fail for every real user. Rendering this green
+            # is exactly how an operator ships a broken password reset.
+            message = _(
+                "Settings saved, but you are sending from Resend's shared "
+                "onboarding domain. It only delivers to your own Resend account "
+                "address — verify your own domain before real users depend on this."
+            )
+            kind = "warning"
+        else:
+            message = _('Settings saved. Use "Send test" to verify your domain.')
+            kind = "success"
+        return _render_resend_tab(message, kind)
+    except Exception as exc:
+        db.session.rollback()
+        structlog.get_logger(__name__).error(
+            "Failed to save Resend settings: %s", exc, exc_info=True
+        )
+        return _render_resend_tab(_("Failed to save Resend settings."), "error")
+
+
+@activity_bp.route("/resend/test", methods=["POST"])
+@login_required
+# Rate limited because every click burns one of the free tier's 100 daily sends,
+# and that quota is shared with the password resets that actually matter.
+@limiter.limit(scaled_limit("5 per minute"))
+def resend_test():
+    """Send a test email to prove the API key and the sending domain."""
+    from app.services import resend_email as resend_service
+
+    recipient = (request.form.get("test_recipient") or "").strip()
+    if not recipient:
+        return _render_resend_tab(_("Enter an address to send the test to."), "error")
+
+    result = resend_service.send_test_email(recipient)
+
+    if result.ok:
+        return _render_resend_tab(
+            _("Test email accepted by Resend. Check %(inbox)s.", inbox=recipient),
+            "success",
+        )
+
+    return _render_resend_tab(
+        _(
+            "Test failed: %(hint)s",
+            hint=resend_service.describe_error(result.error_code, result.error_message),
+        ),
+        "error",
+    )
