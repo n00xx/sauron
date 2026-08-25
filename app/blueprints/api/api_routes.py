@@ -798,13 +798,23 @@ class UserPasswordResetRequestResource(Resource):
     # registered against the method and never resolved at request time, so the
     # endpoint would run uncapped. `post` is the only method here.
     #
-    # The per-username caps mirror verify-credentials. The per-IP cap is
-    # tighter than that endpoint's 20/hour because every hit here spends real
-    # Resend quota (free tier: 100/day) and puts mail in someone's inbox, so
-    # the blast radius of a flood is a burnt allowance plus a customer being
-    # spammed, not just wasted CPU.
+    # The per-username caps are the real anti-abuse control, and the only ones
+    # that isolate one person from another: they key on the username in the
+    # BODY. They mirror verify-credentials.
+    #
+    # The unkeyed caps are a QUOTA guard, not a per-caller one, and must not be
+    # read as "10 attempts per visitor". The default key_func is
+    # get_remote_address, and the caller here is a storefront making a
+    # server-to-server request, so every buyer on the internet arrives from the
+    # same handful of egress addresses. Sized to the Resend free tier instead —
+    # 100/day is literally the quota, and the hourly ceiling stops one burst
+    # from eating the whole day's allowance before anyone notices.
+    #
+    # Per-BUYER IP limiting has to happen in the storefront, which is the only
+    # place that can see the buyer's address.
     decorators: ClassVar[list] = [
-        limiter.limit(scaled_limit("10 per hour")),
+        limiter.limit(scaled_limit("100 per day")),
+        limiter.limit(scaled_limit("30 per hour")),
         limiter.limit(scaled_limit("3 per hour"), key_func=_password_reset_rate_key),
         limiter.limit(scaled_limit("10 per day"), key_func=_password_reset_rate_key),
     ]

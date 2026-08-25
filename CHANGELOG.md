@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.9.3] (2026-08-25)
+
+### Fixed
+
+- **El tope sin clave de `password-reset-request` era agregado, no por
+  comprador.** Salió en 2026.9.2 documentado como "tope por IP, 10/hora", y esa
+  lectura es falsa. `key_func` por defecto es `get_remote_address`, o sea
+  `request.remote_addr`, y quien llama es una tienda haciendo una petición
+  servidor-a-servidor: todos los compradores del mundo llegan desde el mismo
+  puñado de direcciones de salida. Así que ese contador no aisla a un abusador
+  de un cliente legítimo — los suma, y el número 11 de la hora se queda sin
+  reseteo sin importar quién sea.
+
+  Ahora esos topes están dimensionados como lo que de verdad son, un guardián de
+  cuota: 100/día (que es literalmente el free-tier de Resend) y 30/hora, para
+  que una ráfaga no se coma la asignación del día entera antes de que nadie lo
+  note. El control que sí separa a una persona de otra sigue siendo el que va
+  por username —3/hora y 10/día, leídos del cuerpo—, y limitar por IP del
+  comprador le toca a la tienda, que es el único sitio donde esa dirección se
+  ve.
+
+  `verify-credentials` tiene la misma forma (20/hora sin clave) y queda igual a
+  propósito: ahí cada intento cuesta un login de Jellyfin, no cuota de correo,
+  y ensanchar un tope de una función de seguridad distinta no es algo que deba
+  colarse en este cambio.
+
 ## [2026.9.2] (2026-08-25)
 
 ### Added
