@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.8.8] (2026-08-24)
+
+### Fixed
+
+- **Un disable fallido ya no escala a borrado.** El arreglo de 2026.8.7 cubrió
+  el caso "el disable funcionó pero la contabilidad transaccional explotó". No
+  cubrió el caso de que el disable **falle de verdad**: un 403, un 404 por
+  identificador equivocado, un timeout. En cualquiera de esos, el barrido
+  seguía borrando la cuenta del cliente.
+
+  Verificado en producción: con `Expiry Action = "Disable User"` configurado,
+  dos cuentas vencidas (`user3`, `user4`) fueron **borradas** de Jellyfin por
+  corridas de 2026.8.7.
+
+  Ahora el borrado ocurre por **una sola razón**: que el admin haya elegido
+  explícitamente `"delete"`. Cualquier otro desenlace — servidor incapaz de
+  deshabilitar, disable rechazado, excepción — deja la cuenta **intacta**,
+  revierte el savepoint (para no acumular una fila `ExpiredUser` por corrida) y
+  registra un error para que el siguiente barrido lo reintente. Una cuenta
+  habilitada de más es un problema de facturación que se autocorrige en 15
+  minutos; una cuenta borrada es pérdida irreversible de un cliente que paga.
+
+  En el camino de fallo **no** se toca `user.is_disabled`: esa columna es el
+  filtro del propio barrido, así que marcarla tras un disable fallido excluiría
+  para siempre a una cuenta que sigue habilitada en el servidor de medios.
+
+### Changed
+
+- Los tests `test_genuine_disable_failure_still_falls_back_to_deletion` y
+  `test_disable_raising_still_falls_back_to_deletion` **afirmaban el borrado
+  como comportamiento correcto** — fijaban justo el invariante equivocado, y
+  por eso 2026.8.7 pasó en verde con el fallo todavía dentro. Sustituidos por
+  tests que exigen que la cuenta sobreviva, que `is_disabled` siga en `False` y
+  que no quede fila `ExpiredUser`. Se añadió cobertura del caso "ajuste en
+  disable + servidor incapaz", y se conservó el único camino que sí borra.
+
+
 ## [2026.8.7] (2026-08-24)
 
 ### Fixed

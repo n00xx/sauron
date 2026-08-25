@@ -293,12 +293,14 @@ def test_sweep_processes_every_expired_user_not_just_the_first(
         assert ExpiredUser.query.count() == 3
 
 
-def test_genuine_disable_failure_still_falls_back_to_deletion(
-    app, session, monkeypatch
-):
-    """The fallback must still work: a REAL refusal deletes, as designed.
+def test_disable_failure_never_escalates_to_deletion(app, session, monkeypatch):
+    """A refused disable must LEAVE THE ACCOUNT ALONE, never delete it.
 
-    Guards against over-correcting the fix into never deleting anything.
+    The admin chose "disable". Deletion is irreversible and this sweep runs
+    every 15 minutes against paying customers, so a failed disable has to be a
+    no-op that retries, not an escalation. This is the shape that actually bit
+    us: user3 and user4 were deleted in production while the setting said
+    "disable".
     """
     with app.app_context():
         server = _make_jellyfin_server(session)
@@ -325,12 +327,23 @@ def test_genuine_disable_failure_still_falls_back_to_deletion(
 
         processed = disable_or_delete_user_if_expired()
 
-        assert deleted_ids == [user_id]
-        assert processed == [user_id]
+        assert deleted_ids == [], "a failed disable must never delete"
+        assert processed == []
+
+        survivor = db.session.get(User, user_id)
+        assert survivor is not None, "the account must survive a failed disable"
+        # Must stay False: this column is the sweep's own filter, so flipping it
+        # after a FAILED disable would exclude an account that is still enabled
+        # on the media server from every future run — free access forever.
+        assert survivor.is_disabled is False
+
+        # Nothing happened to the account, so no expiry record may be left
+        # behind — otherwise every 15-minute run appends another one.
+        assert ExpiredUser.query.filter_by(original_user_id=user_id).count() == 0
 
 
-def test_disable_raising_still_falls_back_to_deletion(app, session, monkeypatch):
-    """An exception from the media call is a genuine failure — still delete."""
+def test_disable_raising_never_escalates_to_deletion(app, session, monkeypatch):
+    """An unreachable media server is a failed disable, not permission to delete."""
     with app.app_context():
         server = _make_jellyfin_server(session)
         _set_expiry_action(session, "disable")
@@ -353,6 +366,85 @@ def test_disable_raising_still_falls_back_to_deletion(app, session, monkeypatch)
 
         deleted_ids = []
         monkeypatch.setattr(expiry_module, "disable_user", exploding_disable)
+        monkeypatch.setattr(
+            expiry_module, "delete_user", lambda uid: deleted_ids.append(uid)
+        )
+
+        processed = disable_or_delete_user_if_expired()
+
+        assert deleted_ids == []
+        assert processed == []
+        survivor = db.session.get(User, user_id)
+        assert survivor is not None
+        assert survivor.is_disabled is False
+        assert ExpiredUser.query.filter_by(original_user_id=user_id).count() == 0
+
+
+def test_disable_setting_on_incapable_server_does_not_delete(
+    app, session, monkeypatch
+):
+    """"disable" + a server that cannot disable => skip, never delete.
+
+    Plex cannot disable users. Deleting is NOT a reasonable reading of an admin
+    who explicitly chose "disable".
+    """
+    with app.app_context():
+        server = MediaServer(
+            name="Test Plex",
+            server_type="plex",
+            url="http://plex.local",
+            api_key="test-key",
+        )
+        session.add(server)
+        session.flush()
+        _set_expiry_action(session, "disable")
+
+        user = User(
+            token="plex-user",
+            username="plexie",
+            email="plexie@example.com",
+            code="CODE6",
+            expires=datetime.datetime.now(UTC) - timedelta(days=1),
+            server_id=server.id,
+            is_disabled=False,
+        )
+        session.add(user)
+        session.commit()
+        user_id = user.id
+
+        deleted_ids = []
+        monkeypatch.setattr(
+            expiry_module, "delete_user", lambda uid: deleted_ids.append(uid)
+        )
+
+        processed = disable_or_delete_user_if_expired()
+
+        assert deleted_ids == []
+        assert processed == []
+        assert db.session.get(User, user_id) is not None
+        assert ExpiredUser.query.filter_by(original_user_id=user_id).count() == 0
+
+
+def test_delete_setting_still_deletes(app, session, monkeypatch):
+    """The one path that MAY delete: the admin explicitly chose "delete"."""
+    with app.app_context():
+        server = _make_jellyfin_server(session)
+        _set_expiry_action(session, "delete")
+
+        user = User(
+            token="jf-delete-me",
+            username="deleteme",
+            email="deleteme@example.com",
+            code="CODE7",
+            expires=datetime.datetime.now(UTC) - timedelta(days=1),
+            server_id=server.id,
+            is_disabled=False,
+        )
+        session.add(user)
+        session.commit()
+        user_id = user.id
+
+        deleted_ids = []
         monkeypatch.setattr(
             expiry_module, "delete_user", lambda uid: deleted_ids.append(uid)
         )
