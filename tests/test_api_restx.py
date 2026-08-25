@@ -577,10 +577,10 @@ class TestAPIErrorHandling:
 class TestAPIInvitationDisableUsers:
     """POST /api/invitations/<id>/disable-users — chargeback/refund revocation.
 
-    Resolves the invitation→users many-to-many mapping and disables every
-    user who redeemed the invitation (falling back to delete when the media
-    server can't disable, it is reported in `failed` and NEVER deleted - same
-semantics as POST /users/<id>/disable, which returns 502 instead).
+        Resolves the invitation→users many-to-many mapping and disables every
+        user who redeemed the invitation (falling back to delete when the media
+        server can't disable, it is reported in `failed` and NEVER deleted - same
+    semantics as POST /users/<id>/disable, which returns 502 instead).
     """
 
     def _link_user(self, app, sample_data):
@@ -1269,3 +1269,160 @@ class TestAPIEnableUserReportsFailure:
         with app.app_context():
             remaining = ExpiredUser.query.filter_by(email="renew@example.com").count()
             assert remaining == 0
+
+
+class TestAPIPasswordResetRequest:
+    """sauron fork: POST /api/users/password-reset-request.
+
+    The door the public "olvidé mi contraseña" form knocks on. Its entire job
+    is to reach `send_password_reset_email` without telling the caller anything
+    about which usernames exist.
+    """
+
+    ENDPOINT = "/api/users/password-reset-request"
+
+    def _post(self, client, api_key, username):
+        return client.post(
+            self.ENDPOINT,
+            headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+            data=json.dumps({"username": username}),
+        )
+
+    def _spy(self, monkeypatch, ok=True, error_code=None):
+        """Replace the sender and record who it was asked to mail."""
+        from app.services.resend_email import SendResult
+
+        calls = []
+
+        def fake(user, **kwargs):
+            calls.append(user.id)
+            return SendResult(
+                ok=ok,
+                resend_id="re_test" if ok else None,
+                error_code=error_code,
+                error_message=None if ok else "nope",
+            )
+
+        monkeypatch.setattr("app.services.resend_email.send_password_reset_email", fake)
+        return calls
+
+    def test_requires_api_key(self, client):
+        response = client.post(
+            self.ENDPOINT,
+            headers={"Content-Type": "application/json"},
+            data=json.dumps({"username": "renewme"}),
+        )
+        assert response.status_code == 401
+
+    def test_known_username_triggers_the_email(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        calls = self._spy(monkeypatch)
+
+        response = self._post(client, api_key, "renewme")
+
+        assert response.status_code == 200
+        assert response.get_json() == {"accepted": True}
+        assert calls == [jellyfin_user["user_id"]]
+
+    def test_username_is_matched_case_and_space_insensitively(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """Someone typing their username from memory must not fail on case."""
+        calls = self._spy(monkeypatch)
+
+        response = self._post(client, api_key, "  ReNewMe ")
+
+        assert response.get_json() == {"accepted": True}
+        assert calls == [jellyfin_user["user_id"]]
+
+    def test_unknown_username_is_indistinguishable_from_a_hit(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """The whole point of the endpoint: no user-enumeration oracle."""
+        calls = self._spy(monkeypatch)
+
+        hit = self._post(client, api_key, "renewme")
+        miss = self._post(client, api_key, "ghostaccount")
+
+        assert hit.status_code == miss.status_code == 200
+        assert hit.get_json() == miss.get_json() == {"accepted": True}
+        # ...and nothing was mailed for the name that does not exist.
+        assert calls == [jellyfin_user["user_id"]]
+
+    def test_send_failure_is_indistinguishable_from_success(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """An account with no email on file must not answer differently.
+
+        This is the case that actually happens: legacy rows imported before an
+        address was mandatory. `send_password_reset_email` reports `no_email`,
+        and that report must reach the log and stop there.
+        """
+        self._spy(monkeypatch, ok=False, error_code="no_email")
+
+        response = self._post(client, api_key, "renewme")
+
+        assert response.status_code == 200
+        assert response.get_json() == {"accepted": True}
+
+    def test_unconfigured_resend_still_answers_the_same(
+        self, client, api_key, jellyfin_user
+    ):
+        """No spy: the REAL sender runs with Resend switched off in tests.
+
+        Proves the uniform answer survives the whole call stack, not just a
+        stubbed boundary.
+        """
+        response = self._post(client, api_key, "renewme")
+
+        assert response.status_code == 200
+        assert response.get_json() == {"accepted": True}
+
+    def test_ambiguous_username_mails_nobody(
+        self, app, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """Two servers, one username: refuse rather than reset a guess.
+
+        A reset token belongs to ONE user row and changes the password on that
+        server alone, so picking one would reset an account the requester may
+        not have meant and silently leave the other alone.
+        """
+        with app.app_context():
+            server = MediaServer(
+                name="Second Jellyfin",
+                server_type="jellyfin",
+                url="http://jf2.local",
+                api_key="k2",
+            )
+            db.session.add(server)
+            db.session.flush()
+            db.session.add(
+                User(
+                    token="jf-user-id-2",
+                    username="renewme",
+                    email="renew@example.com",
+                    code="CODE2",
+                    server_id=server.id,
+                )
+            )
+            db.session.commit()
+
+        calls = self._spy(monkeypatch)
+
+        response = self._post(client, api_key, "renewme")
+
+        assert response.status_code == 200
+        assert response.get_json() == {"accepted": True}
+        assert calls == [], "an ambiguous username must not mail anyone"
+
+    @pytest.mark.parametrize("payload", [{}, {"username": None}, {"username": "   "}])
+    def test_malformed_body_is_a_400(self, client, api_key, payload):
+        """A caller bug, safe to report — it says nothing about any account."""
+        response = client.post(
+            self.ENDPOINT,
+            headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+            data=json.dumps(payload),
+        )
+
+        assert response.status_code == 400

@@ -120,6 +120,28 @@ user_verify_credentials_response = api.model(
     },
 )
 
+user_password_reset_request = api.model(
+    "UserPasswordResetRequest",
+    {
+        "username": fields.String(
+            required=True,
+            description="Media account username; matched case-insensitively",
+        ),
+    },
+)
+
+user_password_reset_response = api.model(
+    "UserPasswordResetResponse",
+    {
+        "accepted": fields.Boolean(
+            description=(
+                "Always true. Says the request was received, NOT that an email "
+                "was sent — reporting that would leak which usernames exist."
+            )
+        ),
+    },
+)
+
 user_max_sessions_request = api.model(
     "UserMaxSessionsRequest",
     {

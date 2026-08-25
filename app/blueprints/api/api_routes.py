@@ -50,6 +50,8 @@ from .models import (
     user_list_model,
     user_max_sessions_request,
     user_max_sessions_response,
+    user_password_reset_request,
+    user_password_reset_response,
     user_update_expiry_request,
     user_update_expiry_response,
     user_verify_credentials_request,
@@ -738,6 +740,157 @@ class UserVerifyCredentialsResource(Resource):
 
         logger.info("API: credential check passed for user %s", user_id)
         return {"valid": True, "user_id": user_id}
+
+
+def _password_reset_rate_key() -> str:
+    """Rate-limit key for the reset request: the submitted username.
+
+    Same normalisation and namespacing as _verify_credentials_rate_key, and for
+    the same reason — the limiter must not answer a question the endpoint
+    refuses to answer.
+    """
+    payload = request.get_json(silent=True) or {}
+    username = payload.get("username")
+    if not isinstance(username, str):
+        return "pwreset:__malformed__"
+    return f"pwreset:{username.strip().lower()[:64]}"
+
+
+@users_ns.route("/password-reset-request")
+class UserPasswordResetRequestResource(Resource):
+    """Mail a password reset link to the owner of a media account.
+
+    Built for the public "olvidé mi contraseña" form on the storefront, which
+    knows a username and nothing else. Everything the link needs — minting the
+    token, building the URL, delivering it, logging the send — already lives in
+    ``send_password_reset_email``; this is the door that lets an outside caller
+    reach it.
+
+    ── Enumeration ──────────────────────────────────────────────────────────
+    ALWAYS answers ``200 {"accepted": true}``. Unknown username, account with
+    no email on file, Resend switched off, Resend rejecting the send, several
+    accounts sharing one username — all identical from outside. The caller
+    CANNOT tell whether an email went out, and that is deliberate: this form is
+    public and unauthenticated from the buyer's side, so any difference in the
+    reply is a free "does this account exist?" oracle. The real outcome goes to
+    the log and to Activity > Resend, which is where an operator can act on it.
+
+    The one exception is a malformed body (missing/non-string username), which
+    is a 400. That is a caller bug and says nothing about any account.
+
+    ── Timing ───────────────────────────────────────────────────────────────
+    The BODY is uniform but the clock is not: a hit does a DB write plus a
+    round trip to Resend, a miss returns after one SELECT. Closing that gap is
+    the caller's job — neexy holds every response to a fixed floor before
+    answering the browser. What bounds it here is the per-IP cap below, since
+    separating those two distributions takes many samples.
+
+    ── Reset links are single-use and mutually exclusive ─────────────────────
+    ``create_reset_token`` marks every older unused token for the user as used,
+    so a request made while a real one is in flight invalidates the link the
+    owner is holding. It cannot be READ by whoever triggered it — delivery only
+    ever goes to the address on file — so the worst case is the owner needing
+    to ask again. The caps are what keep that from being a usable nuisance.
+    """
+
+    # Class-level for the same flask-restx reason spelled out in
+    # UserVerifyCredentialsResource: a @limiter.limit stacked on `post` is
+    # registered against the method and never resolved at request time, so the
+    # endpoint would run uncapped. `post` is the only method here.
+    #
+    # The per-username caps mirror verify-credentials. The per-IP cap is
+    # tighter than that endpoint's 20/hour because every hit here spends real
+    # Resend quota (free tier: 100/day) and puts mail in someone's inbox, so
+    # the blast radius of a flood is a burnt allowance plus a customer being
+    # spammed, not just wasted CPU.
+    decorators: ClassVar[list] = [
+        limiter.limit(scaled_limit("10 per hour")),
+        limiter.limit(scaled_limit("3 per hour"), key_func=_password_reset_rate_key),
+        limiter.limit(scaled_limit("10 per day"), key_func=_password_reset_rate_key),
+    ]
+
+    @api.doc("request_password_reset", security="apikey")
+    @api.expect(user_password_reset_request)
+    @api.response(200, "Request accepted", user_password_reset_response)
+    @api.response(400, "Malformed request body", error_model)
+    @api.response(401, "Invalid or missing API key", error_model)
+    @api.response(429, "Too many attempts", error_model)
+    @require_api_key
+    def post(self):
+        """Email a password reset link to a media account's owner."""
+        from app.services.resend_email import send_password_reset_email
+
+        data = api.payload or {}
+        username = data.get("username")
+
+        # Shape check only — a caller bug, not a failed lookup, so it is safe
+        # to report. Everything past this point answers identically.
+        if not isinstance(username, str) or not username.strip():
+            return {"error": "username is required and must be a non-empty string"}, 400
+
+        accepted = {"accepted": True}
+        wanted = username.strip().lower()
+
+        try:
+            # Trim in SQL as well as in Python: usernames imported from a media
+            # server have been seen with surrounding whitespace, and a row that
+            # only differs by that must still be found.
+            matches = (
+                User.query.filter(func.lower(func.trim(User.username)) == wanted)
+                .order_by(User.id)
+                .all()
+            )
+        except Exception as e:
+            logger.error("Error looking up username for password reset: %s", str(e))
+            logger.error(traceback.format_exc())
+            return accepted
+
+        if not matches:
+            # No username in the message. A log of attempted names is the probe
+            # list this endpoint exists to withhold, and it would include the
+            # ones that do not exist.
+            logger.info("API: password reset requested for an unknown username")
+            return accepted
+
+        if len(matches) > 1:
+            # One row per media server, so a person on two servers yields two.
+            # A reset token belongs to ONE row and changes the password on that
+            # server alone, so picking arbitrarily would reset an account the
+            # requester may not have meant and leave the other untouched.
+            # Refusing is the safe half of that choice; the operator gets the
+            # ids and can send a link by hand from the admin modal.
+            logger.warning(
+                "API: password reset refused, %s accounts share a username: ids=%s",
+                len(matches),
+                [u.id for u in matches],
+            )
+            return accepted
+
+        user = matches[0]
+
+        try:
+            result = send_password_reset_email(user)
+        except Exception as e:
+            # send_password_reset_email contracts never to raise. Belt and
+            # braces: a 500 here would be the one response that stands out.
+            logger.error("Error sending password reset email: %s", str(e))
+            logger.error(traceback.format_exc())
+            return accepted
+
+        if result.ok:
+            logger.info("API: password reset email sent for user %s", user.id)
+        else:
+            # The operator's only signal for "no_email" in particular, which
+            # never reaches Activity > Resend: send_password_reset_email
+            # returns before send_email, so no resend_email row is written.
+            logger.warning(
+                "API: password reset email NOT sent for user %s: code=%s message=%s",
+                user.id,
+                result.error_code,
+                result.error_message,
+            )
+
+        return accepted
 
 
 @users_ns.route("/<int:user_id>/max-sessions")

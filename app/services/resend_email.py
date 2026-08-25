@@ -356,10 +356,11 @@ def send_email(
         code, message = _parse_error(response)
         result = SendResult(ok=False, error_code=code, error_message=message)
         logger.warning(
-            "Resend rejected send: status=%s code=%s message=%s",
+            "Resend rejected send: status=%s code=%s message=%s elapsed_ms=%d",
             response.status_code,
             code,
             message,
+            response.elapsed.total_seconds() * 1000,
         )
         _record(
             to_address=to_address,
@@ -377,7 +378,16 @@ def send_email(
         resend_id = None
 
     result = SendResult(ok=True, resend_id=resend_id)
-    logger.info("Resend accepted email id=%s kind=%s", resend_id, kind)
+    # `elapsed` is measured by requests and costs nothing to read. It is here
+    # because callers that must not leak WHICH usernames exist hide this call's
+    # duration behind a fixed delay, and sizing that delay needs real numbers
+    # rather than a guess about how fast Resend is today.
+    logger.info(
+        "Resend accepted email id=%s kind=%s elapsed_ms=%d",
+        resend_id,
+        kind,
+        response.elapsed.total_seconds() * 1000,
+    )
     _record(
         to_address=to_address,
         subject=subject,
