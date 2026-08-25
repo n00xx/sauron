@@ -72,7 +72,12 @@ def fetch_payment_intent(api_key: str, payment_intent_id: str) -> dict[str, Any]
 
 
 def _invitation_from_metadata(metadata: Any) -> Invitation | None:
-    """Read the invitation id the storefront stamps onto the PaymentIntent.
+    """Read an invitation id off the PaymentIntent metadata, if one is there.
+
+    The storefront does not currently send this key — it sends ``sauronUserId``
+    (see :func:`_user_from_metadata`). It is kept because an invitation is a
+    strictly richer link than a bare user id: it populates ``invitation_id`` and
+    the user can still be derived from it.
 
     Only the id travels through Stripe — never the invite code, which is a live
     bearer credential.
@@ -85,6 +90,62 @@ def _invitation_from_metadata(metadata: Any) -> Invitation | None:
     except (TypeError, ValueError):
         return None
     return db.session.get(Invitation, invitation_id)
+
+
+def _user_from_metadata(metadata: Any) -> User | None:
+    """Read the sauron user id the storefront stamps onto the PaymentIntent.
+
+    This is the live contract: neexy sends ``sauronUserId`` (and ``orderId``,
+    which sauron has nowhere to put and deliberately ignores) on the
+    PaymentIntent, not on the Checkout Session.
+
+    It identifies a *purchase's* account directly, which is why it outranks the
+    checkout email — that email is the billing one and need not belong to the
+    person who redeemed the invite.
+    """
+    if not isinstance(metadata, dict):
+        return None
+    raw = metadata.get("sauronUserId")
+    try:
+        user_id = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return db.session.get(User, user_id)
+
+
+def _payment_intent_metadata(
+    payment_intent_id: str,
+    api_key: str | None,
+    cache: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Metadata for a PaymentIntent, or ``None`` when it cannot be read.
+
+    ``cache`` memoises per batch. Every monitored event of one purchase carries
+    the same ``payment_intent_id``, so without it a five-event purchase costs
+    five identical round trips. Failures are cached too — a key that cannot read
+    PaymentIntents must not be retried once per event.
+    """
+    if cache is not None and payment_intent_id in cache:
+        return cache[payment_intent_id]
+
+    metadata: dict[str, Any] | None = None
+    key = api_key or get_setting("stripe_api_key")
+    if key:
+        try:
+            payment_intent = fetch_payment_intent(key, payment_intent_id)
+        except StripeApiError as exc:
+            logger.debug(
+                "PaymentIntent lookup failed during correlation",
+                payment_intent=payment_intent_id,
+                error=str(exc),
+            )
+        else:
+            raw = payment_intent.get("metadata")
+            metadata = raw if isinstance(raw, dict) else {}
+
+    if cache is not None:
+        cache[payment_intent_id] = metadata
+    return metadata
 
 
 def _users_for_invitation(invitation: Invitation) -> list[User]:
@@ -109,18 +170,25 @@ def _user_by_email(email: str | None) -> User | None:
     return matches[0] if len(matches) == 1 else None
 
 
-def resolve_event_links(event: StripeEvent, api_key: str | None = None) -> bool:
+def resolve_event_links(
+    event: StripeEvent,
+    api_key: str | None = None,
+    metadata_cache: dict[str, Any] | None = None,
+) -> bool:
     """Attach ``invitation_id`` / ``wizarr_user_id`` to an event row.
 
     Returns True when something was resolved. Never raises: an unresolvable
     event stays visible in the UI as unmatched, which is strictly better than
     hiding it — the operator needs to know the link is missing precisely when a
     dispute lands.
+
+    The three sources are tried strongest first, and the order is load-bearing:
+    the email fallback is a guess, and if it ran first it would answer for the
+    whole purchase — every later event would reuse it and the authoritative
+    metadata would never be read.
     """
     if event.invitation_id or event.wizarr_user_id:
         return True
-
-    invitation: Invitation | None = None
 
     # An early fraud warning carries `charge` but NO `payment_intent`, and it is
     # the dispute-deflection primitive — the one event type that most needs to
@@ -139,8 +207,27 @@ def resolve_event_links(event: StripeEvent, api_key: str | None = None) -> bool:
         if by_charge is not None:
             payment_intent_id = by_charge.payment_intent_id
 
-    # 1. Reuse a sibling event on the same payment that is already resolved.
-    #    Cheap, and avoids re-reading the same PaymentIntent for every event.
+    # 1. Authoritative: what the storefront stamped on the PaymentIntent.
+    if payment_intent_id:
+        metadata = _payment_intent_metadata(payment_intent_id, api_key, metadata_cache)
+        if metadata:
+            invitation = _invitation_from_metadata(metadata)
+            user = _user_from_metadata(metadata)
+            if invitation is not None:
+                event.invitation_id = invitation.id
+                if user is None:
+                    users = _users_for_invitation(invitation)
+                    if len(users) == 1:
+                        user = users[0]
+            if user is not None:
+                event.wizarr_user_id = user.id
+            if invitation is not None or user is not None:
+                return True
+
+    # 2. Reuse a sibling event on the same payment that resolved to an
+    #    invitation. Only invitation links qualify: a bare `wizarr_user_id` may
+    #    have come from the email fallback below, and copying a guess across the
+    #    purchase would make it indistinguishable from a real match.
     if payment_intent_id:
         sibling = (
             StripeEvent.query.filter(
@@ -152,27 +239,12 @@ def resolve_event_links(event: StripeEvent, api_key: str | None = None) -> bool:
         )
         if sibling is not None:
             invitation = db.session.get(Invitation, sibling.invitation_id)
-
-    # 2. Authoritative: the invitation id the storefront stamped on the PI.
-    if invitation is None and payment_intent_id:
-        key = api_key or get_setting("stripe_api_key")
-        if key:
-            try:
-                payment_intent = fetch_payment_intent(key, payment_intent_id)
-                invitation = _invitation_from_metadata(payment_intent.get("metadata"))
-            except StripeApiError as exc:
-                logger.debug(
-                    "PaymentIntent lookup failed during correlation",
-                    payment_intent=payment_intent_id,
-                    error=str(exc),
-                )
-
-    if invitation is not None:
-        event.invitation_id = invitation.id
-        users = _users_for_invitation(invitation)
-        if len(users) == 1:
-            event.wizarr_user_id = users[0].id
-        return True
+            if invitation is not None:
+                event.invitation_id = invitation.id
+                users = _users_for_invitation(invitation)
+                if len(users) == 1:
+                    event.wizarr_user_id = users[0].id
+                return True
 
     # 3. Last resort: the checkout email.
     user = _user_by_email(event.customer_email)
@@ -420,10 +492,15 @@ def resolve_pending_links(limit: int = 200) -> int:
         .all()
     )
 
+    # One PaymentIntent read per purchase, not per event: the events of a single
+    # purchase all share a payment_intent_id, and correlation now consults that
+    # PaymentIntent for every one of them.
+    metadata_cache: dict[str, Any] = {}
+
     resolved = 0
     for event in pending:
         try:
-            if resolve_event_links(event, api_key):
+            if resolve_event_links(event, api_key, metadata_cache):
                 resolved += 1
         except Exception as exc:
             logger.debug(

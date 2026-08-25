@@ -686,7 +686,9 @@ class TestEvidence:
             # The rest of the evidence still renders.
             assert "Sessions recorded: 3" in log
 
-    def test_fraud_warning_resolves_through_its_charge(self, app, clean_stripe_events):
+    def test_fraud_warning_resolves_through_its_charge(
+        self, app, clean_stripe_events, monkeypatch
+    ):
         """An EFW carries `charge` but no `payment_intent`.
 
         It is the deflection primitive, so it must reach the deterministic path
@@ -727,12 +729,205 @@ class TestEvidence:
             db.session.commit()
 
             efw = StripeEvent.query.filter_by(stripe_event_id="evt_efw").one()
-            assert sev.resolve_event_links(efw, api_key=None) is True
+            # No metadata on the PaymentIntent, so correlation must fall through
+            # to the sibling. Stubbed so the test never reaches the network.
+            monkeypatch.setattr(sev, "fetch_payment_intent", lambda *a, **k: {})
+            assert sev.resolve_event_links(efw, api_key="rk_test_x") is True
             assert efw.invitation_id == invitation.id
 
             db.session.rollback()
             StripeEvent.query.delete()
             db.session.delete(db.session.get(Invitation, invitation.id))
+            db.session.commit()
+
+    @pytest.fixture
+    def two_buyers(self, app, clean_stripe_events):
+        """Two users: one findable by email, one only by PaymentIntent metadata."""
+        with app.app_context():
+            server = MediaServer(
+                name="jf-corr", server_type="jellyfin", url="http://corr"
+            )
+            db.session.add(server)
+            db.session.flush()
+
+            by_email = User(
+                username="email-match",
+                email="shared@example.com",
+                code="CORR1",
+                token="tok-corr-1",
+                server_id=server.id,
+            )
+            by_metadata = User(
+                username="metadata-match",
+                email="metadata-buyer@example.com",
+                code="CORR2",
+                token="tok-corr-2",
+                server_id=server.id,
+            )
+            db.session.add_all([by_email, by_metadata])
+            db.session.commit()
+            yield by_email.id, by_metadata.id
+
+            StripeEvent.query.delete()
+            db.session.delete(db.session.get(User, by_email.id))
+            db.session.delete(db.session.get(User, by_metadata.id))
+            db.session.delete(db.session.get(MediaServer, server.id))
+            db.session.commit()
+
+    def _pending(self, **overrides) -> StripeEvent:
+        fields = {
+            "stripe_event_id": "evt_corr",
+            "type": "payment_intent.succeeded",
+            "category": "payment",
+            "severity": "info",
+            "created_at_stripe": datetime.now(UTC),
+            "livemode": False,
+            "payment_intent_id": "pi_corr",
+        }
+        fields.update(overrides)
+        return StripeEvent(**fields)
+
+    def test_sauron_user_id_metadata_resolves_the_user(
+        self, app, two_buyers, monkeypatch
+    ):
+        """The live contract: neexy stamps sauronUserId on the PaymentIntent."""
+        _, metadata_user_id = two_buyers
+        monkeypatch.setattr(
+            sev,
+            "fetch_payment_intent",
+            lambda *a, **k: {"metadata": {"sauronUserId": str(metadata_user_id)}},
+        )
+
+        with app.app_context():
+            event = self._pending()
+            db.session.add(event)
+            db.session.flush()
+
+            assert sev.resolve_event_links(event, api_key="rk_test_x") is True
+            assert event.wizarr_user_id == metadata_user_id
+
+    def test_metadata_outranks_the_email_guess(self, app, two_buyers, monkeypatch):
+        """Ordering is load-bearing, and this is the case that proves it.
+
+        The checkout email is the BILLING address and resolves to a different
+        person. If the email guess ran first it would answer for the whole
+        purchase — every later event would reuse it and the authoritative
+        metadata would never be read.
+        """
+        email_user_id, metadata_user_id = two_buyers
+        monkeypatch.setattr(
+            sev,
+            "fetch_payment_intent",
+            lambda *a, **k: {"metadata": {"sauronUserId": str(metadata_user_id)}},
+        )
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            # Ingested email-first, which is the order that used to poison it.
+            db.session.add_all(
+                [
+                    self._pending(
+                        stripe_event_id="evt_corr_a",
+                        type="charge.succeeded",
+                        customer_email="shared@example.com",
+                    ),
+                    self._pending(
+                        stripe_event_id="evt_corr_b",
+                        customer_email="shared@example.com",
+                    ),
+                ]
+            )
+            db.session.commit()
+
+            assert sev.resolve_pending_links() == 2
+
+            for stripe_id in ("evt_corr_a", "evt_corr_b"):
+                row = StripeEvent.query.filter_by(stripe_event_id=stripe_id).one()
+                assert row.wizarr_user_id == metadata_user_id, stripe_id
+                assert row.wizarr_user_id != email_user_id
+
+    def test_batch_reads_each_payment_intent_once(self, app, two_buyers, monkeypatch):
+        """Every event of a purchase shares one PaymentIntent — read it once."""
+        _, metadata_user_id = two_buyers
+        calls: list[str] = []
+
+        def _counting_fetch(api_key, payment_intent_id, **kwargs):
+            calls.append(payment_intent_id)
+            return {"metadata": {"sauronUserId": str(metadata_user_id)}}
+
+        monkeypatch.setattr(sev, "fetch_payment_intent", _counting_fetch)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.add_all(
+                [
+                    self._pending(stripe_event_id=f"evt_corr_{n}", type=kind)
+                    for n, kind in enumerate(
+                        [
+                            "charge.succeeded",
+                            "payment_intent.succeeded",
+                            "refund.created",
+                        ]
+                    )
+                ]
+            )
+            db.session.commit()
+
+            assert sev.resolve_pending_links() == 3
+            assert calls == ["pi_corr"]
+
+    def test_unknown_sauron_user_id_falls_through_to_email(
+        self, app, two_buyers, monkeypatch
+    ):
+        """A stale id must not block the weaker path that could still match."""
+        email_user_id, _ = two_buyers
+        monkeypatch.setattr(
+            sev,
+            "fetch_payment_intent",
+            lambda *a, **k: {"metadata": {"sauronUserId": "999999"}},
+        )
+
+        with app.app_context():
+            event = self._pending(customer_email="shared@example.com")
+            db.session.add(event)
+            db.session.flush()
+
+            assert sev.resolve_event_links(event, api_key="rk_test_x") is True
+            assert event.wizarr_user_id == email_user_id
+
+    def test_invitation_metadata_still_resolves(
+        self, app, clean_stripe_events, monkeypatch
+    ):
+        """wizarrInvitationId is not sent today, but it is the richer link.
+
+        This branch shipped with zero coverage — the only correlation test
+        passed api_key=None, which skipped the PaymentIntent read entirely, so
+        the suite stayed green against a contract that never existed.
+        """
+        with app.app_context():
+            invitation = Invitation(code="METAINV", used=True)
+            db.session.add(invitation)
+            db.session.commit()
+            invitation_id = invitation.id
+
+            monkeypatch.setattr(
+                sev,
+                "fetch_payment_intent",
+                lambda *a, **k: {
+                    "metadata": {"wizarrInvitationId": str(invitation_id)}
+                },
+            )
+
+            event = self._pending(stripe_event_id="evt_meta_inv")
+            db.session.add(event)
+            db.session.flush()
+
+            assert sev.resolve_event_links(event, api_key="rk_test_x") is True
+            assert event.invitation_id == invitation_id
+
+            db.session.rollback()
+            StripeEvent.query.delete()
+            db.session.delete(db.session.get(Invitation, invitation_id))
             db.session.commit()
 
     def test_ce3_elements_expose_the_matching_keys(self, app, purchase):

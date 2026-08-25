@@ -1,7 +1,9 @@
 # Activity › Eventos — status and remaining work
 
-**As of 2026-08-24.** Paused deliberately: other work is more urgent. This file
-exists so the next session starts from evidence instead of re-investigating.
+**Updated 2026-08-25.** The correlation blocker is fixed (section 3); what remains
+is verification against live data and the dispute/EFW surface, which has still
+never been exercised. This file exists so the next session starts from evidence
+instead of re-investigating.
 
 Scope: the Stripe event mirror (`app/services/stripe_events.py`) and the
 dispute-evidence builder (`app/services/stripe_evidence.py`).
@@ -46,67 +48,46 @@ charge.updated ×5, balance.available ×5, …`
 
 ---
 
-## 3. BLOCKER — the evidence correlation cannot resolve
+## 3. Correlation — was blocked, now fixed (2026-08-25)
 
-This is the reason the tab exists, and it is currently running on the weak path
-or not resolving at all.
+**History, kept because the shape of the failure is instructive.** Correlation
+could not resolve at all: sauron read `wizarrInvitationId` off
+`PaymentIntent.metadata`, while neexy sent `orderToken` on
+`CheckoutSession.metadata` — wrong object *and* wrong key. Every PaymentIntent
+inspected carried `metadata: {}`. The branch had **zero test coverage**, because
+the only correlation test passed `api_key=None`, which skipped the PaymentIntent
+read entirely; that is how the suite stayed green against a contract that had
+never existed.
 
-`resolve_event_links` looks for the invitation here
-(`app/services/stripe_evidence.py:82`):
+**Both halves are now closed.**
 
-```python
-raw = metadata.get("wizarrInvitationId")   # read off PaymentIntent.metadata
-```
-
-What the storefront (neexy) actually sends — verified on two Checkout Sessions
-from different dates, one from production `neexy.net`:
+neexy moved its metadata onto the PaymentIntent — the right object — and sends a
+direct user id. Verified on `pi_3U8BHRB…` (2026-08-25):
 
 ```json
-"metadata": {
-  "deviceLimit": "2",
-  "durationDays": "30",
-  "orderToken": "htc81atlFZYLEAWDqzOmoCvQjWvEDB2R",
-  "package": "plus"
-}
+"metadata": {"orderId": "2fee30f6-…", "sauronUserId": "19"}
 ```
 
-Two mismatches at once:
+sauron now reads it (`_user_from_metadata`), so
+`sauronUserId` → `StripeEvent.wizarr_user_id`.
 
-| | sauron expects | neexy sends |
-| --- | --- | --- |
-| Object | `PaymentIntent.metadata` | `CheckoutSession.metadata` |
-| Key | `wizarrInvitationId` | `orderToken` |
+Three things worth knowing about the implementation:
 
-Supporting evidence:
+- **Resolution order is load-bearing.** Sources run strongest-first: PaymentIntent
+  metadata → sibling event with an `invitation_id` → checkout email. The email
+  path is a guess; if it ran first it would answer for the *whole purchase*, and
+  every later event would reuse that guess instead of reading the authoritative
+  metadata. Sibling reuse deliberately accepts only `invitation_id` links for the
+  same reason — a bare `wizarr_user_id` may itself have come from the email guess.
+- **`metadata_cache`** memoises one PaymentIntent read per purchase per batch.
+  Without it, consulting metadata for every event would turn a five-event purchase
+  into five identical round trips.
+- **`wizarrInvitationId` was kept.** It is not sent today, but an invitation is a
+  richer link than a bare user id — it fills `invitation_id` and the user is still
+  derivable from it. It now has real coverage.
 
-- All 7 PaymentIntents inspected in the 30-day window carry `metadata: {}` — empty.
-- `orderToken` appears **nowhere** in sauron's source.
-- `wizarrInvitationId` appears in exactly **one** line — the one that reads it.
-  Nothing writes it, no fixture references it, no doc defines the contract.
-- **Zero test coverage** on that branch: the only correlation test
-  (`tests/test_stripe_events.py:730`) passes `api_key=None`, which skips the
-  PaymentIntent fetch entirely. That is why the suite is green while the contract
-  has never existed.
-
-Consequence: every event falls through to step 3, the checkout-email fallback,
-which the code itself documents as weaker — it identifies *a person*, not
-*a purchase*, and only resolves when exactly one `User.email` matches.
-
-### Open decision (needs neexy, not in this repo)
-
-**Does neexy know the invitation id when it creates the Checkout Session, or is
-the invitation created after payment during fulfilment?**
-
-- If it knows it up front → cheapest fix is on neexy: stamp
-  `payment_intent_data.metadata.wizarrInvitationId` on the session so it
-  propagates to the PaymentIntent, and sauron needs no change.
-- If the invitation is created after the charge → `orderToken` is the correct
-  bridge. sauron must persist the order token on `Invitation` and resolve through
-  it, reading the **Checkout Session**, not the PaymentIntent.
-
-Do not pick one without answering this. Whichever way it goes, the branch needs a
-test that actually exercises the metadata path (i.e. with an `api_key`, mocking
-`fetch_payment_intent`).
+**`orderId` is not stored.** sauron has no column for it and no reader. Recorded
+here so nobody assumes it is available.
 
 ---
 
@@ -133,8 +114,10 @@ is the only card that produces it.
 
 ## 5. Execution plan for the next session
 
-1. **Answer the neexy question above**, then implement the correlation fix and a
-   test that exercises the metadata path with an api_key.
+1. ~~Fix the correlation contract.~~ **Done 2026-08-25** — see section 3. Still
+   unverified *against live data*: no synced event has yet resolved through
+   `sauronUserId`, because the only payment carrying it landed after the last
+   sync. Confirm on the next sync that events show a linked user.
 2. Run the three test-card checkouts in the sandbox, "Sync now", and verify:
    - Disputes / Fraud warnings counters leave 0
    - the action queue orders by `dispute_due_by` and renders `Xd left`

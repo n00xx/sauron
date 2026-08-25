@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.8.10] (2026-08-25)
+
+### Fixed
+
+- **La correlación de evidencia por fin puede resolver.** La pestaña Eventos
+  existe para pegar el historial de reproducción de sauron a una disputa de
+  Stripe, y ese enganche nunca funcionó: sauron leía `wizarrInvitationId` sobre
+  `PaymentIntent.metadata`, mientras la tienda mandaba `orderToken` sobre
+  `CheckoutSession.metadata` — objeto **y** clave equivocados. Todos los
+  PaymentIntents revisados traían `metadata: {}`.
+
+  neexy ya movió su metadata al PaymentIntent y manda el id de usuario directo
+  (`{"orderId": …, "sauronUserId": …}`). sauron ahora lo lee, así que
+  `sauronUserId` → `StripeEvent.wizarr_user_id`.
+
+  Se conserva `wizarrInvitationId`: hoy nadie lo manda, pero una invitación es
+  un enlace más rico que un id de usuario suelto — llena `invitation_id` y el
+  usuario se sigue derivando de ella.
+
+### Changed
+
+- **El orden de resolución ahora es explícito y es carga estructural.** Las tres
+  fuentes se prueban de más fuerte a más débil: metadata del PaymentIntent →
+  evento hermano con `invitation_id` → email del checkout. El email es una
+  conjetura (es el de **facturación**, que no tiene por qué ser el que canjeó la
+  invitación); si corriera primero contestaría por **toda la compra** y cada
+  evento posterior reutilizaría esa conjetura sin llegar nunca a leer la
+  metadata autoritativa. Por lo mismo, el reuso de hermanos solo acepta enlaces
+  con `invitation_id`: un `wizarr_user_id` suelto pudo venir del email.
+
+- **Una lectura de PaymentIntent por compra, no por evento.** Consultar la
+  metadata para cada evento convertiría una compra de cinco eventos en cinco
+  llamadas idénticas a Stripe; `resolve_pending_links` ahora comparte un caché
+  por lote. Los fallos también se cachean, para no reintentar una llave incapaz
+  de leer PaymentIntents una vez por evento.
+
+- **Cobertura de la rama que nunca tuvo ninguna.** El único test de correlación
+  pasaba `api_key=None`, que **salta por completo** la lectura del
+  PaymentIntent — por eso la suite llevaba en verde desde siempre contra un
+  contrato que no existía. Añadidos tests que sí ejercitan esa ruta: resolución
+  por `sauronUserId`, precedencia sobre el email cuando apuntan a personas
+  distintas, id inexistente que cae al email, la ruta por invitación, y que un
+  lote lee cada PaymentIntent una sola vez. Verificado que tres de ellos fallan
+  sin el lector nuevo.
+
 ## [2026.8.9] (2026-08-24)
 
 ### Fixed
