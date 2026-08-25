@@ -293,6 +293,142 @@ def test_sweep_processes_every_expired_user_not_just_the_first(
         assert ExpiredUser.query.count() == 3
 
 
+class _FakeMediaClient:
+    """Stands in for the Jellyfin HTTP client, and ONLY for it.
+
+    Everything above it — _set_user_enabled_state, its transaction handling,
+    the sweep — runs for real. That matters: every other test in this file
+    mocks `disable_user` wholesale, so the body of _set_user_enabled_state was
+    never executed by the suite. Two separate production bugs shipped green
+    through that hole, the second one being an AttributeError on the very line
+    added to fix the first.
+    """
+
+    def __init__(self, ok=True):
+        self.ok = ok
+        self.disabled = []
+
+    def disable_user(self, identifier):
+        self.disabled.append(identifier)
+        return self.ok
+
+    def enable_user(self, identifier):
+        return self.ok
+
+
+def test_real_disable_user_runs_inside_a_savepoint(app, session, monkeypatch):
+    """disable_user() must work when the caller owns an open savepoint.
+
+    `db.session` is a scoped_session and does NOT proxy in_nested_transaction();
+    calling it there raised AttributeError, which _set_user_enabled_state
+    swallowed into a False return -> the sweep read "disable failed" and
+    deleted the account.
+    """
+    from app.services.media import service as media_service
+
+    fake = _FakeMediaClient()
+    monkeypatch.setattr(
+        media_service, "get_client_for_media_server", lambda server: fake
+    )
+
+    with app.app_context():
+        server = _make_jellyfin_server(session)
+        user = User(
+            token="jf-real-savepoint",
+            username="realsp",
+            email="realsp@example.com",
+            code="CODE8",
+            expires=datetime.datetime.now(UTC) - timedelta(days=1),
+            server_id=server.id,
+            is_disabled=False,
+        )
+        session.add(user)
+        session.commit()
+        user_id = user.id
+
+        savepoint = db.session.begin_nested()
+        result = media_service.disable_user(user_id)
+        savepoint.commit()
+        db.session.commit()
+
+        assert result is True, "a working media call must not report failure"
+        assert fake.disabled == ["jf-real-savepoint"]
+        assert db.session.get(User, user_id).is_disabled is True
+
+
+def test_real_disable_user_runs_as_the_outermost_scope(app, session, monkeypatch):
+    """The API routes call it with no transaction of their own — still commits."""
+    from app.services.media import service as media_service
+
+    fake = _FakeMediaClient()
+    monkeypatch.setattr(
+        media_service, "get_client_for_media_server", lambda server: fake
+    )
+
+    with app.app_context():
+        server = _make_jellyfin_server(session)
+        user = User(
+            token="jf-real-outer",
+            username="realouter",
+            email="realouter@example.com",
+            code="CODE9",
+            expires=datetime.datetime.now(UTC) - timedelta(days=1),
+            server_id=server.id,
+            is_disabled=False,
+        )
+        session.add(user)
+        session.commit()
+        user_id = user.id
+
+        assert media_service.disable_user(user_id) is True
+        assert db.session.get(User, user_id).is_disabled is True
+
+
+def test_sweep_end_to_end_without_mocking_the_media_layer(app, session, monkeypatch):
+    """The whole sweep, with only the HTTP client faked. THE regression test.
+
+    Both production incidents would have failed here: the savepoint/commit
+    collision and the scoped_session AttributeError alike.
+    """
+    from app.services.media import service as media_service
+
+    fake = _FakeMediaClient()
+    monkeypatch.setattr(
+        media_service, "get_client_for_media_server", lambda server: fake
+    )
+    deleted_ids = []
+    monkeypatch.setattr(
+        expiry_module, "delete_user", lambda uid: deleted_ids.append(uid)
+    )
+
+    with app.app_context():
+        server = _make_jellyfin_server(session)
+        _set_expiry_action(session, "disable")
+        for n in (1, 2):
+            session.add(
+                User(
+                    token=f"jf-e2e-{n}",
+                    username=f"e2e{n}",
+                    email=f"e2e{n}@example.com",
+                    code=f"E2E{n}",
+                    expires=datetime.datetime.now(UTC) - timedelta(days=1),
+                    server_id=server.id,
+                    is_disabled=False,
+                )
+            )
+        session.commit()
+
+        processed = disable_or_delete_user_if_expired()
+
+        assert deleted_ids == [], "a successful disable must never delete"
+        assert len(processed) == 2, "both users must be processed in ONE run"
+        assert sorted(fake.disabled) == ["jf-e2e-1", "jf-e2e-2"]
+        for n in (1, 2):
+            row = User.query.filter_by(token=f"jf-e2e-{n}").first()
+            assert row is not None, "the account must survive"
+            assert row.is_disabled is True
+
+
 def test_disable_failure_never_escalates_to_deletion(app, session, monkeypatch):
     """A refused disable must LEAVE THE ACCOUNT ALONE, never delete it.
 

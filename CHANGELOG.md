@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.8.9] (2026-08-24)
+
+### Fixed
+
+- **El arreglo de 2026.8.7 rompía el disable por completo.** La línea añadida
+  entonces llamaba a `db.session.in_nested_transaction()`, pero `db.session` es
+  un `scoped_session` y **no proxea ese método**: lanzaba
+  `AttributeError: 'scoped_session' object has no attribute
+  'in_nested_transaction'`. El `except` de `_set_user_enabled_state` lo tragaba
+  y devolvía `False`, o sea "el disable falló".
+
+  Efecto real, verificado en el servidor de producción: **ningún disable
+  funcionó desde 2026.8.7** — ni el barrido, ni el botón de la GUI, ni la API.
+  Y como hasta 2026.8.8 un disable fallido escalaba a borrado, *toda* cuenta que
+  venciera en esa ventana se borraba. Un fallo intermitente se convirtió en uno
+  del 100%.
+
+  Se corrige llamando a `db.session()` para obtener la `Session` real, que sí
+  expone `in_nested_transaction()`.
+
+### Changed
+
+- **Cobertura de la interacción que dejó pasar ambos fallos.** Toda la suite
+  mockeaba `disable_user` entero, así que el cuerpo de `_set_user_enabled_state`
+  **nunca se ejecutaba en los tests** — por eso dos bugs distintos llegaron a
+  producción en verde, el segundo en la mismísima línea escrita para arreglar el
+  primero.
+
+  Añadidos tests que solo falsean el cliente HTTP y ejercitan de verdad
+  `_set_user_enabled_state` (dentro de un savepoint ajeno y como ámbito
+  externo) más el barrido completo de punta a punta. Verificado que los tres
+  fallan con el código de 2026.8.8, reproduciendo el `AttributeError` exacto de
+  producción.
+
+
 ## [2026.8.8] (2026-08-24)
 
 ### Fixed
