@@ -6,6 +6,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.9.9] (2026-08-26)
+
+### Fixed
+
+- **Los jobs programados se registraban antes de que la base de datos
+  existiera, asi que el sync de Stripe no arrancaba NUNCA.**
+  `init_extensions` registraba los jobs unas cincuenta lineas por encima de
+  `db.init_app(app)`. Cualquier job que lea la BD al registrarse — el sync de
+  Stripe lee la llave, el de LDAP lee su configuracion — moria ahi con
+  `RuntimeError: The current Flask app is not registered with this 'SQLAlchemy'
+  instance`. Empujar un contexto de app no ayuda y el comentario del codigo
+  diagnosticaba justo eso mal: falta el engine, no el contexto; el bloque de
+  Stripe si empujaba contexto y fallaba igual.
+
+  El sync solo existia porque guardar los ajustes de Eventos lo registra desde
+  un request, donde la BD ya esta enlazada. Vivia en memoria hasta el siguiente
+  reinicio del contenedor y entonces desaparecia sin dejar rastro. Eso es el
+  apagon de dos dias que motivo el vigilante de 2026.9.6.
+
+  El bloque del scheduler pasa a ir despues de `db.init_app` / `migrate.init_app`.
+  Ningun test en ejecucion puede cubrir esto — pytest se salta el bloque
+  entero — asi que la invariante queda fijada leyendo el propio fuente.
+
+- **El vigilante mataba de hambre al job que vigilaba.**
+  `add_job(replace_existing=True)` sin `next_run_time` explicito construye un
+  trigger nuevo cuyo `start_date` por defecto es `now + interval`, y APScheduler
+  lo adopta. Cada llamada empuja el disparo un intervalo completo al futuro, asi
+  que un llamador que corra mas a menudo que el intervalo mueve la porteria mas
+  rapido de lo que avanza el reloj y el job no dispara ni una vez. El vigilante
+  corria cada 5 minutos contra un job de 15.
+
+  En produccion se vio `minutes_since_sync` subiendo 186 → 191 → 196 → 201 →
+  ... un paso por tick, para siempre, con `scheduler_running: true`,
+  `job_registered: true` y la pestana anunciando alegremente "Next run" a quince
+  minutos vista. La alerta horaria prometia ademas "The job was re-registered
+  automatically", una reparacion que esa funcion era incapaz de entregar.
+
+  Ahora un job ya correcto se deja estrictamente en paz. Se re-registra solo si
+  falta, si cambio el intervalo guardado, o si esta **pausado**
+  (`next_run_time is None`: registrado y nunca va a correr), y en ese caso se le
+  pasa `next_run_time` explicito para que corra ya en vez de dentro de un
+  intervalo — lo que impide de paso que un reinicio deje un `last_sync` viejo
+  del que el vigilante se cuelgue.
+
+  Los 22 tests anteriores no podian verlo: su doble de scheduler hacia
+  `next_run_time = now` — "dispara ya" — exactamente lo contrario del real.
+
+- **El banner de sync parado no decia por que.** `check_stripe_sync_health`
+  ahora expone `stripe_sync_last_error`, el unico campo que separa "no corre
+  nada" de "corre y Stripe lo rechaza". La pestana distingue los dos casos y la
+  alerta deja de prometer reparaciones que no hizo.
+
+- **La correlacion de eventos no estaba acotada en tiempo.** El tope de 200
+  filas no lo era: cada compra sin resolver cuesta una lectura de PaymentIntent
+  de hasta 20 s, asi que un atasco podia pasarse del intervalo de 15 minutos.
+  Con `max_instances=1` el tick siguiente no se encola detras, se descarta con
+  un WARNING que nadie lee — y el sync vuelve a parecer muerto. Se anade un
+  presupuesto de reloj; lo que no entra espera al tick siguiente.
+
 ## [2026.9.8] (2026-08-26)
 
 ### Fixed
