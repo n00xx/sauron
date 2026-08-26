@@ -100,6 +100,19 @@ MONITORED_EVENT_TYPES: frozenset[str] = frozenset(
     }
 )
 
+# The three events that need a person to decide something, each with its own
+# alert. Explicit rather than "every dispute event": `updated`,
+# `funds_withdrawn` and `funds_reinstated` are bookkeeping on a dispute the
+# operator already knows about, and paging them four times for one chargeback
+# is how an alert channel gets muted.
+ALERTABLE_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        "charge.dispute.created",
+        "charge.dispute.closed",
+        "radar.early_fraud_warning.created",
+    }
+)
+
 CATEGORY_CHECKOUT = "checkout"
 CATEGORY_PAYMENT = "payment"
 CATEGORY_REFUND = "refund"
@@ -595,6 +608,11 @@ def sync_stripe_events(
     # ticks after it lands — notifying on anything but a fresh insert would
     # re-announce the same refund every few minutes.
     new_refunds: list[dict[str, Any]] = []
+    # Disputes and fraud warnings are handed back to the caller as ids instead of
+    # being alerted here. Their alert carries the evidence packet, and the packet
+    # is only worth anything AFTER correlation has linked the event to an
+    # invitation — which happens one step later, outside this function.
+    new_alertable: list[str] = []
     for event in monitored:
         event_id = event.get("id")
         if not isinstance(event_id, str) or not event_id:
@@ -613,8 +631,11 @@ def sync_stripe_events(
             with db.session.begin_nested():
                 db.session.add(StripeEvent(**extract_fields(event)))
             inserted += 1
-            if categorize(str(event.get("type") or "")) == CATEGORY_REFUND:
+            event_type = str(event.get("type") or "")
+            if categorize(event_type) == CATEGORY_REFUND:
                 new_refunds.append(event)
+            elif event_type in ALERTABLE_EVENT_TYPES:
+                new_alertable.append(event_id)
         except Exception as exc:
             failed += 1
             logger.warning(
@@ -648,6 +669,64 @@ def sync_stripe_events(
     _notify_new_refunds(new_refunds)
 
     logger.info("Stripe event sync completed", **summary)
+    # Added AFTER the persist and the log on purpose: this is a hand-off to the
+    # caller, not a diagnostic. Storing it would put a stale id list in the tab's
+    # "last sync result" forever, and logging it adds noise to a line that gets
+    # read during outages.
+    summary["alertable_event_ids"] = new_alertable
+    return summary
+
+
+def sync_and_correlate(
+    *, force: bool = False, full_backfill: bool = False
+) -> dict[str, Any]:
+    """Pull, correlate, then alert. The one entry point for a full sync.
+
+    The three steps are ordered and the order is load-bearing, which is why they
+    do not live at the call sites: correlation has to run before the dispute
+    alerts, or those alerts describe an event that is not linked to anything yet
+    and report a purchase with months of history as having no evidence.
+
+    Both callers -- the scheduled job and the "Sync now" button -- go through
+    here. Before this, each one wired the steps itself, and a dispute stored by
+    whichever ran first would never alert at all: the other pass sees the row as
+    already known and skips it.
+
+    Never raises past the sync itself: correlation and alerting are best effort
+    on top of rows that are already committed.
+    """
+    summary = sync_stripe_events(force=force, full_backfill=full_backfill)
+    if summary.get("error") or summary.get("skipped"):
+        return summary
+
+    from app.services.stripe_evidence import notify_new_disputes, resolve_pending_links
+
+    # How each link got made, which the event row itself cannot record. The
+    # alert needs it to tell an authoritative match from a guess.
+    provenance: dict[str, str] = {}
+    try:
+        summary["correlated"] = resolve_pending_links(provenance=provenance)
+    except Exception as exc:
+        # Reaching Stripe for a PaymentIntent lookup can fail without any of the
+        # stored events being at fault. Alert anyway: a dispute alert with a
+        # thin packet still beats silence, and it says the link is missing.
+        #
+        # Rolled back first: the pass may have died mid-flush, and the alerting
+        # below reads the database. Carrying a poisoned session into it would
+        # turn a failed correlation into a failed alert as well.
+        db.session.rollback()
+        logger.warning("Stripe correlation pass failed", error=str(exc))
+        summary["correlated"] = 0
+
+    try:
+        summary["alerted"] = notify_new_disputes(
+            summary.get("alertable_event_ids", []), provenance=provenance
+        )
+    except Exception as exc:
+        db.session.rollback()
+        logger.warning("Dispute alerting failed", error=str(exc))
+        summary["alerted"] = 0
+
     return summary
 
 

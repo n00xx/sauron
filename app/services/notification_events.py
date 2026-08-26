@@ -71,6 +71,21 @@ EVENT_TYPES: tuple[EventType, ...] = (
     EventType(
         "stripe_sync_stalled", "Stripe Sync Stalled", _BADGE_RED, operational=True
     ),
+    # The dispute trio. Operational because every one of them is a deadline with
+    # money attached: a dispute goes unanswered by default, and "nobody ticked
+    # the box" is not a reason anyone would accept for losing one.
+    EventType(
+        "stripe_dispute_opened", "Stripe Dispute Opened", _BADGE_RED, operational=True
+    ),
+    EventType(
+        "stripe_dispute_closed", "Stripe Dispute Closed", _BADGE_BLUE, operational=True
+    ),
+    EventType(
+        "stripe_fraud_warning",
+        "Stripe Fraud Warning",
+        _BADGE_AMBER,
+        operational=True,
+    ),
 )
 
 _BY_KEY = {event.key: event for event in EVENT_TYPES}

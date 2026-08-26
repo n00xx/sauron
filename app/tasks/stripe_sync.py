@@ -22,27 +22,17 @@ def sync_stripe_events_task(app) -> dict[str, Any]:
     """
     with app.app_context():
         from app.extensions import db
-        from app.services.stripe_events import is_sync_enabled, sync_stripe_events
+        from app.services.stripe_events import is_sync_enabled, sync_and_correlate
 
         try:
             if not is_sync_enabled():
                 return {"skipped": True, "reason": "disabled"}
 
-            summary = sync_stripe_events()
-
-            # Correlation is a separate, best-effort pass: a failure to reach
-            # Stripe for a PaymentIntent lookup must not discard events that
-            # were already stored successfully.
-            if not summary.get("error"):
-                from app.services.stripe_evidence import resolve_pending_links
-
-                try:
-                    summary["correlated"] = resolve_pending_links()
-                except Exception as exc:
-                    logger.warning("Stripe correlation pass failed", error=str(exc))
-                    summary["correlated"] = 0
-
-            return summary
+            # Pull, correlate, alert — in that order, defined once in the
+            # service. Wiring the steps here is what let this path and the
+            # "Sync now" button drift: whichever ran first stored the dispute,
+            # and the other never alerted because the row was no longer new.
+            return sync_and_correlate()
         except Exception as exc:
             db.session.rollback()
             logger.error("Stripe sync task failed", error=str(exc), exc_info=True)

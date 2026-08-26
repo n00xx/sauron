@@ -21,7 +21,8 @@ dashboard or a Smart Disputes packet themselves.
 from __future__ import annotations
 
 import time
-from datetime import UTC, datetime
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import requests
@@ -45,6 +46,18 @@ MAX_SESSIONS_IN_LOG = 200
 # Wall-clock budget for one correlation pass, well under the 15 minute default
 # sync interval. See resolve_pending_links for why a row cap was not enough.
 MAX_CORRELATION_SECONDS = 120.0
+
+# How a link between a Stripe event and a sauron account was established. The
+# row cannot answer this on its own — see resolve_event_links.
+PROVENANCE_METADATA = "metadata"   # stamped on the PaymentIntent by the storefront
+PROVENANCE_SIBLING = "sibling"     # inherited from another event on the same payment
+PROVENANCE_EMAIL = "email"         # matched on the checkout email: a guess
+PROVENANCE_EXISTING = "existing"   # already linked before this pass
+
+# An event Stripe created longer ago than this is history being imported, not
+# news. Generous enough to survive a long-weekend outage; short enough that a
+# 30-day backfill cannot page once per historical dispute.
+MAX_ALERT_AGE_HOURS = 72
 
 
 # --------------------------------------------------------------------------
@@ -179,6 +192,7 @@ def resolve_event_links(
     event: StripeEvent,
     api_key: str | None = None,
     metadata_cache: dict[str, Any] | None = None,
+    provenance: dict[str, str] | None = None,
 ) -> bool:
     """Attach ``invitation_id`` / ``wizarr_user_id`` to an event row.
 
@@ -191,9 +205,22 @@ def resolve_event_links(
     the email fallback is a guess, and if it ran first it would answer for the
     whole purchase — every later event would reuse it and the authoritative
     metadata would never be read.
+
+    ``provenance``, when given, records WHICH of the three answered, keyed by
+    ``stripe_event_id``. Nothing on the row itself can express that: the
+    authoritative path and the email guess both end up writing ``wizarr_user_id``
+    and nothing else, so after the fact the two are indistinguishable — and a
+    dispute alert that calls a metadata match a guess is worse than one that says
+    nothing at all.
     """
-    if event.invitation_id or event.wizarr_user_id:
+
+    def _record(source: str) -> bool:
+        if provenance is not None and event.stripe_event_id:
+            provenance[event.stripe_event_id] = source
         return True
+
+    if event.invitation_id or event.wizarr_user_id:
+        return _record(PROVENANCE_EXISTING)
 
     # An early fraud warning carries `charge` but NO `payment_intent`, and it is
     # the dispute-deflection primitive — the one event type that most needs to
@@ -227,7 +254,7 @@ def resolve_event_links(
             if user is not None:
                 event.wizarr_user_id = user.id
             if invitation is not None or user is not None:
-                return True
+                return _record(PROVENANCE_METADATA)
 
     # 2. Reuse a sibling event on the same payment that resolved to an
     #    invitation. Only invitation links qualify: a bare `wizarr_user_id` may
@@ -249,13 +276,13 @@ def resolve_event_links(
                 users = _users_for_invitation(invitation)
                 if len(users) == 1:
                     event.wizarr_user_id = users[0].id
-                return True
+                return _record(PROVENANCE_SIBLING)
 
     # 3. Last resort: the checkout email.
     user = _user_by_email(event.customer_email)
     if user is not None:
         event.wizarr_user_id = user.id
-        return True
+        return _record(PROVENANCE_EMAIL)
 
     return False
 
@@ -482,7 +509,9 @@ def build_evidence_packet(event: StripeEvent) -> dict[str, Any]:
 
 
 def resolve_pending_links(
-    limit: int = 200, budget_seconds: float = MAX_CORRELATION_SECONDS
+    limit: int = 200,
+    budget_seconds: float = MAX_CORRELATION_SECONDS,
+    provenance: dict[str, str] | None = None,
 ) -> int:
     """Correlate event rows that have no sauron link yet. Returns how many stuck.
 
@@ -524,7 +553,7 @@ def resolve_pending_links(
             )
             break
         try:
-            if resolve_event_links(event, api_key, metadata_cache):
+            if resolve_event_links(event, api_key, metadata_cache, provenance):
                 resolved += 1
         except Exception as exc:
             logger.debug(
@@ -536,3 +565,241 @@ def resolve_pending_links(
     if resolved:
         db.session.commit()
     return resolved
+
+
+# --------------------------------------------------------------------------
+# Alerting
+# --------------------------------------------------------------------------
+
+# Reused deliberately instead of adding a second "what is my public address?"
+# setting. The operator already fills this in for password-reset links, and it
+# is the same answer: sauron sits behind a reverse proxy, so `request.url_root`
+# is an internal address — and these alerts are sent from the scheduler, where
+# there is no request at all.
+_PUBLIC_URL_SETTING = "resend_public_base_url"
+
+_ALERT_TITLES = {
+    "charge.dispute.created": "Stripe dispute opened",
+    "charge.dispute.closed": "Stripe dispute closed",
+    "radar.early_fraud_warning.created": "Stripe early fraud warning",
+}
+
+_ALERT_EVENT_TYPES = {
+    "charge.dispute.created": "stripe_dispute_opened",
+    "charge.dispute.closed": "stripe_dispute_closed",
+    "radar.early_fraud_warning.created": "stripe_fraud_warning",
+}
+
+
+def _event_link(event: StripeEvent) -> str:
+    """Deep link to the evidence view, absolute when we can build one.
+
+    Falls back to the bare path rather than to nothing: "look at
+    /eventos/12" is still an instruction the operator can follow, where a
+    missing line is just a worse alert.
+    """
+    path = f"/activity/eventos/{event.id}"
+    base = (get_setting(_PUBLIC_URL_SETTING) or "").rstrip("/")
+    return f"{base}{path}" if base else path
+
+
+def _amount_text(event: StripeEvent) -> str:
+    if event.amount is None:
+        return ""
+    return f"{event.amount / 100:.2f} {(event.currency or '').upper()}".strip()
+
+
+def _evidence_text(packet: dict[str, Any] | None) -> str:
+    """One line on how strong the packet is — the point of the whole alert.
+
+    A dispute answered with an empty activity log is worse than one answered
+    late, so "there is nothing to send" has to be visible from the notification
+    itself, not two clicks away.
+    """
+    if packet is None:
+        return "Evidence packet could not be built — open the event and check."
+    if not packet.get("has_evidence"):
+        return (
+            "NO playback recorded for this purchase: the access log would go out "
+            "empty. Check the link before answering."
+        )
+    return (
+        f"{packet['session_count']} playback session(s), "
+        f"{packet['total_watch_time']} watched."
+    )
+
+
+def _link_quality_text(event: StripeEvent, source: str | None) -> str:
+    """Whether this event is tied to a real account, and how firmly.
+
+    Reads the correlation's own provenance rather than guessing from the row,
+    because the row cannot tell these apart. The storefront stamps
+    ``sauronUserId`` on the PaymentIntent and no invitation id, so the
+    AUTHORITATIVE path and the email fallback both leave exactly the same trace:
+    ``wizarr_user_id`` set, ``invitation_id`` NULL. Inferring from the columns
+    would label every real dispute a guess — precisely inverting the warning
+    this line exists to give.
+    """
+    if source == PROVENANCE_METADATA:
+        return "Linked via the PaymentIntent the storefront stamped (authoritative)."
+    if source == PROVENANCE_SIBLING:
+        return "Linked through another event on the same payment (authoritative)."
+    if source == PROVENANCE_EMAIL:
+        return (
+            "Matched on the checkout email only — that is the BILLING address and "
+            "need not be the account that redeemed the invite. Verify before use."
+        )
+    if event.invitation_id or event.wizarr_user_id:
+        # Linked on an earlier pass, so this run never saw how.
+        return "Linked to a sauron account (linked on an earlier sync)."
+    return "NOT linked to any sauron account: the packet has no activity to draw on."
+
+
+def _dispute_alert_body(
+    event: StripeEvent, packet: dict[str, Any] | None, source: str | None = None
+) -> str:
+    """The message for one alertable event, one idea per line.
+
+    Newline-separated rather than one paragraph: every agent this reaches
+    (Discord, ntfy, Apprise) renders them, and these messages carry a deadline,
+    a verdict and a link that all have to survive being read on a phone.
+    """
+    lines: list[str] = []
+
+    amount = _amount_text(event)
+    who = event.customer_email or event.charge_id or event.object_id or "unknown"
+    # A closed dispute is a verdict, not a task: the window is gone and there is
+    # nothing left to submit, so the evidence lines below would be noise dressed
+    # up as an instruction.
+    is_actionable = event.type != "charge.dispute.closed"
+
+    if event.type == "charge.dispute.created":
+        head = f"A chargeback was opened on {who}"
+        if amount:
+            head += f" for {amount}"
+        lines.append(f"{head}. Reason: {event.dispute_reason or 'unspecified'}.")
+        if event.dispute_due_by:
+            lines.append(
+                f"Evidence is due by {event.dispute_due_by:%Y-%m-%d %H:%M} UTC. "
+                "An unanswered dispute is a lost dispute."
+            )
+        if event.network_reason_code == "10.4":
+            lines.append(
+                "Visa reason code 10.4 — eligible for a Compelling Evidence 3.0 "
+                "counter-response, which is the strongest answer available."
+            )
+    elif event.type == "charge.dispute.closed":
+        outcome = (event.status or "unknown").lower()
+        verdict = {
+            "won": "WON — the funds stay with us.",
+            "lost": "LOST — the funds and the dispute fee are gone.",
+        }.get(outcome, f"closed as '{outcome}'.")
+        head = f"The chargeback on {who}"
+        if amount:
+            head += f" ({amount})"
+        lines.append(f"{head} {verdict}")
+        if outcome == "lost":
+            lines.append(
+                "Check that the account was actually revoked — a lost dispute "
+                "with a live account is the worst of both."
+            )
+    else:  # radar.early_fraud_warning.created
+        lines.append(
+            f"Stripe flagged {who} as likely fraud"
+            + (f" ({amount})" if amount else "")
+            + f". Type: {event.dispute_reason or 'unspecified'}."
+        )
+        lines.append(
+            "Refunding inside this window prevents the chargeback entirely — no "
+            "dispute fee and no hit to the dispute rate. Weigh that against the "
+            "evidence below."
+        )
+
+    if is_actionable:
+        lines.append(_evidence_text(packet))
+    lines.append(_link_quality_text(event, source))
+    lines.append(f"Evidence and full detail: {_event_link(event)}")
+    if is_actionable:
+        lines.append("sauron does not submit anything to Stripe — you do.")
+    return "\n".join(lines)
+
+
+def notify_new_disputes(
+    stripe_event_ids: Sequence[str],
+    provenance: dict[str, str] | None = None,
+) -> int:
+    """Alert on freshly stored disputes and fraud warnings. Returns how many.
+
+    MUST run after :func:`resolve_pending_links`, and that ordering is the whole
+    reason this is not done inside ``sync_stripe_events`` next to the refund
+    alert. The value of a dispute alert is the evidence packet it points at, and
+    the packet is assembled from the invitation the event correlates to. Alerting
+    at insert time would send "not linked to any account, no playback recorded"
+    for a purchase with months of history — the alarm would be wrong in exactly
+    the direction that makes people stop reading alarms.
+
+    Best effort, per event: a notification agent that is down must not cost the
+    remaining alerts, and none of this may fail the sync whose rows are already
+    committed. Fires once, on the pass that stored the row — the durable signal
+    is the dispute queue in the Eventos tab, which does not depend on this.
+    """
+    if not stripe_event_ids:
+        return 0
+
+    from app.services.notifications import notify
+
+    rows = StripeEvent.query.filter(
+        StripeEvent.stripe_event_id.in_(list(stripe_event_ids))
+    ).all()
+
+    cutoff = datetime.now(UTC) - timedelta(hours=MAX_ALERT_AGE_HOURS)
+    sent = 0
+    for event in rows:
+        # "Newly stored" is not "newly happened". The first sync of an install
+        # reaches back INITIAL_LOOKBACK_DAYS, and "Re-sync last 30 days" does it
+        # on demand, so without this a fresh connection would page once per
+        # historical chargeback — an inbox full of settled cases on day one is
+        # how an operator learns to ignore this channel before it ever matters.
+        created = event.created_at_stripe
+        if created is not None:
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=UTC)
+            if created < cutoff:
+                logger.info(
+                    "Skipping alert for a backfilled event",
+                    event_id=event.stripe_event_id,
+                    created_at=created.isoformat(),
+                )
+                continue
+        try:
+            try:
+                packet = build_evidence_packet(event)
+            except Exception as exc:
+                # A packet that will not build must still produce an alert: the
+                # deadline is real whether or not sauron can describe the case.
+                logger.warning(
+                    "Evidence packet failed while alerting",
+                    event_id=event.stripe_event_id,
+                    error=str(exc),
+                )
+                packet = None
+
+            notify(
+                _ALERT_TITLES.get(event.type, "Stripe dispute"),
+                _dispute_alert_body(
+                    event,
+                    packet,
+                    (provenance or {}).get(event.stripe_event_id),
+                ),
+                tags="rotating_light",
+                event_type=_ALERT_EVENT_TYPES.get(event.type, "stripe_dispute_opened"),
+            )
+            sent += 1
+        except Exception as exc:
+            logger.warning(
+                "Could not send the dispute alert",
+                event_id=event.stripe_event_id,
+                error=str(exc),
+            )
+
+    return sent

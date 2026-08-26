@@ -1332,13 +1332,15 @@ def eventos_sync():
     resuming from the watermark. That is the escape hatch for a key that was
     swapped while the watermark still pointed into another account's stream.
     """
-    from app.services.stripe_events import sync_stripe_events
-    from app.services.stripe_evidence import resolve_pending_links
+    from app.services.stripe_events import sync_and_correlate
 
     full_backfill = request.form.get("full_backfill") == "1"
 
     try:
-        summary = sync_stripe_events(force=True, full_backfill=full_backfill)
+        # Same pipeline as the scheduled job, including the dispute alerts. A
+        # manual sync used to correlate but never alert, so a dispute that
+        # happened to land on a clicked sync stayed silent for good.
+        summary = sync_and_correlate(force=True, full_backfill=full_backfill)
         if summary.get("error"):
             # Surfaced verbatim: "401 — check the restricted key" is actionable,
             # a generic "sync failed" is not.
@@ -1350,7 +1352,6 @@ def eventos_sync():
                 _("Stripe sync skipped: no API key configured."), "error"
             )
 
-        resolve_pending_links()
         message, kind = _sync_result_message(summary)
         return _render_eventos_tab(message, kind)
     except Exception as exc:

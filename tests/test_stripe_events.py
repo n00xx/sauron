@@ -1831,3 +1831,462 @@ class TestDisputeQueue:
             db.session.commit()
 
         assert len(self._queue(app)) == 2
+
+
+# ---------------------------------------------------------------- dispute alerts
+
+
+class TestDisputeAlerts:
+    """A dispute goes unanswered by default, so silence here costs money.
+
+    The alert exists to carry two things the tab cannot push: that a deadline
+    started, and how strong the evidence behind it is. Both are only knowable
+    after correlation has tied the event to an invitation, which is why the
+    ordering test below is the one that matters most.
+    """
+
+    @pytest.fixture
+    def alerts(self, monkeypatch):
+        sent: list[dict] = []
+
+        def _fake_notify(title, message, tags, event_type="user_joined", **kwargs):
+            sent.append({"title": title, "message": message, "event_type": event_type})
+
+        monkeypatch.setattr("app.services.notifications.notify", _fake_notify)
+        return sent
+
+    def _dispute_row(self, **overrides) -> StripeEvent:
+        fields = {
+            "stripe_event_id": "evt_dp_new",
+            "type": "charge.dispute.created",
+            "category": "dispute",
+            "severity": "critical",
+            "created_at_stripe": datetime.now(UTC),
+            "livemode": True,
+            "object_id": "dp_1",
+            "charge_id": "ch_1",
+            "payment_intent_id": "pi_1",
+            "customer_email": "buyer@example.com",
+            "amount": 15000,
+            "currency": "mxn",
+            "dispute_reason": "fraudulent",
+            "dispute_due_by": datetime.now(UTC) + timedelta(days=8),
+            "network_reason_code": "10.4",
+        }
+        fields.update(overrides)
+        return StripeEvent(**fields)
+
+    def test_only_the_three_actionable_types_are_handed_back_for_alerting(
+        self, app, clean_stripe_events, monkeypatch
+    ):
+        """`updated` and `funds_withdrawn` are bookkeeping on a known dispute.
+
+        Alerting on all five dispute events would page four times per chargeback,
+        which is how an operator learns to swipe the channel away.
+        """
+        events = [
+            _event("charge.dispute.created", {"id": "dp_1"}, id="evt_a"),
+            _event("charge.dispute.updated", {"id": "dp_1"}, id="evt_b"),
+            _event("charge.dispute.funds_withdrawn", {"id": "dp_1"}, id="evt_c"),
+            _event(
+                "charge.dispute.closed", {"id": "dp_1", "status": "lost"}, id="evt_d"
+            ),
+            _event("radar.early_fraud_warning.created", {"id": "efw_1"}, id="evt_e"),
+            _event("charge.refunded", {"id": "ch_9"}, id="evt_f"),
+        ]
+        monkeypatch.setattr(se, "fetch_events", lambda *a, **k: events)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.commit()
+            summary = se.sync_stripe_events(force=True)
+
+        assert sorted(summary["alertable_event_ids"]) == ["evt_a", "evt_d", "evt_e"]
+
+    def test_a_redelivered_dispute_does_not_alert_twice(
+        self, app, clean_stripe_events, monkeypatch
+    ):
+        """The polling window overlaps, so the same dispute is re-read for hours."""
+        events = [_event("charge.dispute.created", {"id": "dp_1"}, id="evt_a")]
+        monkeypatch.setattr(se, "fetch_events", lambda *a, **k: events)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.commit()
+
+            first = se.sync_stripe_events(force=True)
+            second = se.sync_stripe_events(force=True)
+
+        assert first["alertable_event_ids"] == ["evt_a"]
+        assert second["alertable_event_ids"] == []
+
+    def test_correlation_runs_before_the_alert_is_composed(
+        self, app, clean_stripe_events, monkeypatch, alerts
+    ):
+        """The trap this whole design exists to avoid.
+
+        `_notify_new_refunds` fires inside sync_stripe_events, before anything is
+        correlated. A dispute alert built there would report a purchase with
+        months of history as "not linked to any sauron account" — wrong in the
+        exact direction that teaches people to distrust the alerts.
+        """
+        events = [
+            _event(
+                "charge.dispute.created",
+                {"id": "dp_1"},
+                id="evt_a",
+                created=int(datetime.now(UTC).timestamp()),
+            )
+        ]
+        monkeypatch.setattr(se, "fetch_events", lambda *a, **k: events)
+
+        order: list[str] = []
+
+        def _fake_correlate(*args, provenance=None, **kwargs):
+            order.append("correlate")
+            invitation = Invitation(code="ORDER1", used=True)
+            db.session.add(invitation)
+            db.session.flush()
+            row = StripeEvent.query.filter_by(stripe_event_id="evt_a").one()
+            row.invitation_id = invitation.id
+            db.session.commit()
+            if provenance is not None:
+                provenance["evt_a"] = sev.PROVENANCE_METADATA
+            return 1
+
+        real_notify = sev.notify_new_disputes
+
+        def _spy_notify(ids, provenance=None):
+            order.append("notify")
+            return real_notify(ids, provenance=provenance)
+
+        monkeypatch.setattr(sev, "resolve_pending_links", _fake_correlate)
+        monkeypatch.setattr(sev, "notify_new_disputes", _spy_notify)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.commit()
+            se.sync_and_correlate(force=True)
+
+        assert order == ["correlate", "notify"]
+        # And the proof it mattered: the link the alert reports is the one
+        # correlation established, which did not exist when the row was stored.
+        assert "authoritative" in alerts[0]["message"]
+
+    def test_an_empty_packet_says_so_instead_of_implying_evidence(
+        self, app, clean_stripe_events, alerts
+    ):
+        """Answering a dispute with an empty access log is worse than late."""
+        with app.app_context():
+            db.session.add(self._dispute_row())
+            db.session.commit()
+
+            sev.notify_new_disputes(["evt_dp_new"])
+
+        assert len(alerts) == 1
+        assert "NO playback recorded" in alerts[0]["message"]
+        assert alerts[0]["event_type"] == "stripe_dispute_opened"
+
+    def test_the_alert_carries_the_deadline_and_the_ce3_flag(
+        self, app, clean_stripe_events, alerts
+    ):
+        with app.app_context():
+            db.session.add(self._dispute_row())
+            db.session.commit()
+
+            sev.notify_new_disputes(["evt_dp_new"])
+
+        message = alerts[0]["message"]
+        assert "due by" in message
+        assert "Compelling Evidence 3.0" in message
+        assert "150.00 MXN" in message
+
+    def _linked_user(self) -> int:
+        server = MediaServer(name="jf-al", server_type="jellyfin", url="http://al")
+        db.session.add(server)
+        db.session.flush()
+        user = User(
+            username="linked",
+            email="buyer@example.com",
+            code="ALERT1",
+            token="tok-alert-1",
+            server_id=server.id,
+        )
+        db.session.add(user)
+        db.session.flush()
+        return user.id
+
+    def test_an_email_only_match_is_flagged_as_a_guess(
+        self, app, clean_stripe_events, alerts
+    ):
+        """Correlation's last resort matches the BILLING email, which need not be
+        the account that redeemed the invite. The alert must not present that as
+        settled fact."""
+        with app.app_context():
+            db.session.add(self._dispute_row(wizarr_user_id=self._linked_user()))
+            db.session.commit()
+
+            sev.notify_new_disputes(
+                ["evt_dp_new"], provenance={"evt_dp_new": sev.PROVENANCE_EMAIL}
+            )
+
+        assert "checkout email only" in alerts[0]["message"]
+        assert "authoritative" not in alerts[0]["message"]
+
+    def test_a_metadata_match_is_not_slandered_as_a_guess(
+        self, app, clean_stripe_events, alerts
+    ):
+        """The shape every real dispute actually has, and the trap in reading it
+        off the row.
+
+        The storefront stamps `sauronUserId` on the PaymentIntent and no
+        invitation id, so the AUTHORITATIVE path writes `wizarr_user_id` and
+        leaves `invitation_id` NULL — byte for byte what the email fallback
+        leaves behind. Judging by the columns would therefore label every single
+        production dispute a guess: the warning inverted, on the alert that most
+        needs to be trusted.
+        """
+        with app.app_context():
+            db.session.add(self._dispute_row(wizarr_user_id=self._linked_user()))
+            db.session.commit()
+
+            sev.notify_new_disputes(
+                ["evt_dp_new"], provenance={"evt_dp_new": sev.PROVENANCE_METADATA}
+            )
+
+        message = alerts[0]["message"]
+        assert "authoritative" in message
+        assert "email only" not in message
+
+    def test_correlation_records_how_it_resolved_each_event(
+        self, app, clean_stripe_events, monkeypatch
+    ):
+        """End to end: the provenance the alert relies on is really written."""
+        provenance: dict[str, str] = {}
+        with app.app_context():
+            metadata_user_id = self._linked_user()
+            monkeypatch.setattr(
+                sev,
+                "fetch_payment_intent",
+                lambda *a, **k: {"metadata": {"sauronUserId": str(metadata_user_id)}},
+            )
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.add(
+                StripeEvent(
+                    stripe_event_id="evt_prov",
+                    type="charge.dispute.created",
+                    category="dispute",
+                    severity="critical",
+                    created_at_stripe=datetime.now(UTC),
+                    livemode=True,
+                    payment_intent_id="pi_prov",
+                )
+            )
+            db.session.commit()
+
+            sev.resolve_pending_links(provenance=provenance)
+
+            row = StripeEvent.query.filter_by(stripe_event_id="evt_prov").one()
+            # Exactly the production shape: user set, invitation NULL.
+            assert row.wizarr_user_id == metadata_user_id
+            assert row.invitation_id is None
+
+        assert provenance["evt_prov"] == sev.PROVENANCE_METADATA
+
+    def test_a_closed_dispute_reports_the_outcome(
+        self, app, clean_stripe_events, alerts
+    ):
+        with app.app_context():
+            db.session.add(
+                self._dispute_row(
+                    stripe_event_id="evt_dp_lost",
+                    type="charge.dispute.closed",
+                    status="lost",
+                    severity="error",
+                )
+            )
+            db.session.commit()
+
+            sev.notify_new_disputes(["evt_dp_lost"])
+
+        assert alerts[0]["event_type"] == "stripe_dispute_closed"
+        assert "LOST" in alerts[0]["message"]
+        # A lost dispute on a still-live account is the worst of both.
+        assert "revoked" in alerts[0]["message"]
+        # A verdict is not a task: the window is gone, so telling the operator to
+        # weigh the evidence "before answering" would be an instruction they
+        # cannot act on, attached to the one alert that most needs to be read.
+        assert "before answering" not in alerts[0]["message"]
+        assert "does not submit anything" not in alerts[0]["message"]
+
+    def test_a_fraud_warning_points_at_the_refund_window(
+        self, app, clean_stripe_events, alerts
+    ):
+        """Refunding inside the window stops the chargeback existing at all."""
+        with app.app_context():
+            db.session.add(
+                self._dispute_row(
+                    stripe_event_id="evt_efw",
+                    type="radar.early_fraud_warning.created",
+                    category="fraud",
+                    dispute_reason="made_with_stolen_card",
+                    dispute_due_by=None,
+                    network_reason_code=None,
+                )
+            )
+            db.session.commit()
+
+            sev.notify_new_disputes(["evt_efw"])
+
+        assert alerts[0]["event_type"] == "stripe_fraud_warning"
+        assert "prevents the chargeback" in alerts[0]["message"]
+
+    def test_the_link_is_absolute_when_the_public_url_is_configured(
+        self, app, clean_stripe_events, alerts
+    ):
+        """These alerts are sent from the scheduler, where there is no request to
+        infer a host from — and sauron sits behind a proxy whose internal address
+        would produce a link that works for nobody."""
+        with app.app_context():
+            se.set_setting("resend_public_base_url", "https://sauron.example.net")
+            db.session.add(self._dispute_row())
+            db.session.commit()
+            row = StripeEvent.query.filter_by(stripe_event_id="evt_dp_new").one()
+            event_id = row.id
+
+            sev.notify_new_disputes(["evt_dp_new"])
+
+        assert (
+            f"https://sauron.example.net/activity/eventos/{event_id}"
+            in alerts[0]["message"]
+        )
+
+    def test_without_a_public_url_the_alert_still_names_the_page(
+        self, app, clean_stripe_events, alerts
+    ):
+        with app.app_context():
+            se.set_setting("resend_public_base_url", None)
+            db.session.add(self._dispute_row())
+            db.session.commit()
+            row = StripeEvent.query.filter_by(stripe_event_id="evt_dp_new").one()
+            event_id = row.id
+
+            sev.notify_new_disputes(["evt_dp_new"])
+
+        assert f"/activity/eventos/{event_id}" in alerts[0]["message"]
+
+    def test_a_broken_packet_still_produces_an_alert(
+        self, app, clean_stripe_events, alerts, monkeypatch
+    ):
+        """The deadline is real whether or not sauron can describe the case."""
+        monkeypatch.setattr(
+            sev,
+            "build_evidence_packet",
+            lambda event: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        with app.app_context():
+            db.session.add(self._dispute_row())
+            db.session.commit()
+
+            sent = sev.notify_new_disputes(["evt_dp_new"])
+
+        assert sent == 1
+        assert "could not be built" in alerts[0]["message"]
+
+    def test_one_dead_notifier_does_not_swallow_the_sync(
+        self, app, clean_stripe_events, monkeypatch
+    ):
+        """Rows are already committed; a down Telegram must not undo that."""
+
+        def _explode(*args, **kwargs):
+            raise RuntimeError("telegram unreachable")
+
+        monkeypatch.setattr("app.services.notifications.notify", _explode)
+
+        with app.app_context():
+            db.session.add(self._dispute_row())
+            db.session.commit()
+
+            assert sev.notify_new_disputes(["evt_dp_new"]) == 0
+            assert (
+                StripeEvent.query.filter_by(stripe_event_id="evt_dp_new").count() == 1
+            )
+
+    def test_a_backfilled_dispute_does_not_page_anyone(
+        self, app, clean_stripe_events, alerts
+    ):
+        """The first sync of an install reaches back 30 days, and "Re-sync last
+        30 days" does it on demand. Newly STORED is not newly HAPPENED, and an
+        inbox full of settled cases on day one teaches the operator to mute the
+        channel before it ever matters."""
+        with app.app_context():
+            db.session.add(
+                self._dispute_row(
+                    created_at_stripe=datetime.now(UTC) - timedelta(days=20)
+                )
+            )
+            db.session.commit()
+
+            assert sev.notify_new_disputes(["evt_dp_new"]) == 0
+
+        assert alerts == []
+
+    def test_a_dispute_from_yesterday_still_pages(
+        self, app, clean_stripe_events, alerts
+    ):
+        """The cutoff has to survive a weekend outage, not just the happy path."""
+        with app.app_context():
+            db.session.add(
+                self._dispute_row(
+                    created_at_stripe=datetime.now(UTC) - timedelta(days=1)
+                )
+            )
+            db.session.commit()
+
+            assert sev.notify_new_disputes(["evt_dp_new"]) == 1
+
+        assert len(alerts) == 1
+
+    def test_nothing_calls_sync_without_going_through_the_pipeline(self):
+        """Source-level invariant, because no runtime test can catch the drift.
+
+        A new caller reaching for `sync_stripe_events` directly gets rows stored
+        and no correlation and no alerts — and because ingestion is idempotent,
+        the NEXT pass sees those rows as already known and never alerts either.
+        The dispute vanishes silently, which is the failure this whole module
+        exists to prevent. `sync_and_correlate` is the only supported entry.
+        """
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / "app"
+        offenders: list[str] = []
+        for path in root.rglob("*.py"):
+            for number, line in enumerate(path.read_text().splitlines(), 1):
+                if "sync_stripe_events(" not in line:
+                    continue
+                if "def sync_stripe_events(" in line:
+                    continue
+                if path.name == "stripe_events.py":
+                    continue  # sync_and_correlate itself
+                offenders.append(f"{path.relative_to(root)}:{number}")
+
+        assert not offenders, (
+            "call sync_and_correlate() instead of sync_stripe_events(): "
+            + ", ".join(offenders)
+        )
+
+    def test_the_dispute_events_reach_agents_that_never_opted_in(self):
+        """Operational, like the stalled-sync alert.
+
+        Subscription is opt-in and agent rows keep whatever was saved when they
+        were created, so a newly added subscribable event is born mute. For a
+        chargeback deadline that failure mode is not acceptable.
+        """
+        from app.services.notification_events import is_operational
+
+        for key in (
+            "stripe_dispute_opened",
+            "stripe_dispute_closed",
+            "stripe_fraud_warning",
+        ):
+            assert is_operational(key), key
