@@ -20,6 +20,7 @@ dashboard or a Smart Disputes packet themselves.
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -40,6 +41,10 @@ logger = structlog.get_logger(__name__)
 # Cap on sessions rendered into an evidence log. Stripe caps evidence files at
 # 4.5 MB / 19 pages, and a wall of rows reads as padding rather than proof.
 MAX_SESSIONS_IN_LOG = 200
+
+# Wall-clock budget for one correlation pass, well under the 15 minute default
+# sync interval. See resolve_pending_links for why a row cap was not enough.
+MAX_CORRELATION_SECONDS = 120.0
 
 
 # --------------------------------------------------------------------------
@@ -476,11 +481,23 @@ def build_evidence_packet(event: StripeEvent) -> dict[str, Any]:
     }
 
 
-def resolve_pending_links(limit: int = 200) -> int:
+def resolve_pending_links(
+    limit: int = 200, budget_seconds: float = MAX_CORRELATION_SECONDS
+) -> int:
     """Correlate event rows that have no sauron link yet. Returns how many stuck.
 
-    Runs after each sync. Bounded so a large backlog cannot stall the scheduler.
+    Runs after each sync, bounded twice: by row count and by wall clock.
+
+    The row cap alone was not a bound on *time*. Each unresolved purchase costs
+    one PaymentIntent read at up to ``REQUEST_TIMEOUT`` seconds, so a backlog of
+    200 against a slow Stripe could run past twenty minutes — longer than the
+    default 15 minute interval. The job holds ``max_instances=1``, so the next
+    tick would not queue behind it, it would be dropped outright with a WARNING
+    nobody reads, and the sync would look exactly as dead as it did when this
+    module's watchdog was written. Unresolved rows stay visible as unmatched and
+    the next tick picks them up.
     """
+    deadline = time.monotonic() + budget_seconds
     api_key = get_setting("stripe_api_key")
     pending = (
         StripeEvent.query.filter(
@@ -499,6 +516,13 @@ def resolve_pending_links(limit: int = 200) -> int:
 
     resolved = 0
     for event in pending:
+        if time.monotonic() >= deadline:
+            logger.info(
+                "Correlation budget spent; the rest waits for the next tick",
+                resolved=resolved,
+                remaining=len(pending) - resolved,
+            )
+            break
         try:
             if resolve_event_links(event, api_key, metadata_cache):
                 resolved += 1

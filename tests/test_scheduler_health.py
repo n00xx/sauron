@@ -23,10 +23,27 @@ from app.services.scheduler_health import (
 )
 
 
+class _FakeTrigger:
+    """Just enough IntervalTrigger to answer "how often is this registered?"."""
+
+    def __init__(self, minutes):
+        self.interval = timedelta(minutes=minutes)
+
+
 class _FakeJob:
-    def __init__(self, next_run_time=None):
+    _LIVE = object()
+
+    def __init__(self, next_run_time=_LIVE, minutes=15):
         self.id = STRIPE_SYNC_JOB_ID
-        self.next_run_time = next_run_time
+        # Default to a live, scheduled job. `None` is APScheduler for *paused*,
+        # so defaulting to it would have every fixture quietly describe a job
+        # that is registered and never going to run — pass None on purpose.
+        self.next_run_time = (
+            datetime.now(UTC) + timedelta(minutes=minutes)
+            if next_run_time is _FakeJob._LIVE
+            else next_run_time
+        )
+        self.trigger = _FakeTrigger(minutes)
 
 
 class _FakeScheduler:
@@ -49,9 +66,32 @@ class _FakeScheduler:
     def get_job(self, job_id):
         return self.jobs.get(job_id)
 
-    def add_job(self, *, id, func, trigger, minutes, replace_existing, **kwargs):  # noqa: A002
-        self.added.append({"id": id, "minutes": minutes})
-        self.jobs[id] = _FakeJob(next_run_time=datetime.now(UTC))
+    def add_job(
+        self,
+        *,
+        id,  # noqa: A002
+        func,
+        trigger,
+        minutes,
+        replace_existing,
+        next_run_time=None,
+        **kwargs,
+    ):
+        self.added.append(
+            {"id": id, "minutes": minutes, "next_run_time": next_run_time}
+        )
+        # Mirrors the real APScheduler: without an explicit `next_run_time` the
+        # fresh interval trigger anchors `start_date` at now + interval, so
+        # re-adding an existing job pushes its fire time a whole interval away.
+        #
+        # The previous double set it to `now` — "fires immediately" — the exact
+        # inverse. That is why 22 tests could watch the watchdog starve the job
+        # it was built to rescue and report nothing but green.
+        self.jobs[id] = _FakeJob(
+            next_run_time=next_run_time
+            or (datetime.now(UTC) + timedelta(minutes=minutes)),
+            minutes=minutes,
+        )
 
     def remove_job(self, job_id):
         self.removed.append(job_id)
@@ -237,6 +277,149 @@ def test_ensure_reports_failure_instead_of_swallowing_it(
     assert any(
         record.levelname in ("ERROR", "CRITICAL") for record in caplog.records
     ), "a job that failed to register must be logged above debug"
+
+
+def test_ensure_leaves_a_correctly_registered_job_alone(app, session, fake_scheduler):
+    """Re-registering a healthy job is the bug, not the fix.
+
+    Every ``add_job`` recomputes the fire time as now + interval, so touching a
+    job that is already correct can only ever delay it.
+    """
+    scheduled_for = datetime.now(UTC) + timedelta(minutes=3)
+    fake = fake_scheduler(running=True, job=_FakeJob(scheduled_for, minutes=15))
+    with app.app_context():
+        _configure_sync(interval=15)
+
+        registered = ensure_stripe_sync_job(app)
+
+    assert registered is True
+    assert fake.added == [], "a correctly registered job must not be re-added"
+    assert fake.jobs[STRIPE_SYNC_JOB_ID].next_run_time == scheduled_for
+
+
+def test_ensure_repairs_a_paused_job(app, session, fake_scheduler):
+    """`next_run_time is None` means paused: registered, and never going to run.
+
+    Letting the guard above skip one of those would reopen the starvation bug
+    through a narrower door — the tab would report "Job: registered" forever.
+    """
+    fake = fake_scheduler(running=True, job=_FakeJob(next_run_time=None, minutes=15))
+    with app.app_context():
+        _configure_sync(interval=15)
+
+        ensure_stripe_sync_job(app)
+
+    assert fake.added, "a paused job must be re-registered, not left alone"
+    assert fake.jobs[STRIPE_SYNC_JOB_ID].next_run_time is not None
+
+
+def test_ensure_reregisters_when_the_saved_interval_changed(
+    app, session, fake_scheduler
+):
+    """The guard above must not swallow an interval change from the UI."""
+    fake = fake_scheduler(running=True, job=_FakeJob(minutes=15))
+    with app.app_context():
+        _configure_sync(interval=5)
+
+        ensure_stripe_sync_job(app)
+
+    assert fake.added[-1]["minutes"] == 5
+
+
+def test_a_repaired_job_runs_now_instead_of_an_interval_later(
+    app, session, fake_scheduler
+):
+    """A job that had gone missing is already behind; it must not wait 15 more."""
+    fake = fake_scheduler(running=True, job=None)
+    with app.app_context():
+        _configure_sync(interval=15)
+
+        ensure_stripe_sync_job(app)
+
+    requested = fake.added[-1]["next_run_time"]
+    assert requested is not None, "a re-registered job must be given a fire time"
+    assert requested <= datetime.now(UTC) + timedelta(seconds=1)
+
+
+def test_the_watchdog_cannot_starve_the_job_it_is_watching(
+    app, session, fake_scheduler, captured_alerts
+):
+    """The production failure, in one test.
+
+    The watchdog ran every 5 minutes against a 15 minute job. Each tick re-added
+    the job, each re-add pushed the fire time 15 minutes out, and the fire time
+    therefore receded faster than the clock advanced: `minutes_since_sync` was
+    observed climbing 186 → 191 → 196 → 201 → ... one step per tick, forever,
+    while the tab reported "Job: registered · Next run: <15 minutes out>".
+
+    Ten ticks span far more than one interval. If any of them moves the fire
+    time, the job can never run.
+    """
+    scheduled_for = datetime.now(UTC) + timedelta(minutes=4)
+    fake = fake_scheduler(running=True, job=_FakeJob(scheduled_for, minutes=15))
+    with app.app_context():
+        _configure_sync(interval=15, last_sync=datetime.now(UTC) - timedelta(hours=3))
+
+        for _ in range(10):
+            watchdog_tick(app, force=True)
+
+    assert fake.added == [], "the watchdog must not re-register a healthy job"
+    assert fake.jobs[STRIPE_SYNC_JOB_ID].next_run_time == scheduled_for
+
+
+def test_a_stalled_run_reports_the_error_instead_of_promising_a_repair(
+    app, session, fake_scheduler, captured_alerts
+):
+    """ "Re-registered automatically" was a promise this path cannot keep.
+
+    With the job registered on the right interval there is nothing to repair, so
+    the alert has to say what is actually known — including the last error the
+    runs reported, which is the field that separates "nothing runs" from "it
+    runs and Stripe turns it away".
+    """
+    from app.extensions import db
+    from app.services.stripe_events import set_setting
+
+    fake_scheduler(running=True, job=_FakeJob(minutes=15))
+    with app.app_context():
+        _configure_sync(interval=15, last_sync=datetime.now(UTC) - timedelta(hours=3))
+        set_setting("stripe_sync_last_error", "Stripe rejected the API key (401)")
+        db.session.commit()
+
+        health = watchdog_tick(app, force=True)
+
+    assert health is not None
+    assert health["last_error"] == "Stripe rejected the API key (401)"
+    message = captured_alerts[0]["message"]
+    assert "re-registered automatically" not in message
+    assert "401" in message
+
+
+def test_scheduler_jobs_are_registered_after_the_database_is_bound():
+    """Source-order invariant, because no runtime test can reach this.
+
+    ``init_extensions`` used to register the scheduled jobs ~50 lines ABOVE
+    ``db.init_app(app)``. Every job whose interval or enabled flag lives in the
+    database therefore raised "The current Flask app is not registered with this
+    'SQLAlchemy' instance" at boot, and the Stripe sync was never registered on
+    a single container start — it only ever existed because saving the settings
+    screen registered it from a request context, and it died at every restart.
+
+    Pytest sets ``should_skip_scheduler``, so the whole block is skipped here and
+    no amount of runtime testing can catch a regression. Reading the source can.
+    """
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[1] / "app" / "extensions.py"
+    text = source.read_text()
+
+    db_bound = text.index("\n    db.init_app(app)")
+    scheduler_bound = text.index("\n        scheduler.init_app(app)")
+
+    assert db_bound < scheduler_bound, (
+        "scheduler jobs must be registered after db.init_app(app): registering "
+        "them earlier makes every settings read at boot raise"
+    )
 
 
 # ─── watchdog_tick ──────────────────────────────────────────────────────────

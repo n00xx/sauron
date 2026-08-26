@@ -320,6 +320,16 @@
                 {{ _("The sync job is not registered with the scheduler.") }}
               {% else %}
                 {{ _("No sync has completed in longer than expected.") }}
+                {# The job being registered rules out both faults above, which
+                   leaves the runs themselves — and those split in two. Saying
+                   which half applies is the difference between reading this
+                   banner and reading the container log. The error TEXT is not
+                   repeated here; it already has one home, just below. #}
+                {% if sync_health.last_error %}
+                  {{ _("The job is registered, so the runs are reaching Stripe and failing — see the error below.") }}
+                {% else %}
+                  {{ _("The job is registered and no run has reported an error, so the runs are not happening at all.") }}
+                {% endif %}
               {% endif %}
               {{ _("Disputes are answered from this data — use \"Sync now\" while this is being fixed.") }}
             </p>

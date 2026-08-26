@@ -198,6 +198,27 @@ def init_extensions(app):
         or scheduler_disabled_by_config()
     )
 
+    htmx.init_app(app)
+    login_manager.init_app(app)
+    login_manager.login_view = "auth.login"  # type: ignore
+    db.init_app(app)
+
+    # Enable SQLite WAL mode for concurrent writes
+    _configure_sqlite_for_concurrency(app)
+
+    migrate.init_app(app, db)
+    limiter.init_app(app)
+    warn_on_unshared_rate_limit_storage(app)
+    # Flask-RESTX API will be initialized with the blueprint
+
+    # Scheduled jobs go up LAST, after db.init_app above. Registering them
+    # earlier looks harmless and is not: every job whose interval or enabled
+    # flag lives in the database reads it at registration time, and until
+    # SQLAlchemy is bound to this app that read raises
+    # "The current Flask app is not registered with this 'SQLAlchemy'
+    # instance". Pushing an app context does NOT help — the Stripe block did
+    # push one and failed anyway. It cost two days of a dead dispute feed and
+    # took the LDAP sync with it.
     if not should_skip_scheduler:
         # Configure Flask-APScheduler for Gunicorn compatibility
         app.config["SCHEDULER_API_ENABLED"] = False  # Disable API for security
@@ -245,8 +266,10 @@ def init_extensions(app):
         # flag on every tick, so toggling it off in the UI takes effect without
         # a restart.
         # NOTE: init_extensions runs OUTSIDE an app context, so any DB read here
-        # must push one explicitly (the LDAP block below does not, which is why
-        # its query silently fails into the except).
+        # must push one explicitly. That is necessary and was never sufficient:
+        # this block used to sit ABOVE db.init_app, where the context is there
+        # and the engine is not, so the read raised every single boot. See the
+        # comment on the ordering above.
         try:
             from app.services.scheduler_health import ensure_stripe_sync_job
 
@@ -268,7 +291,11 @@ def init_extensions(app):
         try:
             from app.models import LDAPConfiguration
 
-            if LDAPConfiguration.query.filter_by(enabled=True).first():
+            with app.app_context():
+                ldap_enabled = (
+                    LDAPConfiguration.query.filter_by(enabled=True).first() is not None
+                )
+            if ldap_enabled:
                 scheduler.add_job(
                     id="sync_ldap_users",
                     func=lambda: sync_ldap_users(app),
@@ -297,22 +324,6 @@ def init_extensions(app):
             # wrong. That combination is what hid a two-day outage of the
             # dispute feed. The /health watchdog retries from here.
             app.logger.error(f"Failed to start APScheduler: {e}", exc_info=True)
-
-    # Continue with remaining extensions
-
-    # Continue with remaining extensions
-    htmx.init_app(app)
-    login_manager.init_app(app)
-    login_manager.login_view = "auth.login"  # type: ignore
-    db.init_app(app)
-
-    # Enable SQLite WAL mode for concurrent writes
-    _configure_sqlite_for_concurrency(app)
-
-    migrate.init_app(app, db)
-    limiter.init_app(app)
-    warn_on_unshared_rate_limit_storage(app)
-    # Flask-RESTX API will be initialized with the blueprint
 
     # Always fetch manifest on startup after DB is initialized
     if not should_skip_scheduler:

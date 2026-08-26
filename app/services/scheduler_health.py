@@ -14,6 +14,20 @@ separate silences made that possible:
 None of those tell anyone the money path went blind. The dispute queue lives in
 that tab, and an unanswered dispute is a lost dispute.
 
+Making the failure loud then exposed what had been causing it, and it was not a
+silence at all:
+
+  * ``init_extensions`` registered the job ~50 lines ABOVE ``db.init_app(app)``,
+    so reading the saved settings raised "The current Flask app is not registered
+    with this 'SQLAlchemy' instance" on every single boot. The job had never once
+    been registered at startup; it existed only because saving the settings
+    screen registers it from a request context, and it died at every restart.
+  * the watchdog added below then made that permanent. Re-registering a job
+    recomputes its fire time as now + interval, and the watchdog ran every five
+    minutes against a fifteen minute job, so it pushed the fire time away faster
+    than the clock could reach it. A transient stall became a terminal one, with
+    an hourly alert promising a repair that could not work.
+
 This module is the single place that knows how the job should be registered and
 what "stalled" means, so the boot path, the settings screen and the health probe
 cannot drift apart again.
@@ -48,6 +62,20 @@ _ALERT_SETTING = "stripe_sync_stall_alert_at"
 # five minutes is fine; the alert cooldown is what stops duplicate messages, and
 # that one is stored in the database precisely because it must be shared.
 _last_check_monotonic: float | None = None
+
+
+def _registered_interval_minutes(job: Any) -> float | None:
+    """Interval the job is *currently registered with*, or None if unreadable.
+
+    Read off the live trigger rather than any saved copy: the question this
+    answers is "does the running scheduler already do what the settings ask
+    for?", and only the trigger knows.
+    """
+    interval = getattr(getattr(job, "trigger", None), "interval", None)
+    total_seconds = getattr(interval, "total_seconds", None)
+    if not callable(total_seconds):
+        return None
+    return total_seconds() / 60
 
 
 def _parse_timestamp(raw: str | None) -> datetime | None:
@@ -96,15 +124,48 @@ def ensure_stripe_sync_job(app, *, start_if_stopped: bool = True) -> bool:
                 "Scheduler was not running; started it to register the Stripe sync"
             )
 
+        interval = get_sync_interval_minutes()
+        existing = scheduler.get_job(STRIPE_SYNC_JOB_ID)
+        if (
+            existing is not None
+            # `next_run_time is None` is APScheduler for *paused*: registered, on
+            # the right interval, and never going to run. Skipping the repair for
+            # one of those would reopen this very bug through a narrower door.
+            and getattr(existing, "next_run_time", None) is not None
+            and _registered_interval_minutes(existing) == interval
+        ):
+            # Already on the right schedule: leave it strictly alone.
+            #
+            # Re-adding is NOT a harmless no-op. `add_job(replace_existing=True)`
+            # builds a fresh trigger, whose `start_date` defaults to
+            # `now + interval`, and `_real_add_job` adopts it because no explicit
+            # `next_run_time` was passed — so every call pushes the fire time a
+            # full interval into the future. A caller that runs more often than
+            # the interval therefore moves the goalposts faster than the clock
+            # reaches them and the job never fires ONCE.
+            #
+            # That is not theoretical. The watchdog below runs every 5 minutes
+            # against a 15 minute job, and production showed `minutes_since_sync`
+            # climbing 186 → 191 → 196 → 201 → ... one step per tick, forever,
+            # while the tab cheerfully reported "Job: registered · Next run:
+            # <15 minutes out>". The alert even promised a repair that this
+            # function was structurally incapable of delivering.
+            return True
+
         from app.tasks.stripe_sync import sync_stripe_events_task
 
-        interval = get_sync_interval_minutes()
         scheduler.add_job(
             id=STRIPE_SYNC_JOB_ID,
             func=lambda: sync_stripe_events_task(app),
             trigger="interval",
             minutes=interval,
             replace_existing=True,
+            # Reached only when the job was missing or on the wrong interval, so
+            # the archive is already behind by definition: run at the first
+            # opportunity instead of an interval from now. Boot lands here too,
+            # which is what stops a restart from leaving a stale `last_sync`
+            # behind for the watchdog to trip over.
+            next_run_time=datetime.now(UTC),
             # A tick missed while the process was busy or restarting still runs
             # if it is only a little late, and several missed ticks collapse
             # into one: the sync reads a moving window, so catching up tick by
@@ -154,11 +215,17 @@ def check_stripe_sync_health() -> dict[str, Any]:
         "stale_after_minutes": None,
         "stalled": False,
         "reason": None,
+        # What the last *attempted* run reported, cleared on any success. It is
+        # the one field that separates "nothing is running" from "it runs and
+        # Stripe turns it away", and its absence from this payload is why an
+        # afternoon went into telling those two apart by hand.
+        "last_error": None,
     }
 
     try:
         health["disabled_by_config"] = scheduler_disabled_by_config()
         health["configured"] = bool(get_setting("stripe_api_key"))
+        health["last_error"] = get_setting("stripe_sync_last_error")
         health["enabled"] = is_sync_enabled()
         interval = get_sync_interval_minutes()
         health["interval_minutes"] = interval
@@ -247,11 +314,24 @@ def _alert_stalled(health: dict[str, Any], repaired: bool) -> None:
         if minutes is not None
         else "No sync has ever completed."
     )
-    repair_line = (
-        " The job was re-registered automatically; check the tab in a few minutes."
-        if repaired
-        else " Automatic repair did not work — this one needs a look."
-    )
+    # Only the structural reasons have anything to repair. Claiming a repair for
+    # `no_recent_sync` — where the job IS registered on the right interval and
+    # was deliberately left untouched — would be the same empty promise the old
+    # version made every hour while the sync stayed dead.
+    if health.get("reason") in ("scheduler_not_running", "job_missing"):
+        repair_line = (
+            " The job was re-registered automatically; check the tab in a few minutes."
+            if repaired
+            else " Automatic repair did not work — this one needs a look."
+        )
+    else:
+        repair_line = (
+            " The job is registered on the right interval, so this is not a "
+            "registration fault: the runs themselves are not landing."
+        )
+        last_error = health.get("last_error")
+        if last_error:
+            repair_line += f" Last recorded error: {last_error}."
     message = (
         f"{_REASON_TEXT.get(health.get('reason'), 'The Stripe sync is not running.')} "
         f"{last_seen}{repair_line} Disputes are answered from this data, and an "

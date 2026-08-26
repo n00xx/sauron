@@ -847,6 +847,44 @@ class TestEvidence:
                 assert row.wizarr_user_id == metadata_user_id, stripe_id
                 assert row.wizarr_user_id != email_user_id
 
+    def test_correlation_stops_at_its_time_budget(self, app, two_buyers, monkeypatch):
+        """The row cap was never a bound on *time*.
+
+        Each unresolved purchase costs one PaymentIntent read at up to
+        REQUEST_TIMEOUT seconds, so a backlog could outlast the sync interval.
+        The job holds max_instances=1, so the next tick would not queue behind a
+        slow pass — it would be dropped with a WARNING nobody reads, and the sync
+        would look exactly as dead as the outage this module was written for.
+        """
+        _, metadata_user_id = two_buyers
+        calls: list[str] = []
+
+        def _slow_fetch(api_key, payment_intent_id, **kwargs):
+            calls.append(payment_intent_id)
+            return {"metadata": {"sauronUserId": str(metadata_user_id)}}
+
+        monkeypatch.setattr(sev, "fetch_payment_intent", _slow_fetch)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.add_all(
+                [
+                    self._pending(
+                        stripe_event_id=f"evt_budget_{n}",
+                        payment_intent_id=f"pi_budget_{n}",
+                    )
+                    for n in range(5)
+                ]
+            )
+            db.session.commit()
+
+            # A budget already spent: the loop must stop before the first row,
+            # not grind through all five.
+            resolved = sev.resolve_pending_links(budget_seconds=-1)
+
+        assert resolved == 0
+        assert calls == [], "no Stripe read may happen once the budget is spent"
+
     def test_batch_reads_each_payment_intent_once(self, app, two_buyers, monkeypatch):
         """Every event of a purchase shares one PaymentIntent — read it once."""
         _, metadata_user_id = two_buyers
