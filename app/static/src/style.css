@@ -13,6 +13,15 @@
 @source '../node_modules/flowbite/**/*.js';
 @source '../../../wizard_steps/**/*.md';
 
+/* Notification badge colours live in the event catalogue (a .py file), which
+   Tailwind does not scan. Same trap as the Activity line above: the light
+   variants happened to exist already from other markup, so only the dark: ones
+   went missing and the Stripe Refund badge rendered amber-on-amber in dark
+   mode. Listed inline rather than adding a @source, because scanning Python
+   for class names is not something Tailwind promises to keep doing. Keep in
+   sync with _BADGE_* in app/services/notification_events.py. */
+@source inline("bg-{blue,purple,green,amber,red}-{100,900} text-{blue,purple,green,amber,red}-{200,800}");
+
 @custom-variant dark (&:is(.dark *));
 
 @theme {
