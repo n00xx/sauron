@@ -73,10 +73,16 @@ def ensure_stripe_sync_job(app, *, start_if_stopped: bool = True) -> bool:
 
     Requires an app context.
     """
-    from app.extensions import scheduler
+    from app.extensions import scheduler, scheduler_disabled_by_config
     from app.services.stripe_events import get_setting, get_sync_interval_minutes
 
     try:
+        if scheduler_disabled_by_config():
+            # The scheduler was never initialised on this deployment. Starting
+            # it here would override a deliberate operator choice, and add_job
+            # on an un-initialised scheduler fails anyway.
+            return False
+
         if not get_setting("stripe_api_key"):
             # No key: the job must not exist. Removing it is what makes
             # "clear the key" take effect without a restart.
@@ -128,7 +134,7 @@ def check_stripe_sync_health() -> dict[str, Any]:
     and not getting them? Sync switched off, or no key, is not a fault — however
     old the last sync is.
     """
-    from app.extensions import scheduler
+    from app.extensions import scheduler, scheduler_disabled_by_config
     from app.services.stripe_events import (
         get_setting,
         get_sync_interval_minutes,
@@ -138,6 +144,7 @@ def check_stripe_sync_health() -> dict[str, Any]:
     health: dict[str, Any] = {
         "configured": False,
         "enabled": False,
+        "disabled_by_config": False,
         "scheduler_running": False,
         "job_registered": False,
         "next_run_at": None,
@@ -150,6 +157,7 @@ def check_stripe_sync_health() -> dict[str, Any]:
     }
 
     try:
+        health["disabled_by_config"] = scheduler_disabled_by_config()
         health["configured"] = bool(get_setting("stripe_api_key"))
         health["enabled"] = is_sync_enabled()
         interval = get_sync_interval_minutes()
@@ -174,7 +182,9 @@ def check_stripe_sync_health() -> dict[str, Any]:
                 datetime.now(UTC) - last_sync
             ).total_seconds() / 60
 
-        if not health["enabled"]:
+        if not health["enabled"] or health["disabled_by_config"]:
+            # Nothing is supposed to run here. Not a fault, whatever the saved
+            # Stripe settings say.
             return health
 
         if not health["scheduler_running"]:

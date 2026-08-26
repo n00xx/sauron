@@ -372,3 +372,58 @@ def test_health_endpoint_runs_the_watchdog(app, client, monkeypatch):
 
     assert response.status_code == 200
     assert len(calls) == 1
+
+
+# ─── The operator's off switch ──────────────────────────────────────────────
+# WIZARR_DISABLE_SCHEDULER and FLASK_SKIP_SCHEDULER are supported ways to run
+# without a scheduler. The key and the enabled flag live in the database, so on
+# such a deployment the sync still reads as "enabled" while nothing is meant to
+# run. Without this guard the watchdog would alert every hour forever and try to
+# start a scheduler the operator deliberately turned off.
+
+
+def test_config_disabled_scheduler_is_not_stalled(
+    app, session, fake_scheduler, monkeypatch
+):
+    fake_scheduler(running=False, job=None)
+    monkeypatch.setenv("WIZARR_DISABLE_SCHEDULER", "true")
+
+    with app.app_context():
+        _configure_sync(last_sync=datetime.now(UTC) - timedelta(days=7))
+
+        health = check_stripe_sync_health()
+
+    assert health["stalled"] is False
+    assert health["disabled_by_config"] is True
+
+
+def test_watchdog_neither_alerts_nor_starts_when_disabled_by_config(
+    app, session, fake_scheduler, captured_alerts, monkeypatch
+):
+    fake = fake_scheduler(running=False, job=None)
+    monkeypatch.setenv("FLASK_SKIP_SCHEDULER", "true")
+
+    with app.app_context():
+        _configure_sync(last_sync=datetime.now(UTC) - timedelta(days=7))
+
+        result = watchdog_tick(app, force=True)
+
+    assert result is None
+    assert captured_alerts == []
+    assert fake.started is False, "the operator's off switch must not be overridden"
+
+
+def test_ensure_does_not_start_a_scheduler_the_operator_disabled(
+    app, session, fake_scheduler, monkeypatch
+):
+    fake = fake_scheduler(running=False, job=None)
+    monkeypatch.setenv("WIZARR_DISABLE_SCHEDULER", "1")
+
+    with app.app_context():
+        _configure_sync()
+
+        registered = ensure_stripe_sync_job(app)
+
+    assert registered is False
+    assert fake.started is False
+    assert fake.added == []

@@ -162,6 +162,21 @@ api.authorizations = {
 }
 
 
+def scheduler_disabled_by_config() -> bool:
+    """Whether this deployment deliberately runs without a scheduler.
+
+    Separate from the pytest/alembic detection below because the two mean
+    different things to the watchdog: a tooling process does not serve /health,
+    but an operator who set this switch still does — and must not be told every
+    hour that the sync is broken, nor have the scheduler started behind their
+    back. The stored Stripe settings cannot tell the difference on their own:
+    the key and the enabled flag live in the database and stay switched on.
+    """
+    return os.getenv("FLASK_SKIP_SCHEDULER") == "true" or os.getenv(
+        "WIZARR_DISABLE_SCHEDULER", "false"
+    ).lower() in ("true", "1", "yes")
+
+
 # Initialize with app
 def init_extensions(app):
     """Initialize Flask extensions with clean separation of concerns."""
@@ -180,9 +195,7 @@ def init_extensions(app):
             "db" in str(arg) and ("upgrade" in str(arg) or "migrate" in str(arg))
             for arg in __import__("sys").argv
         )
-        or os.getenv("FLASK_SKIP_SCHEDULER") == "true"
-        or os.getenv("WIZARR_DISABLE_SCHEDULER", "false").lower()
-        in ("true", "1", "yes")
+        or scheduler_disabled_by_config()
     )
 
     if not should_skip_scheduler:
