@@ -590,6 +590,11 @@ def sync_stripe_events(
     inserted = 0
     skipped = 0
     failed = 0
+    # Only events written on THIS pass get an alert. The sync runs on an
+    # interval over a rolling window, so a refund stays in `monitored` for many
+    # ticks after it lands — notifying on anything but a fresh insert would
+    # re-announce the same refund every few minutes.
+    new_refunds: list[dict[str, Any]] = []
     for event in monitored:
         event_id = event.get("id")
         if not isinstance(event_id, str) or not event_id:
@@ -608,6 +613,8 @@ def sync_stripe_events(
             with db.session.begin_nested():
                 db.session.add(StripeEvent(**extract_fields(event)))
             inserted += 1
+            if categorize(str(event.get("type") or "")) == CATEGORY_REFUND:
+                new_refunds.append(event)
         except Exception as exc:
             failed += 1
             logger.warning(
@@ -636,8 +643,58 @@ def sync_stripe_events(
     set_setting("stripe_sync_last_summary", json.dumps(summary, ensure_ascii=False))
     db.session.commit()
 
+    # After the commit: an alert about a refund that failed to persist would be
+    # worse than no alert at all.
+    _notify_new_refunds(new_refunds)
+
     logger.info("Stripe event sync completed", **summary)
     return summary
+
+
+def _format_amount(obj: dict[str, Any]) -> str:
+    """Human-readable amount for a refund-ish Stripe object, or "" if absent."""
+    for field in ("amount_refunded", "amount"):
+        value = obj.get(field)
+        if isinstance(value, int):
+            currency = str(obj.get("currency") or "").upper()
+            return f"{value / 100:.2f} {currency}".strip()
+    return ""
+
+
+def _notify_new_refunds(events: list[dict[str, Any]]) -> None:
+    """Best-effort operational alert, one per refund written on this pass.
+
+    Isolated behind its own try/except: this runs from the scheduler, and a
+    notification agent that is down must not fail a sync whose rows are already
+    committed.
+    """
+    if not events:
+        return
+    try:
+        from app.services.notifications import notify
+
+        for event in events:
+            obj = event.get("data", {}).get("object", {})
+            obj = obj if isinstance(obj, dict) else {}
+            amount = _format_amount(obj)
+            email = _extract_email(obj)
+            details = " • ".join(
+                part
+                for part in (
+                    str(event.get("type") or ""),
+                    amount,
+                    email or "",
+                )
+                if part
+            )
+            notify(
+                "Stripe refund",
+                f"A refund was recorded in Stripe: {details}",
+                tags="money_with_wings",
+                event_type="stripe_refund",
+            )
+    except Exception as exc:
+        logger.warning("Failed to send refund notification", error=str(exc))
 
 
 def get_last_sync_summary() -> dict[str, Any]:

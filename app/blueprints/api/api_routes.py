@@ -567,6 +567,24 @@ class UserExtendResource(Resource):
             user.expires = new_expiry
             db.session.commit()
 
+            # This endpoint is how a paid renewal reaches sauron, so it is the
+            # only place that knows a membership was renewed. Stripe cannot
+            # tell us: renewals here are one-off charges, not subscriptions.
+            # After the commit, and best-effort — a notification agent that is
+            # down must not turn a renewal the buyer paid for into a 500.
+            try:
+                from app.services.notifications import notify
+
+                notify(
+                    "Membership renewed",
+                    f"{user.username} renewed for {days} more days "
+                    f"(now expires {new_expiry.date().isoformat()}).",
+                    tags="tada",
+                    event_type="user_renewed",
+                )
+            except Exception as exc:
+                logger.warning("Failed to send renewal notification: %s", exc)
+
             return {
                 "message": f"User {user.username} expiry extended by {days} days",
                 "new_expiry": new_expiry.isoformat(),
