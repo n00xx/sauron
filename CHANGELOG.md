@@ -6,6 +6,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.9.10] (2026-08-26)
+
+### Added
+
+- **Avisos de disputas, contracargos cerrados y avisos tempranos de fraude, con
+  la evidencia ya montada.** sauron lleva tiempo sabiendo construir el paquete
+  que gana una disputa de bienes digitales (`access_activity_log`, los elementos
+  de Visa CE 3.0) y renderizarlo en `/eventos/<id>`, pero nadie se enteraba de
+  que hubiera algo que responder hasta que abria la pestana por casualidad. Una
+  disputa sin contestar se pierde por omision.
+
+  Ahora `charge.dispute.created`, `charge.dispute.closed` y
+  `radar.early_fraud_warning.created` mandan un aviso cada uno, con el plazo, el
+  importe, si el caso es elegible para CE 3.0, **cuanta reproduccion respalda la
+  respuesta** y enlace directo a la vista de evidencia. Los otros eventos de
+  disputa (`updated`, `funds_withdrawn`, `funds_reinstated`) NO avisan: son
+  contabilidad sobre una disputa ya conocida, y avisar cuatro veces por un solo
+  contracargo es como se consigue que alguien silencie el canal.
+
+  Son eventos **operativos**: llegan a todo agente configurado sin depender de
+  una casilla. La suscripcion es opt-in y las filas de agente conservan lo que
+  se guardo al crearlas, asi que un evento nuevo nace mudo — inaceptable para
+  un plazo con dinero detras.
+
+  sauron sigue sin escribir nada en Stripe. El aviso lo dice explicitamente:
+  el envio lo hace una persona, porque solo hay un intento.
+
+### Fixed
+
+- **El aviso se compone DESPUES de correlacionar, no al guardar la fila.** El
+  aviso de refunds sale desde dentro de `sync_stripe_events`, antes de que nada
+  este correlacionado. Un aviso de disputa ahi habria dicho "sin vincular a
+  ninguna cuenta, sin reproducciones" sobre una compra con meses de historial:
+  equivocado justo en la direccion que ensena a desconfiar de las alertas.
+
+- **La procedencia del vinculo se registra, en vez de deducirla de la fila.**
+  Aqui estaba el error que casi se cuela: la tienda estampa `sauronUserId` en el
+  PaymentIntent y ningun id de invitacion, asi que la ruta AUTORITATIVA escribe
+  `wizarr_user_id` y deja `invitation_id` en NULL — exactamente el mismo rastro
+  que deja el ultimo recurso, que empareja por el correo de facturacion. Leerlo
+  de las columnas habria etiquetado **toda disputa real de produccion** como una
+  suposicion: el aviso invertido, en la alerta que mas necesita creerse.
+
+- **Un sync manual tambien avisa.** "Sync now" correlacionaba pero no alertaba.
+  Como la ingesta es idempotente, una disputa que cayera en un sync pulseado se
+  quedaba muda para siempre: el siguiente pase ya la ve como conocida. Los dos
+  caminos pasan ahora por `sync_and_correlate`, y un test de fuente impide que
+  aparezca un tercero que se lo salte.
+
+- **Un backfill no despierta a nadie.** El primer sync de una instalacion lee 30
+  dias hacia atras, y "Re-sync last 30 days" lo hace a peticion. "Recien
+  guardado" no es "recien ocurrido": solo se avisa de eventos de menos de 72 h,
+  margen suficiente para sobrevivir a un fin de semana caido sin convertir el
+  dia uno en una bandeja llena de casos ya resueltos.
+
 ## [2026.9.9] (2026-08-26)
 
 ### Fixed
