@@ -14,13 +14,25 @@
 @source '../../../wizard_steps/**/*.md';
 
 /* Notification badge colours live in the event catalogue (a .py file), which
-   Tailwind does not scan. Same trap as the Activity line above: the light
-   variants happened to exist already from other markup, so only the dark: ones
-   went missing and the Stripe Refund badge rendered amber-on-amber in dark
-   mode. Listed inline rather than adding a @source, because scanning Python
-   for class names is not something Tailwind promises to keep doing. Keep in
-   sync with _BADGE_* in app/services/notification_events.py. */
-@source inline("bg-{blue,purple,green,amber,red}-{100,900} text-{blue,purple,green,amber,red}-{200,800}");
+   Tailwind does not scan. Same trap as the Activity line above: a class used
+   only there is never generated and silently does nothing.
+
+   A `dark:` variant is its OWN candidate — declaring `bg-amber-900` does not
+   produce `dark:bg-amber-900`. The first attempt at this listed only the base
+   utilities and looked correct, because red, blue, green and purple each appear
+   as a bare `dark:bg-<colour>-900` somewhere in real markup and were generated
+   by the scan. Amber appears only as `dark:bg-amber-900/20` and `/40`, and an
+   opacity modifier is a different class, so that one stayed missing while
+   `dark:text-amber-200` (bare, in _eventos_table.html) did not — pale text on a
+   pale background. Declared explicitly here so no colour depends on happening
+   to be used elsewhere.
+
+   These four lines mirror _BADGE_* in app/services/notification_events.py, and
+   tests/test_notification_badges.py fails if the two drift apart. */
+@source inline("bg-{blue,purple,green,amber,red}-100");
+@source inline("text-{blue,purple,green,amber,red}-800");
+@source inline("dark:bg-{blue,purple,green,amber,red}-900");
+@source inline("dark:text-{blue,purple,green,amber,red}-200");
 
 @custom-variant dark (&:is(.dark *));
 
