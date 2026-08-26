@@ -302,6 +302,35 @@
           </span>
         </div>
 
+        {# ── Stalled scheduler ──
+           "Enabled" is a saved setting, not evidence that anything runs. This
+           tab once showed sync enabled with a 15 minute interval while the last
+           sync was 48 hours old, and nothing on screen said so. The alert that
+           goes out over the notification agents is the primary signal; this is
+           what confirms it for whoever opens the tab afterwards. #}
+        {% if sync_health and sync_health.stalled %}
+          <div class="mt-2 rounded-lg border border-red-200 dark:border-red-500/50 bg-red-100 dark:bg-red-900/30 px-4 py-3">
+            <p class="text-xs font-semibold text-red-700 dark:text-red-300">
+              {{ _("Scheduled sync is not running") }}
+            </p>
+            <p class="mt-1 text-xs text-red-600 dark:text-red-400">
+              {% if sync_health.reason == "scheduler_not_running" %}
+                {{ _("The background scheduler is stopped, so no scheduled job is firing — expiry checks included.") }}
+              {% elif sync_health.reason == "job_missing" %}
+                {{ _("The sync job is not registered with the scheduler.") }}
+              {% else %}
+                {{ _("No sync has completed in longer than expected.") }}
+              {% endif %}
+              {{ _("Disputes are answered from this data — use \"Sync now\" while this is being fixed.") }}
+            </p>
+            <p class="mt-1 text-[11px] text-red-600/80 dark:text-red-400/80">
+              {{ _("Scheduler:") }} {{ _("running") if sync_health.scheduler_running else _("stopped") }} ·
+              {{ _("Job:") }} {{ _("registered") if sync_health.job_registered else _("missing") }}
+              {% if sync_health.next_run_at %}· {{ _("Next run:") }} {{ sync_health.next_run_at[:16].replace('T', ' ') }}{% endif %}
+            </p>
+          </div>
+        {% endif %}
+
         {% if last_error %}
           <p class="text-xs text-red-600 dark:text-red-400">{{ _("Last error:") }} {{ last_error }}</p>
         {% endif %}

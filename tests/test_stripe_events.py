@@ -1034,6 +1034,38 @@ class TestRendering:
         assert response.status_code in {200, 302, 303}
         return client
 
+    def test_tab_warns_when_the_scheduled_sync_is_stalled(
+        self, app, logged_in, clean_stripe_events, monkeypatch
+    ):
+        """ "Enabled" is a saved setting, not evidence that anything runs.
+
+        The tab showed sync enabled on a 15 minute interval while the last sync
+        was 48 hours old, and said nothing.
+        """
+
+        class _StoppedScheduler:
+            running = False
+
+            def get_job(self, job_id):
+                return None
+
+        monkeypatch.setattr("app.extensions.scheduler", _StoppedScheduler())
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "sk_test_stalled")
+            se.set_setting("stripe_sync_enabled", "true")
+            se.set_setting("stripe_sync_interval_minutes", "15")
+            se.set_setting(
+                "stripe_last_sync_at",
+                (datetime.now(UTC) - timedelta(hours=48)).isoformat(),
+            )
+            db.session.commit()
+
+        response = logged_in.get("/activity/eventos")
+
+        assert response.status_code == 200
+        assert b"Scheduled sync is not running" in response.data
+
     def test_tab_renders_when_stripe_is_not_configured(
         self, app, logged_in, clean_stripe_events
     ):

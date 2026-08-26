@@ -290,6 +290,23 @@ def join():
 @public_bp.route("/health", methods=["GET"])
 def health():
     # If you need to check DB connectivity, do it here.
+    #
+    # The container healthcheck calls this every 30 seconds, which makes it the
+    # only thing that runs on its own whether or not an admin is looking. That
+    # is why the scheduler watchdog rides along: a scheduler that has stopped
+    # cannot notice its own absence, and nobody noticed for two days. The call
+    # throttles itself internally and swallows its own errors; this try/except
+    # is the second belt, because a bug in the watchdog must never mark the
+    # container unhealthy.
+    try:
+        from app.services.scheduler_health import watchdog_tick
+
+        watchdog_tick(current_app._get_current_object())  # type: ignore[attr-defined]
+    except Exception:
+        current_app.logger.warning(
+            "Scheduler watchdog raised on /health", exc_info=True
+        )
+
     return jsonify(status="ok"), 200
 
 

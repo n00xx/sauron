@@ -936,6 +936,7 @@ def _render_eventos_tab(message: str | None = None, message_kind: str = "success
     this app renders `get_flashed_messages`, so a flashed sync error would be
     invisible — the admin would see an empty tab and no reason why.
     """
+    from app.services.scheduler_health import check_stripe_sync_health
     from app.services.stripe_events import (
         MONITORED_EVENT_TYPES,
         describe_key_mode,
@@ -1009,6 +1010,7 @@ def _render_eventos_tab(message: str | None = None, message_kind: str = "success
             interval=get_setting("stripe_sync_interval_minutes", "15"),
             key_mode=describe_key_mode(get_setting("stripe_api_key")),
             last_summary=_decorate_summary(get_last_sync_summary()),
+            sync_health=check_stripe_sync_health(),
             message=message,
             message_kind=message_kind,
         )
@@ -1260,30 +1262,18 @@ def _refresh_stripe_sync_job() -> None:
 
     Never raises: the settings themselves are already committed by the time this
     runs, and a scheduler hiccup must not surface as a failed save.
+
+    This used to return early whenever the scheduler was not running, which made
+    the worst case unrecoverable from the UI: an admin could save a valid key,
+    read "Settings saved", and get no sync at all until someone restarted the
+    container. ``ensure_stripe_sync_job`` starts the scheduler instead, and logs
+    above debug when it cannot.
     """
-    from app.extensions import scheduler
-    from app.services.stripe_events import get_setting, get_sync_interval_minutes
+    from app.services.scheduler_health import ensure_stripe_sync_job
 
-    job_id = "sync_stripe_events"
     try:
-        if not scheduler.running:
-            return
-
-        if not get_setting("stripe_api_key"):
-            if scheduler.get_job(job_id):
-                scheduler.remove_job(job_id)
-            return
-
-        from app.tasks.stripe_sync import sync_stripe_events_task
-
         app = current_app._get_current_object()  # type: ignore[attr-defined]
-        scheduler.add_job(
-            id=job_id,
-            func=lambda: sync_stripe_events_task(app),
-            trigger="interval",
-            minutes=get_sync_interval_minutes(),
-            replace_existing=True,
-        )
+        ensure_stripe_sync_job(app)
     except Exception as exc:  # pragma: no cover - defensive
         structlog.get_logger(__name__).warning(
             "Could not refresh the Stripe sync job: %s", exc

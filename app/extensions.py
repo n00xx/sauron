@@ -235,31 +235,19 @@ def init_extensions(app):
         # must push one explicitly (the LDAP block below does not, which is why
         # its query silently fails into the except).
         try:
-            from app.services.stripe_events import (
-                get_setting as _stripe_setting,
-            )
-            from app.services.stripe_events import (
-                get_sync_interval_minutes,
-            )
-            from app.tasks.stripe_sync import sync_stripe_events_task
+            from app.services.scheduler_health import ensure_stripe_sync_job
 
             with app.app_context():
-                stripe_configured = bool(_stripe_setting("stripe_api_key"))
-                stripe_interval = get_sync_interval_minutes()
-
-            if stripe_configured:
-                scheduler.add_job(
-                    id="sync_stripe_events",
-                    func=lambda: sync_stripe_events_task(app),
-                    trigger="interval",
-                    minutes=stripe_interval,
-                    replace_existing=True,
-                )
+                # The scheduler is started a few lines below; registering a
+                # pending job here keeps that order intact.
+                ensure_stripe_sync_job(app, start_if_stopped=False)
         except Exception:
-            # Table may not exist yet if migrations haven't run.
-            app.logger.debug(
-                "Stripe sync job not registered (settings table may not exist yet)"
-            )
+            # A missing settings table on a pre-migration boot is expected and
+            # harmless — the settings screen registers the job when it saves.
+            # Anything else is not, so this is an exception log, not a debug
+            # line: the debug version is why a dead sync went unnoticed for two
+            # days. ensure_stripe_sync_job already logs its own failures.
+            app.logger.exception("Stripe sync job could not be registered at boot")
 
         # Add LDAP user sync task (only if LDAP is configured)
         from app.tasks.ldap_sync import _get_ldap_sync_interval, sync_ldap_users
@@ -290,7 +278,12 @@ def init_extensions(app):
             else:
                 app.logger.info("APScheduler already running")
         except Exception as e:
-            app.logger.warning(f"Failed to start APScheduler: {e}")
+            # Error, not warning: if the scheduler does not start, EVERY
+            # scheduled job stops — expiry checks, library scans and the Stripe
+            # sync — while the app keeps serving requests as if nothing were
+            # wrong. That combination is what hid a two-day outage of the
+            # dispute feed. The /health watchdog retries from here.
+            app.logger.error(f"Failed to start APScheduler: {e}", exc_info=True)
 
     # Continue with remaining extensions
 

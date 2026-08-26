@@ -68,6 +68,9 @@ EVENT_TYPES: tuple[EventType, ...] = (
         _BADGE_RED,
         operational=True,
     ),
+    EventType(
+        "stripe_sync_stalled", "Stripe Sync Stalled", _BADGE_RED, operational=True
+    ),
 )
 
 _BY_KEY = {event.key: event for event in EVENT_TYPES}
