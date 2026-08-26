@@ -192,3 +192,177 @@ def test_api_libraries_scan_failure_continues(client, api_key, test_server):
 
         # Should have tried to scan servers
         assert mock_scan.call_count >= 2
+
+
+# ---------------------------------------------------------------------------
+# Startup scanner (scan_all_server_libraries)
+#
+# Distinct from the API rescan covered above: this is the pass that runs on
+# every boot and is the only one that can DELETE or DISABLE rows. Before the
+# guard added alongside these tests, an unreachable Jellyfin was reported by
+# the client as "zero libraries", and the scanner acted on it — deleting the
+# libraries no invitation referenced and disabling the rest, silently, with
+# errors == [].
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def scanner_server(app, session):
+    """A jellyfin server with two libraries: one invited-to, one orphan."""
+    from app.models import Invitation, invite_libraries
+
+    with app.app_context():
+        # Clear the association first: Library.query.delete() is a bulk delete
+        # that bypasses the ORM cascade, so it would leave rows in
+        # invite_library pointing at ids SQLite then hands back out to the
+        # libraries created below — a unique-constraint collision that only
+        # shows up when the full suite has already populated those tables.
+        db.session.execute(invite_libraries.delete())
+        Invitation.query.delete()
+        Library.query.delete()
+        MediaServer.query.delete()
+        db.session.commit()
+
+        server = MediaServer(
+            name="Scanner Server",
+            server_type="jellyfin",
+            url="http://localhost:8096",
+            api_key="scanner_key",
+            verified=True,
+        )
+        db.session.add(server)
+        db.session.commit()
+
+        referenced = Library(
+            external_id="ext-referenced",
+            name="Peliculas",
+            server_id=server.id,
+            enabled=True,
+        )
+        orphan = Library(
+            external_id="ext-orphan", name="Anime", server_id=server.id, enabled=True
+        )
+        db.session.add_all([referenced, orphan])
+        db.session.commit()
+
+        invitation = Invitation(code="SCAN0001")
+        invitation.libraries.append(referenced)
+        db.session.add(invitation)
+        db.session.commit()
+
+        return server.id
+
+
+def _library_state(server_id):
+    return {
+        lib.external_id: lib.enabled
+        for lib in Library.query.filter_by(server_id=server_id).all()
+    }
+
+
+def test_unreachable_jellyfin_does_not_destroy_libraries(app, scanner_server):
+    """An unreachable media server must not delete or disable anything.
+
+    Regression: a transient Jellyfin failure during startup used to wipe the
+    library set permanently, which left checkout unable to grant anything.
+    """
+    from app.services.library_scanner import scan_all_server_libraries
+
+    with app.app_context():
+        before = _library_state(scanner_server)
+
+        with patch(
+            "app.services.media.jellyfin.JellyfinClient.get",
+            side_effect=ConnectionError("Jellyfin unreachable"),
+        ):
+            _, errors = scan_all_server_libraries(show_logs=False)
+
+        assert _library_state(scanner_server) == before, (
+            "library rows must survive an unreachable media server"
+        )
+        assert errors, "an unreachable server must be reported, not swallowed"
+
+
+def test_empty_library_response_skips_destructive_pass(app, scanner_server):
+    """Zero libraries returned while rows exist is treated as suspect.
+
+    Covers the clients that still swallow their own errors into ``{}`` (emby,
+    komga, audiobookshelf): the guard lives in the scanner so it protects every
+    server type, not just the one whose client was fixed.
+    """
+    from app.services.library_scanner import scan_all_server_libraries
+
+    with app.app_context():
+        before = _library_state(scanner_server)
+
+        with patch(
+            "app.services.media.jellyfin.JellyfinClient.libraries", return_value={}
+        ):
+            _, errors = scan_all_server_libraries(show_logs=False)
+
+        assert _library_state(scanner_server) == before
+        assert errors, "an empty response against existing rows must be reported"
+
+
+def test_genuine_removal_still_disables_and_deletes(app, scanner_server):
+    """The destructive pass must still run when the server answers normally.
+
+    The guard keys on an *empty* response, not on any shrinkage: an admin who
+    really removes a library still expects it to disappear.
+    """
+    from app.services.library_scanner import scan_all_server_libraries
+
+    with app.app_context():
+        with patch(
+            "app.services.media.jellyfin.JellyfinClient.libraries",
+            return_value={"ext-referenced": "Peliculas"},
+        ):
+            scan_all_server_libraries(show_logs=False)
+
+        state = _library_state(scanner_server)
+        # Orphan had no invitation pointing at it, so it is safe to remove.
+        assert "ext-orphan" not in state
+        # The invited-to one is preserved as disabled to keep the association.
+        assert state == {"ext-referenced": True}
+
+
+def test_scan_failure_notifies_operators(app, scanner_server):
+    """A failed scan raises an operational alert."""
+    from app.services.library_scanner import scan_all_server_libraries
+
+    with app.app_context():
+        with (
+            patch(
+                "app.services.media.jellyfin.JellyfinClient.libraries",
+                return_value={},
+            ),
+            patch("app.services.notifications.notify") as mock_notify,
+        ):
+            scan_all_server_libraries(show_logs=False)
+
+        assert mock_notify.called
+        assert mock_notify.call_args.kwargs["event_type"] == "library_scan_failed"
+
+
+def test_notification_failure_is_not_reported_as_scan_failure(app, scanner_server):
+    """A broken notification agent must not masquerade as a scan error.
+
+    This runs during startup inside the per-server error handler, so an
+    exception escaping the notify call would be appended to ``errors``.
+    """
+    from app.services.library_scanner import scan_all_server_libraries
+
+    with app.app_context():
+        with (
+            patch(
+                "app.services.media.jellyfin.JellyfinClient.libraries",
+                return_value={"ext-referenced": "Peliculas"},
+            ),
+            patch(
+                "app.services.notifications.notify",
+                side_effect=RuntimeError("agent down"),
+            ),
+        ):
+            _, errors = scan_all_server_libraries(show_logs=False)
+
+        assert errors == []

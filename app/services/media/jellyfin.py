@@ -84,13 +84,16 @@ class JellyfinClient(RestApiMixin):
         return media_browser_auth_headers(self.token)
 
     def libraries(self) -> dict[str, str]:
-        """Return mapping of library_id → library_name."""
-        try:
-            items = self.get("/Library/MediaFolders").json()["Items"]
-            return {item["Id"]: item["Name"] for item in items}
-        except Exception as exc:
-            logging.warning("Jellyfin: failed to fetch libraries – %s", exc)
-            return {}
+        """Return mapping of library_id → library_name.
+
+        Raises on failure rather than returning an empty dict. Swallowing here
+        made an unreachable Jellyfin indistinguishable from a server that
+        genuinely has no libraries, and `scan_all_server_libraries` reads the
+        latter as "every library disappeared" — deleting and disabling rows,
+        permanently and silently. See tests/test_library_scanning.py.
+        """
+        items = self.get("/Library/MediaFolders").json()["Items"]
+        return {item["Id"]: item["Name"] for item in items}
 
     def scan_libraries(
         self, url: str | None = None, token: str | None = None

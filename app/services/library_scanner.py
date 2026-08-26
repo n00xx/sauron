@@ -18,6 +18,22 @@ logger = logging.getLogger(__name__)
 LIBRARY_SCAN_TIMEOUT = 15
 
 
+def _notify_scan_anomaly(event_type: str, title: str, message: str) -> None:
+    """Best-effort operational alert about a library scan.
+
+    Isolated behind its own try/except because this runs during startup inside
+    the per-server error handler: an exception escaping here (an agent table
+    that does not exist yet on a fresh install, a notification endpoint that is
+    down) would be recorded as a scan failure, which it is not.
+    """
+    try:
+        from app.services.notifications import notify
+
+        notify(title, message, tags="warning", event_type=event_type)
+    except Exception as exc:
+        logger.warning(f"Failed to send {event_type} notification: {exc}")
+
+
 def scan_all_server_libraries(show_logs: bool = True) -> tuple[int, list[str]]:
     """Scan libraries for all configured media servers.
 
@@ -100,6 +116,30 @@ def scan_all_server_libraries(show_logs: bool = True) -> tuple[int, list[str]]:
                     inserted_count += 1
                 total_scanned += 1
 
+            # A server that answers with nothing while we hold rows for it is
+            # far more likely to be broken than genuinely emptied: an
+            # unreachable media server, a client that swallows its own error, a
+            # half-started container. The pass below is destructive and
+            # irreversible in practice (disabled libraries are never
+            # re-enabled by design), so refuse to run it on that evidence.
+            if not libraries_dict and existing_libs:
+                db.session.rollback()
+                msg = (
+                    f"{server.name} returned zero libraries while {old_count} are "
+                    f"on record — skipping the disable/delete pass"
+                )
+                errors.append(msg)
+                if show_logs:
+                    logger.warning(msg)
+                _notify_scan_anomaly(
+                    "library_scan_failed",
+                    "Library scan returned nothing",
+                    f"{server.name} reported zero libraries but {old_count} are on "
+                    f"record. Nothing was disabled or deleted. Check that the media "
+                    f"server is reachable.",
+                )
+                continue
+
             # Handle libraries that used to exist but weren't returned by the server
             for ext, lib in existing_libs.items():
                 if ext not in incoming_ids:
@@ -126,6 +166,19 @@ def scan_all_server_libraries(show_logs: bool = True) -> tuple[int, list[str]]:
                     f"(existing={old_count}, updated={updated_count}, inserted={inserted_count}, "
                     f"disabled={disabled_count}, deleted={deleted_count})"
                 )
+
+            # Losing libraries is normal when an admin removes one, but it also
+            # silently shrinks what every future invitation grants, so it is
+            # worth saying out loud either way.
+            if disabled_count or deleted_count:
+                _notify_scan_anomaly(
+                    "libraries_disabled_by_scan",
+                    "Libraries removed by scan",
+                    f"{server.name}: {disabled_count} librar"
+                    f"{'y' if disabled_count == 1 else 'ies'} disabled and "
+                    f"{deleted_count} deleted because the server stopped listing "
+                    f"them. Disabled libraries are not re-enabled automatically.",
+                )
         except Exception as server_exc:
             # Rollback on error to keep session clean
             db.session.rollback()
@@ -133,5 +186,10 @@ def scan_all_server_libraries(show_logs: bool = True) -> tuple[int, list[str]]:
             errors.append(error_msg)
             if show_logs:
                 logger.warning(error_msg)
+            _notify_scan_anomaly(
+                "library_scan_failed",
+                "Library scan failed",
+                f"Could not scan libraries for {server.name}: {server_exc}",
+            )
 
     return total_scanned, errors
