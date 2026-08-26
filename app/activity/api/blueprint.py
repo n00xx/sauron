@@ -929,6 +929,116 @@ def eventos_tab():
     return _render_eventos_tab()
 
 
+# Terminal dispute outcomes. Once Stripe reports one of these the case is
+# decided and there is nothing left to submit, so it must not sit in a panel
+# headed "Disputes awaiting response".
+_DISPUTE_SETTLED_STATUSES = frozenset({"won", "lost", "warning_closed"})
+
+# How many disputes the action queue shows at once.
+DISPUTE_QUEUE_SIZE = 20
+
+
+def _open_disputes(base, limit: int = DISPUTE_QUEUE_SIZE) -> list:
+    """One row per DISPUTE still awaiting a response, soonest deadline first.
+
+    Stripe emits up to five events for a single dispute — created, updated,
+    closed, funds_withdrawn, funds_reinstated — and each is its own row here,
+    carrying the same dispute id in ``object_id`` and the same
+    ``evidence_details.due_by``. Reading rows straight out of the table showed
+    one chargeback up to five times and counted every copy, so a single dispute
+    looked like a pile of deadlines that were all the same deadline.
+
+    Two rules, in this order:
+
+      * one entry per ``object_id``, keeping the most recent event, because the
+        row links to an event detail page and must show the latest state;
+      * drop a dispute whose latest event reports a terminal outcome. Nothing
+        used to filter on the outcome, so a dispute already won or lost stayed
+        in the queue until its response window lapsed — telling an operator to
+        answer a case that was already settled.
+    """
+    # Imported here, not at module scope: the top of this file tolerates the
+    # models being unavailable so it can be imported without an app context.
+    from app.models import StripeEvent
+    from app.services.stripe_events import MONITORED_EVENT_TYPES
+
+    # Every row for one dispute carries the same due_by, so ordering by deadline
+    # keeps them adjacent: reading `limit` x (events per dispute) rows is enough
+    # to be certain the earliest `limit` DISTINCT disputes are all in hand.
+    # Derived from the catalogue instead of hardcoded, so adding a sixth dispute
+    # event type cannot quietly start truncating the queue.
+    events_per_dispute = max(
+        1,
+        sum(1 for name in MONITORED_EVENT_TYPES if name.startswith("charge.dispute.")),
+    )
+
+    rows = (
+        base.filter(
+            StripeEvent.category == "dispute",
+            StripeEvent.dispute_due_by.isnot(None),
+            StripeEvent.dispute_due_by >= datetime.now(UTC),
+        )
+        .order_by(
+            StripeEvent.dispute_due_by.asc(),
+            StripeEvent.created_at_stripe.desc(),
+        )
+        .limit(limit * events_per_dispute)
+        .all()
+    )
+
+    queue: list = []
+    seen: set[str] = set()
+    for row in rows:
+        if len(queue) >= limit:
+            break
+        # object_id is nullable. A dispute whose id never extracted cannot be
+        # grouped, and collapsing all the id-less rows together would hide a
+        # live chargeback — the worst possible outcome of a de-duplication fix.
+        # So they are each kept as their own entry.
+        if row.object_id is not None:
+            if row.object_id in seen:
+                continue
+            seen.add(row.object_id)
+        # Judged on the newest event, which is the one reached first here.
+        # An unknown status keeps the dispute visible: silence is not a verdict.
+        if (row.status or "").lower() in _DISPUTE_SETTLED_STATUSES:
+            continue
+        queue.append(row)
+
+    return queue
+
+
+def _dispute_count(base) -> int:
+    """How many DISPUTES are in the window, not how many dispute events.
+
+    The summary card sat next to the action queue reading straight off the row
+    count, so a single chargeback with five events showed "Disputes: 5" beside a
+    queue listing it once. Every other card on that row is effectively an entity
+    count already, which made this the odd one out and the more believable of
+    the two numbers.
+
+    Unlike the queue this counts everything in the window — settled or not,
+    deadline passed or not. It is a summary, not an action list.
+    """
+    from sqlalchemy import distinct, func
+
+    from app.models import StripeEvent
+
+    disputes = base.filter(StripeEvent.category == "dispute")
+
+    identified = (
+        disputes.filter(StripeEvent.object_id.isnot(None))
+        .with_entities(func.count(distinct(StripeEvent.object_id)))
+        .scalar()
+        or 0
+    )
+    # COUNT(DISTINCT ...) skips NULLs, and a dispute whose id never extracted is
+    # still a dispute. Counted as one apiece rather than collapsed together.
+    unidentified = disputes.filter(StripeEvent.object_id.is_(None)).count()
+
+    return identified + unidentified
+
+
 def _render_eventos_tab(message: str | None = None, message_kind: str = "success"):
     """Render the Eventos tab, optionally with a result banner.
 
@@ -959,17 +1069,9 @@ def _render_eventos_tab(message: str | None = None, message_kind: str = "success
 
         # The action queue: disputes still inside their response window, plus
         # unresolved fraud warnings. Ordered by deadline — an unanswered dispute
-        # is a lost dispute.
-        open_disputes = (
-            base.filter(
-                StripeEvent.category == "dispute",
-                StripeEvent.dispute_due_by.isnot(None),
-                StripeEvent.dispute_due_by >= datetime.now(UTC),
-            )
-            .order_by(StripeEvent.dispute_due_by.asc())
-            .limit(20)
-            .all()
-        )
+        # is a lost dispute. One entry per dispute, not per event; see
+        # _open_disputes.
+        open_disputes = _open_disputes(base)
         fraud_warnings = (
             base.filter(StripeEvent.type == "radar.early_fraud_warning.created")
             .order_by(StripeEvent.created_at_stripe.desc())
@@ -988,7 +1090,8 @@ def _render_eventos_tab(message: str | None = None, message_kind: str = "success
             "payments_ok": _count(type="payment_intent.succeeded"),
             "payments_failed": _count(type="payment_intent.payment_failed"),
             "refunds": _count(type="charge.refunded"),
-            "disputes": _count(category="dispute"),
+            # One per dispute, not per event — see _dispute_count.
+            "disputes": _dispute_count(base),
             "disputes_open": len(open_disputes),
             "fraud_warnings": len(fraud_warnings),
             "errors": base.filter(

@@ -1066,6 +1066,47 @@ class TestRendering:
         assert response.status_code == 200
         assert b"Scheduled sync is not running" in response.data
 
+    def test_one_dispute_is_listed_once_on_the_tab(
+        self, app, logged_in, clean_stripe_events
+    ):
+        """The counter and the list both read the de-duplicated queue."""
+        now = datetime.now(UTC)
+        due = now + timedelta(days=5)
+        with app.app_context():
+            db.session.add_all(
+                [
+                    StripeEvent(
+                        stripe_event_id=f"evt_dq_count_{i}",
+                        type=event_type,
+                        category="dispute",
+                        severity="critical",
+                        created_at_stripe=now - timedelta(hours=3 - i),
+                        livemode=True,
+                        object_id="dp_count",
+                        customer_email="queue@example.com",
+                        amount=29900,
+                        currency="mxn",
+                        status="needs_response",
+                        dispute_reason="fraudulent",
+                        dispute_due_by=due,
+                        payload=json.dumps({"id": f"evt_dq_count_{i}"}),
+                    )
+                    for i, event_type in enumerate(
+                        [
+                            "charge.dispute.created",
+                            "charge.dispute.updated",
+                            "charge.dispute.funds_withdrawn",
+                        ]
+                    )
+                ]
+            )
+            db.session.commit()
+
+        body = logged_in.get("/activity/eventos?livemode=true").data.decode("utf-8")
+
+        # One dispute, one row — not three deadlines for the same chargeback.
+        assert body.count("queue@example.com") == 1
+
     def test_tab_renders_when_stripe_is_not_configured(
         self, app, logged_in, clean_stripe_events
     ):
@@ -1463,3 +1504,292 @@ class TestRefundNotifications:
 
             assert summary["inserted"] == 1
             assert StripeEvent.query.filter_by(stripe_event_id="evt_refund_3").count()
+
+
+class TestDisputeQueue:
+    """The action queue must show one row per DISPUTE, not one per event.
+
+    Stripe emits up to five events for a single dispute (created, updated,
+    closed, funds_withdrawn, funds_reinstated), all carrying the same dispute id
+    in ``object_id`` and the same ``evidence_details.due_by``. The queue read
+    rows straight out of ``stripe_event``, so one chargeback appeared up to five
+    times and ``disputes_open`` counted every copy — a panel titled "Disputes
+    awaiting response" showing five deadlines that are all the same one.
+
+    The second half matters more: nothing filtered on the dispute's outcome, so
+    a dispute already won or lost stayed in the queue until its response window
+    lapsed, telling an operator to answer something that was already settled.
+    """
+
+    @staticmethod
+    def _dispute_event(
+        event_id: str,
+        *,
+        dispute_id: str,
+        event_type: str,
+        created: datetime,
+        due_by: datetime,
+        status: str | None = None,
+    ) -> StripeEvent:
+        return StripeEvent(
+            stripe_event_id=event_id,
+            type=event_type,
+            category="dispute",
+            severity="critical",
+            created_at_stripe=created,
+            livemode=True,
+            object_id=dispute_id,
+            charge_id="ch_queue",
+            customer_email="queue@example.com",
+            amount=29900,
+            currency="mxn",
+            status=status,
+            dispute_reason="fraudulent",
+            dispute_due_by=due_by,
+            payload=json.dumps({"id": event_id}),
+        )
+
+    def _queue(self, app):
+        from app.activity.api.blueprint import _open_disputes
+
+        with app.app_context():
+            return _open_disputes(StripeEvent.query)
+
+    def test_five_events_for_one_dispute_are_one_row(self, app, clean_stripe_events):
+        now = datetime.now(UTC)
+        due = now + timedelta(days=5)
+        with app.app_context():
+            db.session.add_all(
+                [
+                    self._dispute_event(
+                        f"evt_dq_{i}",
+                        dispute_id="dp_same",
+                        event_type=event_type,
+                        created=now - timedelta(hours=5 - i),
+                        due_by=due,
+                        status="needs_response",
+                    )
+                    for i, event_type in enumerate(
+                        [
+                            "charge.dispute.created",
+                            "charge.dispute.updated",
+                            "charge.dispute.funds_withdrawn",
+                            "charge.dispute.updated",
+                            "charge.dispute.updated",
+                        ]
+                    )
+                ]
+            )
+            db.session.commit()
+
+        queue = self._queue(app)
+
+        assert len(queue) == 1
+        assert queue[0].object_id == "dp_same"
+
+    def test_the_row_kept_is_the_most_recent_event(self, app, clean_stripe_events):
+        """The row links to an event detail page — it must show the latest state."""
+        now = datetime.now(UTC)
+        due = now + timedelta(days=5)
+        with app.app_context():
+            db.session.add_all(
+                [
+                    self._dispute_event(
+                        "evt_dq_old",
+                        dispute_id="dp_one",
+                        event_type="charge.dispute.created",
+                        created=now - timedelta(days=2),
+                        due_by=due,
+                        status="needs_response",
+                    ),
+                    self._dispute_event(
+                        "evt_dq_new",
+                        dispute_id="dp_one",
+                        event_type="charge.dispute.updated",
+                        created=now - timedelta(minutes=5),
+                        due_by=due,
+                        status="under_review",
+                    ),
+                ]
+            )
+            db.session.commit()
+
+        queue = self._queue(app)
+
+        assert len(queue) == 1
+        assert queue[0].stripe_event_id == "evt_dq_new"
+
+    def test_distinct_disputes_are_all_listed(self, app, clean_stripe_events):
+        now = datetime.now(UTC)
+        with app.app_context():
+            db.session.add_all(
+                [
+                    self._dispute_event(
+                        "evt_dq_a",
+                        dispute_id="dp_a",
+                        event_type="charge.dispute.created",
+                        created=now,
+                        due_by=now + timedelta(days=9),
+                        status="needs_response",
+                    ),
+                    self._dispute_event(
+                        "evt_dq_b",
+                        dispute_id="dp_b",
+                        event_type="charge.dispute.created",
+                        created=now,
+                        due_by=now + timedelta(days=2),
+                        status="needs_response",
+                    ),
+                ]
+            )
+            db.session.commit()
+
+        queue = self._queue(app)
+
+        # Still ordered by deadline: the one running out first comes first.
+        assert [d.object_id for d in queue] == ["dp_b", "dp_a"]
+
+    def test_a_settled_dispute_leaves_the_queue(self, app, clean_stripe_events):
+        """Won or lost means there is nothing left to answer."""
+        now = datetime.now(UTC)
+        due = now + timedelta(days=5)
+        for outcome in ("won", "lost", "warning_closed"):
+            with app.app_context():
+                StripeEvent.query.delete()
+                db.session.add_all(
+                    [
+                        self._dispute_event(
+                            "evt_dq_open",
+                            dispute_id="dp_settled",
+                            event_type="charge.dispute.created",
+                            created=now - timedelta(days=3),
+                            due_by=due,
+                            status="needs_response",
+                        ),
+                        self._dispute_event(
+                            "evt_dq_closed",
+                            dispute_id="dp_settled",
+                            event_type="charge.dispute.closed",
+                            created=now,
+                            due_by=due,
+                            status=outcome,
+                        ),
+                    ]
+                )
+                db.session.commit()
+
+            assert self._queue(app) == [], f"{outcome} should leave the queue"
+
+    def test_a_dispute_under_review_stays(self, app, clean_stripe_events):
+        """Evidence submitted is not the same as resolved — keep it visible."""
+        now = datetime.now(UTC)
+        with app.app_context():
+            db.session.add(
+                self._dispute_event(
+                    "evt_dq_review",
+                    dispute_id="dp_review",
+                    event_type="charge.dispute.updated",
+                    created=now,
+                    due_by=now + timedelta(days=4),
+                    status="under_review",
+                )
+            )
+            db.session.commit()
+
+        assert len(self._queue(app)) == 1
+
+    def test_the_summary_card_counts_disputes_not_events(
+        self, app, clean_stripe_events
+    ):
+        """ "Disputes: 5" beside a queue of 1 is the same lie in a louder place.
+
+        Unlike the queue, this counts every dispute in the window — settled or
+        not, deadline passed or not. It is a summary, not an action list.
+        """
+        from app.activity.api.blueprint import _dispute_count
+
+        now = datetime.now(UTC)
+        with app.app_context():
+            db.session.add_all(
+                [
+                    self._dispute_event(
+                        f"evt_dc_{i}",
+                        dispute_id=dispute_id,
+                        event_type="charge.dispute.updated",
+                        created=now,
+                        due_by=now + timedelta(days=3),
+                        status="needs_response",
+                    )
+                    for i, dispute_id in enumerate(
+                        ["dp_x", "dp_x", "dp_x", "dp_y", None, None]
+                    )
+                ]
+            )
+            db.session.commit()
+
+            # dp_x once, dp_y once, and the two id-less rows counted separately
+            # rather than collapsed into one.
+            assert _dispute_count(StripeEvent.query) == 4
+
+    def test_the_card_ignores_non_dispute_events(self, app, clean_stripe_events):
+        now = datetime.now(UTC)
+        with app.app_context():
+            db.session.add_all(
+                [
+                    self._dispute_event(
+                        "evt_dc_real",
+                        dispute_id="dp_real",
+                        event_type="charge.dispute.created",
+                        created=now,
+                        due_by=now + timedelta(days=3),
+                        status="needs_response",
+                    ),
+                    StripeEvent(
+                        stripe_event_id="evt_dc_refund",
+                        type="charge.refunded",
+                        category="refund",
+                        severity="warning",
+                        created_at_stripe=now,
+                        livemode=True,
+                        object_id="ch_refund",
+                        payload=json.dumps({"id": "evt_dc_refund"}),
+                    ),
+                ]
+            )
+            db.session.commit()
+
+            from app.activity.api.blueprint import _dispute_count
+
+            assert _dispute_count(StripeEvent.query) == 1
+
+    def test_a_dispute_with_no_id_is_never_hidden(self, app, clean_stripe_events):
+        """Grouping must not swallow rows that cannot be grouped.
+
+        object_id is nullable, and losing a chargeback because extraction
+        drifted would be the worst possible outcome of a de-duplication fix.
+        """
+        now = datetime.now(UTC)
+        with app.app_context():
+            db.session.add_all(
+                [
+                    self._dispute_event(
+                        "evt_dq_null1",
+                        dispute_id=None,
+                        event_type="charge.dispute.created",
+                        created=now,
+                        due_by=now + timedelta(days=3),
+                        status="needs_response",
+                    ),
+                    self._dispute_event(
+                        "evt_dq_null2",
+                        dispute_id=None,
+                        event_type="charge.dispute.created",
+                        created=now,
+                        due_by=now + timedelta(days=6),
+                        status="needs_response",
+                    ),
+                ]
+            )
+            db.session.commit()
+
+        assert len(self._queue(app)) == 2
