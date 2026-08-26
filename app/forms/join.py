@@ -4,11 +4,11 @@ from wtforms import PasswordField, StringField
 from wtforms.validators import DataRequired, Email, EqualTo, Length, Regexp
 
 from app.forms.validators import (
-    USERNAME_ALLOWED_CHARS_MESSAGE,
-    USERNAME_LENGTH_MESSAGE,
-    USERNAME_MAX_LENGTH,
-    USERNAME_MIN_LENGTH,
-    USERNAME_PATTERN,
+    JOIN_USERNAME_ALLOWED_CHARS_MESSAGE,
+    JOIN_USERNAME_LENGTH_MESSAGE,
+    JOIN_USERNAME_MAX_LENGTH,
+    JOIN_USERNAME_MIN_LENGTH,
+    JOIN_USERNAME_PATTERN,
     strip_filter,
     validate_email_domain_exists,
 )
@@ -21,12 +21,19 @@ class JoinForm(FlaskForm):
         validators=[
             DataRequired(message=_l("This field is required.")),
             Length(
-                min=USERNAME_MIN_LENGTH,
-                max=USERNAME_MAX_LENGTH,
-                message=USERNAME_LENGTH_MESSAGE,
+                min=JOIN_USERNAME_MIN_LENGTH,
+                max=JOIN_USERNAME_MAX_LENGTH,
+                message=JOIN_USERNAME_LENGTH_MESSAGE,
             ),
-            Regexp(USERNAME_PATTERN, message=USERNAME_ALLOWED_CHARS_MESSAGE),
+            Regexp(JOIN_USERNAME_PATTERN, message=JOIN_USERNAME_ALLOWED_CHARS_MESSAGE),
         ],
+        render_kw={
+            "minlength": JOIN_USERNAME_MIN_LENGTH,
+            "maxlength": JOIN_USERNAME_MAX_LENGTH,
+            "autocapitalize": "none",
+            "autocomplete": "username",
+            "spellcheck": "false",
+        },
     )
     email = StringField(
         "Email",

@@ -72,3 +72,16 @@ def inject_notification_events():
         "subscribable_event_types": SUBSCRIBABLE_EVENT_TYPES,
         "operational_event_types": OPERATIONAL_EVENT_TYPES,
     }
+
+
+def inject_join_username_hint():
+    """Expose the invite username rules to every template.
+
+    A context processor rather than a per-route variable: welcome-jellyfin.html
+    is rendered from three different places (the landing route, the form
+    workflow, and the CSRF error handler), and a hint that silently renders
+    empty on one of them is worse than no hint at all.
+    """
+    from app.forms.validators import JOIN_USERNAME_HINT
+
+    return {"join_username_hint": JOIN_USERNAME_HINT}

@@ -78,6 +78,7 @@ def create_app(config_object=DevelopmentConfig):
         logger.step("Configuring request processing", "⚙️")
     from .context_processors import (
         inject_app_version,
+        inject_join_username_hint,
         inject_notification_events,
         inject_plus_features,
         inject_server_name,
@@ -89,6 +90,7 @@ def create_app(config_object=DevelopmentConfig):
     app.context_processor(inject_app_version)
     app.context_processor(inject_turnstile)
     app.context_processor(inject_notification_events)
+    app.context_processor(inject_join_username_hint)
     register_error_handlers(app)
 
     # Register custom Jinja filters

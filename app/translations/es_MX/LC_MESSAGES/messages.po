@@ -91,6 +91,15 @@ msgstr "Este campo es obligatorio."
 msgid "Username must be 3 to 15 characters."
 msgstr "El usuario debe tener entre 3 y 15 caracteres."
 
+msgid "Username must be 7 to 15 characters."
+msgstr "El usuario debe tener entre 7 y 15 caracteres."
+
+msgid "Username can only contain letters and numbers — no spaces or special characters."
+msgstr "El usuario sólo puede contener letras y números — sin espacios ni caracteres especiales."
+
+msgid "At least 7 characters, letters and numbers only — no spaces or special characters."
+msgstr "Mínimo 7 caracteres, sólo letras y números — sin espacios ni caracteres especiales."
+
 msgid "Username can contain letters, numbers, dashes (-), underscores (_), apostrophes ('), and periods (.)."
 msgstr "El usuario puede contener letras, números, guiones (-), guiones bajos (_), apóstrofos (') y puntos (.)."
 

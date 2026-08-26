@@ -13,6 +13,10 @@ from wtforms.validators import ValidationError
 
 logger = logging.getLogger(__name__)
 
+# ─── Admin / setup account usernames ────────────────────────────────────────
+# Deliberately looser than the media-account policy below: these names already
+# exist on live installs, and tightening them would make an existing admin
+# unsaveable through the edit form.
 USERNAME_PATTERN = r"^[\w'.-]+$"
 USERNAME_MIN_LENGTH = 3
 USERNAME_MAX_LENGTH = 15
@@ -20,6 +24,30 @@ USERNAME_LENGTH_MESSAGE = _l("Username must be 3 to 15 characters.")
 USERNAME_ALLOWED_CHARS_MESSAGE = _l(
     "Username can contain letters, numbers, dashes (-), underscores (_), "
     "apostrophes ('), and periods (.)."
+)
+
+# ─── Media-account usernames created through an invite ──────────────────────
+# Strictly alphanumeric, and longer. Two separate reasons:
+#
+#   1. Renewal. The storefront matches the username against `^[A-Za-z0-9]{1,15}$`
+#      before it will renew a membership or send a password reset. Signup used to
+#      allow dashes, so an account like `qa-2026-08-26-1` was created happily and
+#      then could never renew — and the storefront answers every rejection with
+#      the same generic message, so neither the customer nor support could tell
+#      why. Signup is the only place that can stop it happening again.
+#   2. Guessability. Three characters is a very small space for an account that
+#      fronts a public media server.
+JOIN_USERNAME_PATTERN = r"^[A-Za-z0-9]+$"
+JOIN_USERNAME_MIN_LENGTH = 7
+JOIN_USERNAME_MAX_LENGTH = 15
+JOIN_USERNAME_LENGTH_MESSAGE = _l("Username must be 7 to 15 characters.")
+JOIN_USERNAME_ALLOWED_CHARS_MESSAGE = _l(
+    "Username can only contain letters and numbers — no spaces or special characters."
+)
+# Shown under the field, before the first submit: the rules are cheap to state
+# and expensive to discover by trial and error.
+JOIN_USERNAME_HINT = _l(
+    "At least 7 characters, letters and numbers only — no spaces or special characters."
 )
 
 # ─── Email domain existence validation ──────────────────────────────────────

@@ -152,8 +152,14 @@
                     {{ _("Username") }}
                   </label>
                   {{ form.username(class="w-full px-3 py-2 bg-white/80 dark:bg-gray-700/50 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent backdrop-blur-sm transition-all duration-200 text-sm",
-                                    placeholder=_("Enter your username") 
-                  ) }}
+                                    placeholder=_("Enter your username") ,
+                  aria_describedby="username-requirements") }}
+                  {# Stated up front, like the password rules below: a username with
+                     a dash or a dot creates an account that can never renew. #}
+                  <p id="username-requirements"
+                     class="mt-1 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+                    {{ join_username_hint }}
+                  </p>
                   {% for err in form.username.errors %}<p class="text-red-400 text-xs mt-1">{{ err }}</p>{% endfor %}
                 </div>
                 <div class="form-field" data-field="2" style="{{ form_field_style }}">

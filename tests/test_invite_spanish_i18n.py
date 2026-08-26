@@ -41,6 +41,12 @@ def test_invite_landing_renders_in_spanish(client, session):
         "Mínimo 8 caracteres, con al menos una mayúscula, una minúscula y un número."
         in body
     )
+    # So are the username rules — the reason a signup is rejected must be
+    # readable before typing, not only after a failed submit.
+    assert (
+        "Mínimo 7 caracteres, sólo letras y números — sin espacios "
+        "ni caracteres especiales." in body
+    )
     # The English source strings must be gone from these pages.
     assert "You've been invited!" not in body
     assert "Create Account" not in body
@@ -62,7 +68,7 @@ def test_invalid_email_and_password_errors_render_in_spanish(
         "/invitation/process",
         data={
             "code": "ESMX01",
-            "username": "user1",
+            "username": "usuario1",
             "email": "abernal@1232as.com",
             "password": "abcdefgh",  # passes length, fails the complexity rule
             "confirm_password": "abcdefgh",
@@ -97,7 +103,7 @@ def test_duplicate_user_banner_renders_in_spanish(client, session, monkeypatch):
         "/invitation/process",
         data={
             "code": "ESMX01",
-            "username": "user1",
+            "username": "usuario1",
             "email": "user@example.com",
             "password": "ValidPass1",
             "confirm_password": "ValidPass1",
@@ -107,3 +113,56 @@ def test_duplicate_user_banner_renders_in_spanish(client, session, monkeypatch):
 
     assert response.status_code == 200
     assert "El usuario o el correo electrónico ya existe." in body
+
+
+def test_username_policy_errors_render_in_spanish(client, session, monkeypatch):
+    """A hyphen at signup is what made an account unrenewable — say so in Spanish."""
+    _create_jellyfin_invitation(session)
+
+    monkeypatch.setattr(
+        dns.resolver.Resolver,
+        "resolve",
+        lambda self, domain, record_type, *a, **kw: ["MX"],
+    )
+
+    response = client.post(
+        "/invitation/process",
+        data={
+            "code": "ESMX01",
+            "username": "qa-2026-08",
+            "email": "user@example.com",
+            "password": "ValidPass1",
+            "confirm_password": "ValidPass1",
+        },
+    )
+    body = response.data.decode("utf-8")
+
+    assert response.status_code == 200
+    assert "El usuario sólo puede contener letras y números" in body
+    assert "Username can only contain" not in body
+
+
+def test_short_username_error_renders_in_spanish(client, session, monkeypatch):
+    _create_jellyfin_invitation(session)
+
+    monkeypatch.setattr(
+        dns.resolver.Resolver,
+        "resolve",
+        lambda self, domain, record_type, *a, **kw: ["MX"],
+    )
+
+    response = client.post(
+        "/invitation/process",
+        data={
+            "code": "ESMX01",
+            "username": "corto1",
+            "email": "user@example.com",
+            "password": "ValidPass1",
+            "confirm_password": "ValidPass1",
+        },
+    )
+    body = response.data.decode("utf-8")
+
+    assert response.status_code == 200
+    assert "El usuario debe tener entre 7 y 15 caracteres." in body
+    assert "Username must be" not in body

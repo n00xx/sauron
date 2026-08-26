@@ -81,7 +81,7 @@ def _make_server_and_invite(*, unlimited=False):
     return server, invitation
 
 
-def _submit(username="us1", email="isdf@hotmail.com"):
+def _submit(username="usuario1", email="isdf@hotmail.com"):
     from app.services.invitation_flow.manager import InvitationFlowManager
 
     return InvitationFlowManager().process_invitation_submission(
@@ -102,7 +102,7 @@ def test_first_redemption_of_single_use_invite_succeeds(client, session, monkeyp
 
     result = _submit()
 
-    assert created == ["us1"], (
+    assert created == ["usuario1"], (
         f"no account was provisioned; workflow said: {result.message!r}"
     )
     assert result.has_successful_servers(), result.message
@@ -126,10 +126,10 @@ def test_second_redemption_is_rejected(client, session, monkeypatch):
     server, _ = _make_server_and_invite()
     created = _stub_http_layer(monkeypatch, server.id)
 
-    _submit(username="us1", email="one@example.com")
-    result = _submit(username="us2", email="two@example.com")
+    _submit(username="usuario1", email="one@example.com")
+    result = _submit(username="usuario2", email="two@example.com")
 
-    assert created == ["us1"], (
+    assert created == ["usuario1"], (
         f"expected exactly one account from a single-use invite, got {created}"
     )
     assert not result.has_successful_servers()
@@ -145,7 +145,7 @@ def test_taken_username_does_not_consume_the_invitation(client, session, monkeyp
     created = _stub_http_layer(monkeypatch, server.id)
     db.session.add(
         User(
-            username="us1",
+            username="usuario1",
             email="taken@example.com",
             token="pre-existing",
             code="OLDINVITE",
@@ -154,7 +154,7 @@ def test_taken_username_does_not_consume_the_invitation(client, session, monkeyp
     )
     db.session.commit()
 
-    result = _submit(username="us1")
+    result = _submit(username="usuario1")
 
     assert created == [], "provisioning ran despite the name clash"
     assert "already exists" in str(result.message), result.message
@@ -163,7 +163,7 @@ def test_taken_username_does_not_consume_the_invitation(client, session, monkeyp
     assert invitation.used is False, "a name clash burned the invitation"
 
     # And the corrected submission goes through on the same code.
-    retry = _submit(username="us2", email="fresh@example.com")
+    retry = _submit(username="usuario2", email="fresh@example.com")
     assert retry.has_successful_servers(), retry.message
 
 
