@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.9.6] (2026-08-26)
+
+### Fixed
+
+- **Un usuario con guion en el alta quedaba condenado a no renovar nunca.** El
+  formulario de invitación compartía validador con las cuentas de admin, así
+  que aceptaba guiones, guiones bajos, apóstrofos y puntos. La tienda comprueba
+  el usuario contra `^[A-Za-z0-9]{1,15}` antes de renovar una membresía o de
+  mandar un enlace de contraseña, de modo que una cuenta como
+  `qa-2026-08-26-1` se creaba sin problema y después no podía renovar jamás. Y
+  como todos los rechazos de la tienda responden el mismo mensaje genérico a
+  propósito, ni el cliente ni soporte podían ver por qué. El alta es el único
+  sitio donde se puede impedir. El mínimo sube además de 3 a 7 caracteres: tres
+  es un espacio muy pequeño para una cuenta que da a un servidor de medios
+  público. Las reglas se enuncian bajo el campo antes del primer envío, en
+  español, igual que ya se hacía con la contraseña. Las cuentas con guion que
+  ya existen siguen sin poder renovar: esto solo impide que se creen nuevas.
+
+- **El sync programado de Stripe podía morir sin avisar a nadie.** Estuvo dos
+  días sin correr con la pestaña Eventos mostrando el sync habilitado, la llave
+  correcta y un intervalo de 15 minutos. Esa pestaña es la que expone las
+  disputas, y una disputa sin responder se pierde por plazo. Tres silencios lo
+  permitían: el registro del job logueaba a nivel *debug* culpando a las
+  migraciones, un scheduler que no arrancaba solo emitía un *warning* (y con él
+  mueren todos los jobs, vencimientos incluidos), y la pantalla de ajustes se
+  rendía en silencio si el scheduler no corría — guardar una llave válida
+  contestaba "Settings saved" y no cambiaba nada. Ahora hay un vigilante colgado
+  de `/health`, que es lo único que corre solo: el HEALTHCHECK del contenedor lo
+  llama cada 30 segundos mire alguien la pestaña o no. Detecta los tres estados
+  de "no va a correr nada", intenta repararlos y manda un aviso operativo (que
+  llega a todos los agentes, sin depender de suscripción) como máximo una vez
+  por hora. La pestaña muestra además el estado del scheduler y el próximo
+  disparo, para poder cerrar la causa raíz en vivo sin acceso a los logs. El
+  vigilante respeta `WIZARR_DISABLE_SCHEDULER` y `FLASK_SKIP_SCHEDULER`: en un
+  despliegue que corre sin scheduler a propósito, no avisa ni intenta arrancarlo.
+
+
 ## [2026.9.5] (2026-08-25)
 
 ### Fixed
