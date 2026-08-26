@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.9.8] (2026-08-26)
+
+### Fixed
+
+- **La cola de disputas mostraba una fila por evento, no por disputa.** Stripe
+  emite hasta cinco eventos por un solo contracargo (`created`, `updated`,
+  `closed`, `funds_withdrawn`, `funds_reinstated`), todos con el mismo id de
+  disputa y el mismo plazo, y la cola leía las filas tal cual: un contracargo
+  aparecía hasta cinco veces y la tarjeta "Disputes" contaba todas las copias.
+  Y lo que no era cosmético: nada filtraba por el desenlace, así que una
+  disputa ya ganada o perdida seguía en un panel titulado "Disputes awaiting
+  response" hasta que se le pasaba la ventana — pidiendo contestar un caso ya
+  cerrado. Ahora hay una entrada por disputa, con su evento más reciente, y las
+  de desenlace terminal salen de la cola; un estado desconocido no la saca,
+  porque el silencio no es un veredicto. Las disputas sin id extraído se
+  cuentan por separado en vez de colapsarse, para que un arreglo de
+  deduplicación no pueda esconder un contracargo vivo.
+
+
 ## [2026.9.7] (2026-08-26)
 
 ### Fixed
