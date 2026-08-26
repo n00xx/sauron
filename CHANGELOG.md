@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.9.4] (2026-08-25)
+
+### Fixed
+
+- **Un Jellyfin inalcanzable borraba y apagaba bibliotecas, en silencio y para
+  siempre.** `JellyfinClient.libraries()` atrapaba cualquier excepción y
+  devolvía `{}`, con lo que un servidor caído quedaba indistinguible de uno que
+  de verdad no tiene bibliotecas. `scan_all_server_libraries`, que corre en
+  CADA arranque, lee ese `{}` como "desaparecieron todas": borra las que
+  ninguna invitación referencia, apaga el resto y comitea. El
+  `except`/`rollback` exterior nunca disparaba, porque `libraries()` no lanzaba
+  nada. Reproducido con dos bibliotecas y Jellyfin lanzando `ConnectionError`:
+  una borrada, la otra apagada, `errors=[]`. Y como por diseño el scan no
+  vuelve a encender lo apagado, el daño era permanente hasta re-marcarlas a
+  mano. Aguas abajo eso deja a una tienda sin bibliotecas que conceder.
+  Ahora `libraries()` lanza, y el scanner se niega a correr el paso destructivo
+  cuando la respuesta viene vacía habiendo filas en la base. La guarda vive en
+  el scanner y no en el cliente porque emby, komga y audiobookshelf se tragan
+  su error igual.
+
+- **`user_renewed` no le habría llegado a ningún agente existente.**
+  `notification_events` guarda opt-INs y cada fila conserva lo que se guardó al
+  crearla, así que un evento nuevo es invisible para toda base anterior. Se
+  corrige con una migración de backfill, no marcándolo operativo: una
+  renovación es rutina que un operador puede querer apagar.
+
+### Added
+
+- **Alertas operativas.** Cuatro eventos nuevos: `library_scan_failed`,
+  `libraries_disabled_by_scan`, `stripe_refund` y `user_renewed`. El pipeline
+  de Stripe ya clasificaba refunds y disputas pero era mudo — nada llamaba a
+  `notify()`. Los refunds avisan solo por las filas escritas en esa pasada: el
+  sync corre por intervalo sobre una ventana móvil, y avisar por cualquier cosa
+  que no sea un insert nuevo re-anunciaría el mismo refund cada pocos minutos.
+  Las renovaciones no pueden salir de Stripe (aquí son cargos sueltos, no
+  suscripciones), así que van enganchadas a `POST /api/users/<id>/extend`.
+
+### Changed
+
+- **Un solo catálogo de tipos de evento.** Cada tipo estaba escrito a mano en
+  ocho puntos repartidos por seis archivos, y olvidar cualquiera producía un
+  evento que no le llegaba a nadie sin que nada lo delatara. Ahora todo sale de
+  `EVENT_TYPES`. Trae además la clase de eventos "operativos", que saltan el
+  filtro de suscripción y llegan a todos los agentes, porque la suscripción es
+  opt-in y una alerta operativa nueva nacía muda.
+
+
 ## [2026.9.3] (2026-08-25)
 
 ### Fixed
