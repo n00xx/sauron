@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.9.5] (2026-08-25)
+
+### Fixed
+
+- **El badge de "Stripe Refund" salía ilegible en modo oscuro.** Al mover los
+  colores de los badges al catálogo de eventos, las clases pasaron de vivir en
+  una plantilla a vivir en un `.py`, y Tailwind no escanea Python. Las
+  variantes claras sobrevivieron porque ya existían en otro marcado, pero
+  `dark:bg-amber-900` y `dark:text-amber-200` no existían en ningún sitio y
+  dejaron de generarse — ámbar pálido sobre ámbar pálido. Ámbar fue el único
+  color estrenado, por eso fue el único que se rompió. Ahora las clases se
+  declaran con `@source inline`, que no depende de heurísticas de extensión.
+
+
 ## [2026.9.4] (2026-08-25)
 
 ### Fixed
