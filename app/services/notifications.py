@@ -7,6 +7,7 @@ import apprise
 import requests
 
 from app.models import Notification
+from app.services.notification_events import is_operational
 
 __all__ = ["notify"]
 
@@ -139,13 +140,22 @@ def notify(
     previous_version: str | None = None,
     new_version: str | None = None,
 ):
-    """Broadcast to every configured agent that is subscribed to the event type."""
+    """Broadcast to every configured agent that is subscribed to the event type.
+
+    Operational events skip the subscription check and reach every agent. They
+    signal that something broke and someone has to act, and subscription is
+    opt-in: agent rows keep whatever was saved when they were created, so a
+    newly added operational alert would otherwise reach nobody until an admin
+    remembered to tick a box.
+    """
+    operational = is_operational(event_type)
+
     for agent in Notification.query.all():
         # Check if agent is subscribed to this event type
         subscribed_events = (
             agent.notification_events.split(",") if agent.notification_events else []
         )
-        if event_type not in subscribed_events:
+        if not operational and event_type not in subscribed_events:
             continue
 
         if agent.type == "discord":

@@ -10,6 +10,10 @@ from flask_login import login_required
 
 from app.extensions import db
 from app.models import Notification
+from app.services.notification_events import (
+    SUBSCRIBABLE_EVENT_TYPES,
+    default_subscription,
+)
 from app.services.notifications import (  # your existing helpers
     _apprise,
     _discord,
@@ -19,6 +23,23 @@ from app.services.notifications import (  # your existing helpers
 )
 
 notify_bp = Blueprint("notify", __name__, url_prefix="/settings/notifications")
+
+
+def _selected_events() -> str:
+    """Read the event checkboxes off the submitted form.
+
+    Only subscribable events have a checkbox; operational ones reach every
+    agent regardless (see app/services/notification_events.py), so storing them
+    here would misrepresent what the form controls. An empty selection falls
+    back to the default rather than persisting "subscribed to nothing", which
+    is almost always an accident.
+    """
+    events = [
+        event.key
+        for event in SUBSCRIBABLE_EVENT_TYPES
+        if request.form.get(f"event_{event.key}")
+    ]
+    return ",".join(events) if events else default_subscription()
 
 
 @notify_bp.route("/", methods=["GET"])
@@ -33,13 +54,6 @@ def list_agents():
 @login_required
 def create():
     if request.method == "POST":
-        # Collect selected events from checkboxes
-        events = []
-        if request.form.get("event_user_joined"):
-            events.append("user_joined")
-        if request.form.get("event_update_available"):
-            events.append("update_available")
-
         form = {
             "name": request.form.get("name"),
             "url": request.form.get("url"),
@@ -49,9 +63,7 @@ def create():
             "channel_id": request.form.get("channel_id") or None,
             "telegram_bot_token": request.form.get("telegram_bot_token") or None,
             "telegram_chat_id": request.form.get("telegram_chat_id") or None,
-            "notification_events": ",".join(events)
-            if events
-            else "user_joined,update_available",
+            "notification_events": _selected_events(),
         }
 
         # test the connection
@@ -128,13 +140,6 @@ def edit(agent_id):
     agent = db.get_or_404(Notification, agent_id)
 
     if request.method == "POST":
-        # Collect selected events from checkboxes
-        events = []
-        if request.form.get("event_user_joined"):
-            events.append("user_joined")
-        if request.form.get("event_update_available"):
-            events.append("update_available")
-
         form = {
             "name": request.form.get("name"),
             "url": request.form.get("url"),
@@ -144,9 +149,7 @@ def edit(agent_id):
             "channel_id": request.form.get("channel_id") or None,
             "telegram_bot_token": request.form.get("telegram_bot_token") or None,
             "telegram_chat_id": request.form.get("telegram_chat_id") or None,
-            "notification_events": ",".join(events)
-            if events
-            else "user_joined,update_available",
+            "notification_events": _selected_events(),
         }
 
         # test the connection

@@ -5,6 +5,7 @@ from typing import Any
 from flask_login import UserMixin
 
 from .extensions import db
+from .services.notification_events import default_subscription
 
 invite_libraries = db.Table(
     "invite_library",
@@ -393,7 +394,7 @@ class Notification(db.Model):
     telegram_bot_token = db.Column(db.String, nullable=True)
     telegram_chat_id = db.Column(db.String, nullable=True)
     notification_events = db.Column(
-        db.String, nullable=False, default="user_joined,update_available"
+        db.String, nullable=False, default=default_subscription
     )
 
     def __init__(self, **kwargs):

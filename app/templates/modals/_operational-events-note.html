@@ -1,0 +1,23 @@
+{# Operational alerts have no checkbox: they reach every agent regardless of
+   subscription. Shown here as disabled + checked so the admin can see what the
+   agent will receive without being able to switch it off by accident. #}
+{% if operational_event_types %}
+  <div class="pt-2 mt-2 border-t border-gray-200 dark:border-gray-700">
+    <p class="mb-2 text-xs text-gray-500 dark:text-gray-400">
+      {{ _("Operational alerts are always delivered to every agent.") }}
+    </p>
+    {% for event in operational_event_types %}
+      <div class="flex items-center">
+        <input type="checkbox"
+               id="operational_{{ event.key }}"
+               checked
+               disabled
+               class="w-4 h-4 text-gray-400 bg-gray-100 border-gray-300 rounded cursor-not-allowed dark:bg-gray-700 dark:border-gray-600">
+        <label for="operational_{{ event.key }}"
+               class="ml-2 text-sm font-medium text-gray-500 dark:text-gray-400 cursor-not-allowed">
+          {{ _(event.label) }}
+        </label>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}

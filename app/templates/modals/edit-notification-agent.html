@@ -131,30 +131,21 @@
               <label class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">{{ _("Notification Events") }}</label>
               <div class="space-y-2">
                 {% set events = agent.notification_events.split(',') if agent.notification_events else [] %}
-                <div class="flex items-center">
-                  <input type="checkbox"
-                         name="event_user_joined"
-                         id="event_user_joined"
-                         value="user_joined"
-                         {% if 'user_joined' in events %}checked{% endif %}
-                         class="w-4 h-4 text-primary bg-gray-100 border-gray-300 rounded focus:ring-primary dark:focus:ring-primary dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600">
-                  <label for="event_user_joined"
-                         class="ml-2 text-sm font-medium text-gray-900 dark:text-gray-300">
-                    {{ _("User Joined") }}
-                  </label>
-                </div>
-                <div class="flex items-center">
-                  <input type="checkbox"
-                         name="event_update_available"
-                         id="event_update_available"
-                         value="update_available"
-                         {% if 'update_available' in events %}checked{% endif %}
-                         class="w-4 h-4 text-primary bg-gray-100 border-gray-300 rounded focus:ring-primary dark:focus:ring-primary dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600">
-                  <label for="event_update_available"
-                         class="ml-2 text-sm font-medium text-gray-900 dark:text-gray-300">
-                    {{ _("Update Available") }}
-                  </label>
-                </div>
+                {% for event in subscribable_event_types %}
+                  <div class="flex items-center">
+                    <input type="checkbox"
+                           name="event_{{ event.key }}"
+                           id="event_{{ event.key }}"
+                           value="{{ event.key }}"
+                           {% if event.key in events %}checked{% endif %}
+                           class="w-4 h-4 text-primary bg-gray-100 border-gray-300 rounded focus:ring-primary dark:focus:ring-primary dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600">
+                    <label for="event_{{ event.key }}"
+                           class="ml-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+                      {{ _(event.label) }}
+                    </label>
+                  </div>
+                {% endfor %}
+                {% include "modals/_operational-events-note.html" %}
               </div>
             </div>
             <div class="bg-gray-50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6 dark:bg-gray-800">

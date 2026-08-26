@@ -52,3 +52,23 @@ def inject_turnstile():
         }
     except Exception:
         return {"turnstile_enabled": False, "turnstile_site_key": None}
+
+
+def inject_notification_events():
+    """Expose the notification event catalogue to every template.
+
+    The agents list and both agent modals render their badges and checkboxes by
+    iterating this, so adding an event to app/services/notification_events.py is
+    all it takes for the UI to pick it up.
+    """
+    from app.services.notification_events import (
+        EVENT_TYPES,
+        OPERATIONAL_EVENT_TYPES,
+        SUBSCRIBABLE_EVENT_TYPES,
+    )
+
+    return {
+        "event_types": EVENT_TYPES,
+        "subscribable_event_types": SUBSCRIBABLE_EVENT_TYPES,
+        "operational_event_types": OPERATIONAL_EVENT_TYPES,
+    }
