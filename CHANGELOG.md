@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.9.7] (2026-08-26)
+
+### Fixed
+
+- **El badge de "Stripe Refund" seguía ilegible en modo oscuro.** El arreglo de
+  2026.9.5 no funcionó. Una variante `dark:` es un candidato propio: declarar
+  `bg-amber-900` no produce `dark:bg-amber-900`, y aquel `@source inline` solo
+  listaba las utilidades base. Parecía correcto porque cuatro de los cinco
+  colores se veían bien, pero de rebote: rojo, azul, verde y morado aparecen
+  como `dark:bg-<color>-900` desnudo en algún marcado real y el escaneo los
+  generaba igual. Ámbar solo aparece como `dark:bg-amber-900/20` y `/40`, y un
+  modificador de opacidad es OTRA clase — mientras que `dark:text-amber-200` sí
+  existe desnudo. Fondo claro con texto claro. Ahora las cuatro formas del
+  catálogo se declaran explícitamente, incluidas las `dark:`, y
+  `tests/test_notification_badges.py` falla si el catálogo y la declaración se
+  separan, sin necesitar node ni compilar CSS.
+
+
 ## [2026.9.6] (2026-08-26)
 
 ### Fixed
