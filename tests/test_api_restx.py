@@ -234,6 +234,42 @@ class TestAPIUsers:
         assert "message" in response_data
         assert "new_expiry" in response_data
 
+    def test_extend_user_expiry_notifies_renewal(self, client, api_key, sample_data):
+        """This endpoint is the only place that knows a membership was renewed.
+
+        Stripe cannot tell us: renewals here are one-off charges, not
+        subscriptions, so nothing in the event stream marks one as a renewal.
+        """
+        from unittest.mock import patch
+
+        with patch("app.services.notifications.notify") as mock_notify:
+            response = client.post(
+                f"/api/users/{sample_data['user_id']}/extend",
+                headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+                data=json.dumps({"days": 30}),
+            )
+
+        assert response.status_code == 200
+        assert mock_notify.call_args.kwargs["event_type"] == "user_renewed"
+
+    def test_extend_user_expiry_survives_a_broken_agent(
+        self, client, api_key, sample_data
+    ):
+        """A notification agent that is down must not 500 a paid renewal."""
+        from unittest.mock import patch
+
+        with patch(
+            "app.services.notifications.notify",
+            side_effect=RuntimeError("agent down"),
+        ):
+            response = client.post(
+                f"/api/users/{sample_data['user_id']}/extend",
+                headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+                data=json.dumps({"days": 30}),
+            )
+
+        assert response.status_code == 200
+
     def test_extend_user_expiry_not_found(self, client, api_key):
         """Test expiry extension for non-existent user."""
         data = {"days": 15}

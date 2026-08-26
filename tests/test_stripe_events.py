@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 
@@ -1332,3 +1333,101 @@ class TestRendering:
             se.set_setting("stripe_api_key", None)
             se.set_setting("stripe_sync_enabled", "false")
             db.session.commit()
+
+
+class TestRefundNotifications:
+    """Alerts fire once per refund, from the pass that actually stored it."""
+
+    def test_a_new_refund_alerts_once(self, app, clean_stripe_events, monkeypatch):
+        events = [
+            _event(
+                "charge.refunded",
+                {
+                    "id": "ch_refunded",
+                    "amount_refunded": 20000,
+                    "currency": "mxn",
+                    "billing_details": {"email": "buyer@example.com"},
+                },
+                id="evt_refund_1",
+            )
+        ]
+        monkeypatch.setattr(se, "fetch_events", lambda *a, **k: events)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.commit()
+
+            with patch("app.services.notifications.notify") as mock_notify:
+                se.sync_stripe_events(force=True)
+
+            assert mock_notify.call_count == 1
+            assert mock_notify.call_args.kwargs["event_type"] == "stripe_refund"
+
+    def test_the_same_refund_does_not_alert_again(
+        self, app, clean_stripe_events, monkeypatch
+    ):
+        """The rolling window re-reads events for many ticks after they land.
+
+        Alerting on anything but a fresh insert would re-announce the same
+        refund every few minutes until it aged out of the window.
+        """
+        events = [
+            _event(
+                "charge.refunded",
+                {"id": "ch_again", "amount_refunded": 15000, "currency": "mxn"},
+                id="evt_refund_2",
+            )
+        ]
+        monkeypatch.setattr(se, "fetch_events", lambda *a, **k: events)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.commit()
+
+            se.sync_stripe_events(force=True)
+            with patch("app.services.notifications.notify") as mock_notify:
+                second = se.sync_stripe_events(force=True)
+
+            assert second["skipped"] == 1
+            assert not mock_notify.called
+
+    def test_non_refund_events_do_not_alert(
+        self, app, clean_stripe_events, monkeypatch
+    ):
+        events = [_event("payment_intent.succeeded", {"id": "pi_ok"}, id="evt_ok")]
+        monkeypatch.setattr(se, "fetch_events", lambda *a, **k: events)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.commit()
+
+            with patch("app.services.notifications.notify") as mock_notify:
+                se.sync_stripe_events(force=True)
+
+            assert not mock_notify.called
+
+    def test_a_broken_agent_does_not_fail_the_sync(
+        self, app, clean_stripe_events, monkeypatch
+    ):
+        """Rows are already committed when the alert is attempted."""
+        events = [
+            _event(
+                "charge.refunded",
+                {"id": "ch_noisy", "amount_refunded": 100, "currency": "mxn"},
+                id="evt_refund_3",
+            )
+        ]
+        monkeypatch.setattr(se, "fetch_events", lambda *a, **k: events)
+
+        with app.app_context():
+            se.set_setting("stripe_api_key", "rk_test_x")
+            db.session.commit()
+
+            with patch(
+                "app.services.notifications.notify",
+                side_effect=RuntimeError("agent down"),
+            ):
+                summary = se.sync_stripe_events(force=True)
+
+            assert summary["inserted"] == 1
+            assert StripeEvent.query.filter_by(stripe_event_id="evt_refund_3").count()
