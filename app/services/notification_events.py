@@ -99,6 +99,27 @@ def default_subscription() -> str:
     return ",".join(event.key for event in EVENT_TYPES if not event.operational)
 
 
+def backfill_subscription(stored: str | None) -> str:
+    """Add subscribable keys an existing agent row cannot know about yet.
+
+    ``notification_events`` stores opt-INs, and a row keeps whatever was saved
+    when it was created. A subscribable event added in a later release is
+    therefore absent from every pre-existing row, and `notify` skips it — the
+    alert reaches nobody, and the edit modal renders its checkbox unchecked, so
+    saving that agent for any unrelated reason silently confirms the off state.
+
+    Called once from the upgrade migration, never at runtime: re-running it
+    would undo an admin who deliberately unticked something.
+    """
+    existing = [key.strip() for key in (stored or "").split(",") if key.strip()]
+    missing = [
+        event.key
+        for event in EVENT_TYPES
+        if not event.operational and event.key not in existing
+    ]
+    return ",".join(existing + missing) if (existing or missing) else ""
+
+
 SUBSCRIBABLE_EVENT_TYPES: tuple[EventType, ...] = tuple(
     event for event in EVENT_TYPES if not event.operational
 )
