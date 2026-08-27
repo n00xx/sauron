@@ -20,6 +20,7 @@ dashboard or a Smart Disputes packet themselves.
 
 from __future__ import annotations
 
+import ipaddress
 import time
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -29,7 +30,13 @@ import requests
 import structlog
 
 from app.extensions import db
-from app.models import ActivitySession, Invitation, StripeEvent, User
+from app.models import (
+    ActivitySession,
+    ActivitySnapshot,
+    Invitation,
+    StripeEvent,
+    User,
+)
 from app.services.stripe_events import (
     REQUEST_TIMEOUT,
     STRIPE_API_BASE,
@@ -49,10 +56,10 @@ MAX_CORRELATION_SECONDS = 120.0
 
 # How a link between a Stripe event and a sauron account was established. The
 # row cannot answer this on its own — see resolve_event_links.
-PROVENANCE_METADATA = "metadata"   # stamped on the PaymentIntent by the storefront
-PROVENANCE_SIBLING = "sibling"     # inherited from another event on the same payment
-PROVENANCE_EMAIL = "email"         # matched on the checkout email: a guess
-PROVENANCE_EXISTING = "existing"   # already linked before this pass
+PROVENANCE_METADATA = "metadata"  # stamped on the PaymentIntent by the storefront
+PROVENANCE_SIBLING = "sibling"  # inherited from another event on the same payment
+PROVENANCE_EMAIL = "email"  # matched on the checkout email: a guess
+PROVENANCE_EXISTING = "existing"  # already linked before this pass
 
 # An event Stripe created longer ago than this is history being imported, not
 # news. Generous enough to survive a long-weekend outage; short enough that a
@@ -318,10 +325,60 @@ def _sessions_for(event: StripeEvent) -> list[ActivitySession]:
     )
 
 
+def _watched_ms_for(session: ActivitySession) -> int | None:
+    """How far playback actually got, or ``None`` when nothing was measured.
+
+    ``ActivitySession.duration_ms`` holds the FILE RUNTIME for as long as the
+    session is open: the collectors only swap in the playback position on
+    ``session_end``. Summing it for a live session reports the length of the
+    title as though it had been watched — observed once at 1h 26m against 13
+    seconds of real playback, an overstatement of roughly 400x on the single
+    number a card issuer weighs.
+
+    The snapshots carry the measured value (``PositionTicks``, recorded on
+    start, update and end), so the furthest position reached is the honest
+    answer while a session is live.
+    """
+    furthest = (
+        db.session.query(db.func.max(ActivitySnapshot.position_ms))
+        .filter(ActivitySnapshot.session_id == session.id)
+        .scalar()
+    )
+    if furthest:
+        return int(furthest)
+
+    # A closed session's stored duration IS the measured position — the
+    # `session_end` branch already put it there — and every historical import
+    # lands this way, with no snapshots behind it.
+    if not session.active and session.duration_ms:
+        return int(session.duration_ms)
+
+    return None
+
+
+def _total_watched_ms(sessions: Sequence[ActivitySession]) -> int | None:
+    """Summed playback across sessions, or ``None`` if none was measured.
+
+    ``None`` and ``0`` mean different things here and must not collapse: the
+    first is "we did not measure", the second is "we measured no playback".
+    Only the second is evidence.
+    """
+    measured = [ms for ms in (_watched_ms_for(s) for s in sessions) if ms is not None]
+    return sum(measured) if measured else None
+
+
 def _fmt_duration(duration_ms: int | None) -> str:
+    """Human duration, keeping sub-minute values visible.
+
+    Thirteen seconds of playback rendered as "0m" reads like a rounding
+    artefact; rendered as "13s" it reads like what it is. In a dispute the
+    difference between "barely used" and "not measured" is the whole argument.
+    """
     if not duration_ms or duration_ms <= 0:
         return "-"
     total_minutes = duration_ms // 60000
+    if not total_minutes:
+        return f"{duration_ms // 1000}s"
     hours, minutes = divmod(total_minutes, 60)
     return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
 
@@ -404,14 +461,21 @@ def build_access_activity_log(event: StripeEvent) -> str:
             if s.device_name or s.client_name
         }
     )
-    total_ms = sum(s.duration_ms or 0 for s in sessions)
+    total_ms = _total_watched_ms(sessions)
     first = sessions[0].started_at
     last = sessions[-1].started_at
 
     lines.append("MEDIA SERVER ACCESS LOG")
     lines.append(f"Account(s): {', '.join(users) if users else 'n/a'}")
     lines.append(f"Sessions recorded: {len(sessions)}")
-    lines.append(f"Total watch time: {_fmt_duration(total_ms)}")
+    # Deliberately not called "watch time": this is the furthest point the
+    # player reached, which a seek inflates and a rewatch does not add to. And
+    # when nothing was measured the line is omitted rather than filled with the
+    # title's runtime — the same rule `_payment_time` applies below, for the
+    # same reason: an absent line costs nothing, a wrong one submitted as
+    # evidence is worse than no evidence at all.
+    if total_ms is not None:
+        lines.append(f"Furthest playback position reached: {_fmt_duration(total_ms)}")
     lines.append(f"First access: {_fmt_dt(first)}")
     lines.append(f"Last access: {_fmt_dt(last)}")
     if ips:
@@ -441,19 +505,111 @@ def build_access_activity_log(event: StripeEvent) -> str:
     lines.append("DETAILED SESSION LOG")
     lines.append(
         f"{'Timestamp (UTC)':<20} {'Account':<18} {'IP':<16} "
-        f"{'Device':<22} {'Duration':<10} Title"
+        f"{'Device':<22} {'Position':<10} Title"
     )
     lines.extend(
         f"{_fmt_dt(session.started_at):<20} "
         f"{(session.user_name or '-')[:17]:<18} "
         f"{(session.ip_address or '-')[:15]:<16} "
         f"{(session.device_name or session.client_name or '-')[:21]:<22} "
-        f"{_fmt_duration(session.duration_ms):<10} "
+        f"{_fmt_duration(_watched_ms_for(session)):<10} "
         f"{session.media_title or '-'}"
         for session in sessions
     )
 
     return "\n".join(lines)
+
+
+# Visa's Compelling Evidence 3.0 remedy, as Stripe names it in
+# `enhanced_eligibility_types`.
+CE3_ELIGIBILITY_TYPE = "visa_compelling_evidence_3"
+
+# The one Visa network reason code CE 3.0 can answer.
+CE3_REASON_CODE = "10.4"
+
+CE3_CONFIRMED = "confirmed"
+CE3_UNCONFIRMED = "unconfirmed"
+CE3_NOT_APPLICABLE = "not_applicable"
+
+
+def ce3_eligibility(event: StripeEvent) -> str:
+    """Stripe's verdict on CE 3.0 for this dispute, in three states.
+
+    The reason code is a necessary condition, never a sufficient one. CE 3.0
+    also demands two prior undisputed transactions on the same payment method,
+    120-364 days old, agreeing on matching elements — a new customer cannot
+    qualify no matter what code the network assigned. Stripe evaluates all of
+    that and answers in ``enhanced_eligibility_types``; both disputes of the
+    2026-08-26 battery came back with an empty list while sauron's own badge
+    claimed eligibility.
+
+    ``CE3_UNCONFIRMED`` covers absent as well as empty on purpose. Stripe
+    populates the field late, and sometimes only in livemode, so "not there
+    yet" is not a yes — and this reading is the difference between offering the
+    operator a defence and sending them after one Stripe already ruled out.
+
+    Read from the stored payload: no extra API call, the row already has it.
+    """
+    if event.network_reason_code != CE3_REASON_CODE:
+        return CE3_NOT_APPLICABLE
+
+    obj = event.payload_dict.get("data", {})
+    obj = obj.get("object", {}) if isinstance(obj, dict) else {}
+    types = obj.get("enhanced_eligibility_types") if isinstance(obj, dict) else None
+
+    if isinstance(types, list) and CE3_ELIGIBILITY_TYPE in types:
+        return CE3_CONFIRMED
+    return CE3_UNCONFIRMED
+
+
+# How firmly this purchase ties to something in sauron. Not the same question
+# as PROVENANCE_* above, which records HOW the link was found; this records
+# WHAT was found at the end of it.
+LINK_ACCOUNT = "account"
+LINK_INVITATION_UNREDEEMED = "invitation_unredeemed"
+LINK_NONE = "none"
+
+
+def _link_kind(event: StripeEvent, users: list[User]) -> str:
+    """Account, unredeemed invitation, or nothing at all.
+
+    An invitation the storefront minted and nobody redeemed is a real link to a
+    real row — and to no account whatsoever. Collapsing it into "linked to an
+    account" told an operator to verify the revocation of a user that never
+    existed, and buried the better argument: for a signup never redeemed, the
+    fact that answers a fraud dispute is that ACCESS WAS NEVER DELIVERED, which
+    is stronger than reporting an account with no viewing.
+    """
+    if users:
+        return LINK_ACCOUNT
+    if event.invitation_id:
+        return LINK_INVITATION_UNREDEEMED
+    if event.wizarr_user_id:
+        # Row points at a user that is gone: still an account link, just a
+        # deleted one. Not the unredeemed case.
+        return LINK_ACCOUNT
+    return LINK_NONE
+
+
+def _is_matchable_ip(value: str) -> bool:
+    """Whether Stripe could ever have seen this address.
+
+    CE 3.0 matches the purchase IP of the disputed transaction against those of
+    prior ones, all of them recorded by Stripe from the public internet. The
+    media server sits behind a proxy, so what it logs is often an RFC 1918
+    address — observed as ``172.16.10.1`` against the ``201.156.50.146`` Stripe
+    held for the very same purchase. A LAN address cannot coincide with
+    anything Stripe recorded, so listing it as a matching element promises a
+    match that is impossible by construction.
+
+    Anything unparseable is treated the same way: a hostname or a mangled value
+    is not something Stripe can match on either.
+    """
+    try:
+        parsed = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return parsed.is_global
 
 
 def build_ce3_elements(event: StripeEvent) -> dict[str, Any]:
@@ -467,18 +623,31 @@ def build_ce3_elements(event: StripeEvent) -> dict[str, Any]:
 
     sauron supplies the IP, the device and the account ID. Stripe supplies the
     prior transactions; this function only surfaces what to match on.
+
+    Addresses are split rather than filtered away: a private one is still a true
+    statement about what the server saw and belongs in the narrative log, it
+    just cannot serve as a matching element. See :func:`_is_matchable_ip`.
     """
     sessions = _sessions_for(event)
+    observed = {s.ip_address for s in sessions if s.ip_address}
+    matchable = {ip for ip in observed if _is_matchable_ip(ip)}
+    # An early fraud warning object carries no email, but the account it
+    # resolved to does. Email is a SECONDARY CE 3.0 element, so in a case
+    # carrying few elements this is the difference between qualifying and not.
+    email = event.customer_email
+    if not email and event.wizarr_user_id:
+        linked = db.session.get(User, event.wizarr_user_id)
+        email = linked.email if linked else None
     return {
-        "customer_purchase_ip": sorted(
-            {s.ip_address for s in sessions if s.ip_address}
-        ),
+        "customer_purchase_ip": sorted(matchable),
+        "server_observed_ip": sorted(observed - matchable),
         "device_ids": sorted({s.device_name for s in sessions if s.device_name}),
         "clients": sorted({s.client_name for s in sessions if s.client_name}),
         "customer_account_ids": sorted({s.user_name for s in sessions if s.user_name}),
-        "customer_email": event.customer_email,
-        # 10.4 is the Visa reason code eligible for a CE 3.0 counter-response.
-        "ce3_eligible_reason_code": event.network_reason_code == "10.4",
+        "customer_email": email,
+        # Three states, not a boolean: Stripe's own verdict, the reason code
+        # without it, and neither. See :func:`ce3_eligibility`.
+        "ce3_eligibility": ce3_eligibility(event),
     }
 
 
@@ -499,12 +668,16 @@ def build_evidence_packet(event: StripeEvent) -> dict[str, Any]:
         "invitation": invitation,
         "users": users,
         "session_count": len(sessions),
-        "total_watch_time": _fmt_duration(sum(s.duration_ms or 0 for s in sessions)),
+        "furthest_position": _fmt_duration(_total_watched_ms(sessions)),
         "first_access": sessions[0].started_at if sessions else None,
         "last_access": sessions[-1].started_at if sessions else None,
         "access_activity_log": build_access_activity_log(event),
         "ce3": build_ce3_elements(event),
         "has_evidence": bool(sessions),
+        # Computed once, here, and read verbatim by the view and the alerts.
+        # Both used to re-derive it from `invitation_id or wizarr_user_id`,
+        # which cannot tell a redeemed invitation from an unredeemed one.
+        "link_kind": _link_kind(event, users),
     }
 
 
@@ -618,14 +791,29 @@ def _evidence_text(packet: dict[str, Any] | None) -> str:
     """
     if packet is None:
         return "Evidence packet could not be built — open the event and check."
+    if packet.get("link_kind") == LINK_INVITATION_UNREDEEMED:
+        # Stronger than "no playback": nothing was ever handed over. Saying
+        # "no playback recorded" here understates the case and, worse, implies
+        # an account exists to have played nothing.
+        return (
+            "The invitation for this purchase was NEVER REDEEMED: no account "
+            "was created and no access was ever delivered."
+        )
     if not packet.get("has_evidence"):
         return (
             "NO playback recorded for this purchase: the access log would go out "
             "empty. Check the link before answering."
         )
+    position = packet.get("furthest_position") or "-"
+    if position == "-":
+        # Sessions exist but nothing measured how far they got. Saying "0m
+        # watched" here would be a claim; saying nothing was measured is a fact.
+        return (
+            f"{packet['session_count']} playback session(s) recorded, but no "
+            "playback position was measured. Open the link before answering."
+        )
     return (
-        f"{packet['session_count']} playback session(s), "
-        f"{packet['total_watch_time']} watched."
+        f"{packet['session_count']} playback session(s), furthest position {position}."
     )
 
 
@@ -683,10 +871,21 @@ def _dispute_alert_body(
                 f"Evidence is due by {event.dispute_due_by:%Y-%m-%d %H:%M} UTC. "
                 "An unanswered dispute is a lost dispute."
             )
-        if event.network_reason_code == "10.4":
+        eligibility = ce3_eligibility(event)
+        if eligibility == CE3_CONFIRMED:
             lines.append(
-                "Visa reason code 10.4 — eligible for a Compelling Evidence 3.0 "
-                "counter-response, which is the strongest answer available."
+                "Visa reason code 10.4, and Stripe confirms this dispute is "
+                "eligible for a Compelling Evidence 3.0 counter-response — the "
+                "strongest answer available."
+            )
+        elif eligibility == CE3_UNCONFIRMED:
+            # Saying "eligible" here on the reason code alone is how an
+            # operator ends up building a CE 3.0 response Stripe will not take.
+            lines.append(
+                "Visa reason code 10.4: a Compelling Evidence 3.0 response "
+                "would apply given prior transaction history, but Stripe has "
+                "NOT marked this dispute eligible. Answer on the access log "
+                "instead."
             )
     elif event.type == "charge.dispute.closed":
         outcome = (event.status or "unknown").lower()
@@ -699,10 +898,17 @@ def _dispute_alert_body(
             head += f" ({amount})"
         lines.append(f"{head} {verdict}")
         if outcome == "lost":
-            lines.append(
-                "Check that the account was actually revoked — a lost dispute "
-                "with a live account is the worst of both."
-            )
+            if packet is not None and packet.get("link_kind") == (
+                LINK_INVITATION_UNREDEEMED
+            ):
+                # There is no account to revoke. Sending the operator to check
+                # one is how this line read on event 26.
+                lines.append("No account to revoke: the invitation was never redeemed.")
+            else:
+                lines.append(
+                    "Check that the account was actually revoked — a lost "
+                    "dispute with a live account is the worst of both."
+                )
     else:  # radar.early_fraud_warning.created
         lines.append(
             f"Stripe flagged {who} as likely fraud"

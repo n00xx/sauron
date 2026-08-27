@@ -72,8 +72,12 @@
                     <p class="text-xs text-gray-500 dark:text-gray-400">
                       {{ d.dispute_reason or _("unknown reason") }}
                       {% if d.amount %} · {{ "%.2f"|format(d.amount / 100) }} {{ (d.currency or "")|upper }}{% endif %}
-                      {% if d.network_reason_code == "10.4" %}
+                      {# Stripe's verdict, not our inference from the reason code:
+                         10.4 is necessary but nowhere near sufficient. #}
+                      {% if d.ce3_eligibility == "confirmed" %}
                         · <span class="text-primary font-medium">{{ _("CE 3.0 eligible") }}</span>
+                      {% elif d.ce3_eligibility == "unconfirmed" %}
+                        · <span class="text-gray-500 dark:text-gray-400">{{ _("10.4, CE 3.0 unconfirmed") }}</span>
                       {% endif %}
                     </p>
                   </div>

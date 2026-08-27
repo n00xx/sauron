@@ -104,32 +104,34 @@ class EmbyCollector(BaseCollector):
     def _emit_session_event(self, session_data: dict[str, Any], event_type: str):
         """Convert session data to ActivityEvent and emit."""
         try:
-            # For session_end events, use position_ms (last known playback position)
-            # as the watched duration rather than duration_ms (total file runtime from
-            # RunTimeTicks). This avoids overestimating watch time when a user stops
-            # partway through a title. Fall back to duration_ms only when position_ms
-            # is unavailable or zero.
+            # Record position_ms (how far the player actually got) as the
+            # duration, not duration_ms (the title's runtime, from
+            # RunTimeTicks). This used to apply only to session_end, which left
+            # every open session claiming the full length of the film as
+            # watched — and that value is summed into the access_activity_log
+            # a card issuer reads. Fall back to the runtime only when no
+            # position is available; position_ms travels on the event either
+            # way, so downstream can tell a measurement from a fallback.
             position_ms: int | None = session_data.get("position_ms")
             raw_duration_ms: int | None = session_data.get("duration_ms")
 
-            if event_type == "session_end":
-                if position_ms:
-                    duration_ms = position_ms
-                    self.logger.debug(
-                        "session_end_duration_from_position",
-                        session_id=session_data.get("session_id"),
-                        position_ms=position_ms,
-                        file_runtime_ms=raw_duration_ms,
-                    )
-                else:
-                    duration_ms = raw_duration_ms
-                    self.logger.debug(
-                        "session_end_duration_fallback_to_runtime",
-                        session_id=session_data.get("session_id"),
-                        duration_ms=raw_duration_ms,
-                    )
+            if position_ms:
+                duration_ms = position_ms
+                self.logger.debug(
+                    "session_duration_from_position",
+                    session_id=session_data.get("session_id"),
+                    event_type=event_type,
+                    position_ms=position_ms,
+                    file_runtime_ms=raw_duration_ms,
+                )
             else:
                 duration_ms = raw_duration_ms
+                self.logger.debug(
+                    "session_duration_fallback_to_runtime",
+                    session_id=session_data.get("session_id"),
+                    event_type=event_type,
+                    duration_ms=raw_duration_ms,
+                )
 
             event = ActivityEvent(
                 event_type=event_type,
