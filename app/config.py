@@ -169,6 +169,22 @@ _FILE_DB_POOL_OPTIONS: dict = {
 }
 
 
+def trusted_proxy_count() -> int:
+    """How many reverse proxies sit in front of us, per the environment.
+
+    ``X-Forwarded-*`` headers are attacker-controlled unless something we own
+    rewrites them, so every consumer gates on this and nothing believes them by
+    default. Kept here, in one place, because two readers drifting apart is a
+    security bug rather than an inconsistency: one would trust a header the
+    other rejects.
+    """
+    try:
+        count = int(os.getenv("TRUSTED_PROXY_COUNT", "0"))
+    except ValueError:
+        return 0
+    return max(0, count)
+
+
 def _env_flag(name: str, default: bool) -> bool:
     """Read a boolean from the environment, keeping *default* when unset."""
     raw = os.getenv(name)
