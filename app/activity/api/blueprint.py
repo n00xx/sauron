@@ -1181,14 +1181,32 @@ def eventos_grid():
 @activity_bp.route("/eventos/<int:event_id>")
 @login_required
 def eventos_detail(event_id: int):
-    """Event detail with the sauron-side evidence packet."""
+    """Event detail with the sauron-side evidence packet.
+
+    Serves two callers. The tab swaps this in with HTMX and wants the bare
+    fragment; `stripe_evidence._event_link` puts the same URL in every dispute
+    alert, so it is also a permalink somebody opens cold — and the fragment
+    alone carries no layout, arriving as unstyled markup with the `sr-only`
+    close label showing. Same convention as settings and api_keys: the request
+    says which one it is.
+    """
     from app.models import StripeEvent
     from app.services.stripe_evidence import build_evidence_packet
+
+    is_fragment = bool(request.headers.get("HX-Request"))
+    template = (
+        "activity/_eventos_detail.html"
+        if is_fragment
+        else "activity/eventos_detail_page.html"
+    )
 
     event = db.session.get(StripeEvent, event_id)
     if event is None:
         return render_template(
-            "activity/_eventos_detail.html", event=None, error=_("Event not found")
+            template,
+            event=None,
+            error=_("Event not found"),
+            standalone=not is_fragment,
         ), 404
 
     try:
@@ -1199,7 +1217,9 @@ def eventos_detail(event_id: int):
         )
         packet = None
 
-    return render_template("activity/_eventos_detail.html", event=event, packet=packet)
+    return render_template(
+        template, event=event, packet=packet, standalone=not is_fragment
+    )
 
 
 def _format_window(iso: str | None) -> str:

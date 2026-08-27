@@ -3195,3 +3195,125 @@ class TestAggregateWatchLabel:
             assert "1h 00m" in log
             assert "Furthest playback position reached:" not in log
             assert "sum" in log.lower()
+
+
+class TestEventDetailStandalone:
+    """`/activity/eventos/<id>` has to work as a link, not only as a swap.
+
+    The template is an HTMX partial: no `{% extends %}`, so no `<html>`, no
+    `<head>`, no stylesheet. Injected into a page that already loaded the CSS it
+    renders fine; opened directly it arrives naked and the browser falls back to
+    serif with no colour or spacing — the `sr-only` label on the close button
+    even becomes visible, because the class does nothing without CSS.
+
+    That is not a cosmetic edge case. `stripe_evidence._event_link` builds this
+    exact URL and all three dispute alerts send it, so every operator arriving
+    from a Telegram alert lands on the unstyled page.
+    """
+
+    @pytest.fixture
+    def logged_in(self, client, app):
+        from app.models import AdminAccount
+
+        with app.app_context():
+            account = AdminAccount.query.filter_by(username="detailadmin").first()
+            created = account is None
+            if created:
+                account = AdminAccount(username="detailadmin")
+                account.set_password("DetailPass123")
+                db.session.add(account)
+                db.session.commit()
+        response = client.post(
+            "/login", data={"username": "detailadmin", "password": "DetailPass123"}
+        )
+        assert response.status_code in {200, 302, 303}
+        yield client
+        with app.app_context():
+            if created:
+                db.session.delete(
+                    AdminAccount.query.filter_by(username="detailadmin").first()
+                )
+                db.session.commit()
+
+    @pytest.fixture
+    def event_id(self, app, clean_stripe_events):
+        with app.app_context():
+            event = StripeEvent(
+                stripe_event_id="evt_detail_page",
+                type="charge.dispute.created",
+                category="dispute",
+                severity="critical",
+                created_at_stripe=datetime(2026, 8, 26, 14, 39, tzinfo=UTC),
+                livemode=True,
+                object_id="dp_detail",
+                amount=15000,
+                currency="mxn",
+                network_reason_code="10.4",
+            )
+            db.session.add(event)
+            db.session.commit()
+            yield event.id
+
+            StripeEvent.query.delete()
+            db.session.commit()
+
+    def test_direct_navigation_returns_a_styled_page(self, app, logged_in, event_id):
+        body = logged_in.get(f"/activity/eventos/{event_id}").get_data(as_text=True)
+
+        assert "<html" in body.lower()
+        assert "stylesheet" in body.lower()
+        assert "evt_detail_page" in body
+
+    def test_htmx_request_still_returns_the_bare_fragment(
+        self, app, logged_in, event_id
+    ):
+        """Matters as much as the other half.
+
+        A full document swapped into a `<div>` nests `<html>` inside the body —
+        a different breakage, and a harder one to notice.
+        """
+        body = logged_in.get(
+            f"/activity/eventos/{event_id}", headers={"HX-Request": "true"}
+        ).get_data(as_text=True)
+
+        assert "<html" not in body.lower()
+        assert "stylesheet" not in body.lower()
+        assert "evt_detail_page" in body
+
+    def test_standalone_offers_a_way_back_not_dead_javascript(
+        self, app, logged_in, event_id
+    ):
+        """The close button wipes `#eventos-detail`, which does not exist here.
+
+        And "close" is the wrong affordance for someone who followed a link from
+        an alert: they want the events tab, not an emptied container.
+        """
+        body = logged_in.get(f"/activity/eventos/{event_id}").get_data(as_text=True)
+
+        assert "getElementById('eventos-detail').innerHTML" not in body
+        # Back to the events tab specifically — index.html reads ?tab=.
+        assert "tab=eventos" in body
+
+    def test_swapped_fragment_keeps_its_close_button(self, app, logged_in, event_id):
+        body = logged_in.get(
+            f"/activity/eventos/{event_id}", headers={"HX-Request": "true"}
+        ).get_data(as_text=True)
+
+        assert "getElementById('eventos-detail').innerHTML" in body
+
+    def test_missing_event_is_a_page_too(self, app, logged_in, clean_stripe_events):
+        """The 404 branch returns a bare red div — same defect, same fix."""
+        response = logged_in.get("/activity/eventos/999999")
+
+        assert response.status_code == 404
+        assert "<html" in response.get_data(as_text=True).lower()
+
+    def test_missing_event_stays_a_fragment_under_htmx(
+        self, app, logged_in, clean_stripe_events
+    ):
+        response = logged_in.get(
+            "/activity/eventos/999999", headers={"HX-Request": "true"}
+        )
+
+        assert response.status_code == 404
+        assert "<html" not in response.get_data(as_text=True).lower()

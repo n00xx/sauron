@@ -174,6 +174,17 @@
   // Modify tab clicks to include current time range (only for dashboard tab)
   document.addEventListener('DOMContentLoaded', function() {
     window.currentActivityTabButton = document.querySelector('.activity-tab-btn');
+
+    // Open the tab named in ?tab=, so a link can point at one. The event detail
+    // page links back here with ?tab=eventos; without this the link would
+    // promise Eventos and land on Dashboard.
+    const wanted = new URLSearchParams(window.location.search).get('tab');
+    if (!wanted) return;
+    const btn = document.querySelector('.activity-tab-btn[data-tab="' + wanted + '"]');
+    if (btn && window.htmx) {
+      window.currentActivityTabButton = btn;
+      window.htmx.trigger(btn, 'click');
+    }
   });
 
   // Chart rendering helpers ---------------------------------------------------

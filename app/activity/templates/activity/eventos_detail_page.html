@@ -1,0 +1,25 @@
+{# Standalone wrapper for the event detail partial.
+
+   The partial carries no layout because HTMX swaps it into a page that already
+   has one. But `stripe_evidence._event_link` puts this URL in every dispute
+   alert, so it is also a permalink someone opens months later from a phone —
+   and without a wrapper that arrives as unstyled markup.
+
+   The partial itself stays the single source of the markup; only the envelope
+   differs. `standalone` tells it that `#eventos-detail` is not on this page. #}
+{% extends "base.html" %}
+
+{% block title %}{{ _("Stripe event") }}{% endblock %}
+
+{% block main %}
+<section class="px-4 py-6 sm:px-6 lg:px-8">
+  <div class="max-w-4xl mx-auto">
+    <a href="{{ url_for('activity.activity_dashboard') }}?tab=eventos"
+       class="inline-flex items-center gap-1 mb-4 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      {{ _("Back to events") }}
+    </a>
+    {% include "activity/_eventos_detail.html" %}
+  </div>
+</section>
+{% endblock %}
