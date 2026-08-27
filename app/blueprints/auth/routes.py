@@ -6,6 +6,7 @@ from flask_babel import _
 from flask_login import login_required, login_user, logout_user
 from werkzeug.security import check_password_hash
 
+from app.config import trusted_proxy_count
 from app.extensions import db, limiter, scaled_limit
 from app.models import AdminAccount, AdminUser, Settings
 
@@ -22,10 +23,7 @@ def _client_ip() -> str:
     """
     remote_addr = request.remote_addr or ""
 
-    try:
-        trusted_proxies = int(os.getenv("TRUSTED_PROXY_COUNT", "0"))
-    except ValueError:
-        trusted_proxies = 0
+    trusted_proxies = trusted_proxy_count()
 
     if trusted_proxies <= 0:
         return remote_addr
@@ -149,9 +147,7 @@ def login():
         if success and account is not None:
             # Same second-factor rule as the local path: an account holding a
             # passkey must complete WebAuthn before it gets a session.
-            if WebAuthnCredential.query.filter_by(
-                admin_account_id=account.id
-            ).first():
+            if WebAuthnCredential.query.filter_by(admin_account_id=account.id).first():
                 session["pending_2fa_user_id"] = account.id
                 session["pending_2fa_remember"] = bool(request.form.get("remember"))
                 return render_template(

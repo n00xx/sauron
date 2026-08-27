@@ -81,8 +81,10 @@
                 <p class="text-gray-900 dark:text-white font-semibold">{{ packet.session_count }}</p>
               </div>
               <div>
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ _("Watch time") }}</p>
-                <p class="text-gray-900 dark:text-white font-semibold">{{ packet.total_watch_time }}</p>
+                {# Neutral on purpose: this is one session's furthest point or the
+                   sum of several, and the cell cannot say which. #}
+                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ _("Playback recorded") }}</p>
+                <p class="text-gray-900 dark:text-white font-semibold">{{ packet.furthest_position }}</p>
               </div>
               <div>
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ _("First access") }}</p>
@@ -100,7 +102,16 @@
             <div class="rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3 mb-3">
               <p class="text-xs font-semibold text-gray-900 dark:text-white mb-2">{{ _("Visa CE 3.0 matching elements") }}</p>
               <div class="space-y-1 text-xs text-gray-600 dark:text-gray-400">
-                <p><span class="font-medium">{{ _("Purchase IPs") }}:</span> {{ packet.ce3.customer_purchase_ip | join(', ') or '-' }}</p>
+                {# A private address cannot match anything Stripe recorded, so it is
+                   shown as an observation and never as a matching element. #}
+                {% if packet.ce3.customer_purchase_ip %}
+                  <p><span class="font-medium">{{ _("Purchase IPs") }}:</span> {{ packet.ce3.customer_purchase_ip | join(', ') }}</p>
+                {% else %}
+                  <p><span class="font-medium">{{ _("Purchase IPs") }}:</span> <span class="text-amber-700 dark:text-amber-300">{{ _("not usable as a matching element") }}</span></p>
+                {% endif %}
+                {% if packet.ce3.server_observed_ip %}
+                  <p class="text-gray-500 dark:text-gray-500">{{ _("Seen by the media server (private, behind the proxy — Stripe never saw these)") }}: {{ packet.ce3.server_observed_ip | join(', ') }}</p>
+                {% endif %}
                 <p><span class="font-medium">{{ _("Devices") }}:</span> {{ packet.ce3.device_ids | join(', ') or '-' }}</p>
                 <p><span class="font-medium">{{ _("Account IDs") }}:</span> {{ packet.ce3.customer_account_ids | join(', ') or '-' }}</p>
                 <p><span class="font-medium">{{ _("Email") }}:</span> {{ packet.ce3.customer_email or '-' }}</p>
@@ -114,7 +125,11 @@
           {% else %}
             <div class="rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/10 px-4 py-3">
               <p class="text-sm text-amber-800 dark:text-amber-200">
-                {% if event.wizarr_user_id or event.invitation_id %}
+                {# Read from the packet, never re-derived here: the columns cannot
+                   tell a redeemed invitation from one nobody ever used. #}
+                {% if packet.link_kind == "invitation_unredeemed" %}
+                  {{ _("The invitation for this purchase was never redeemed: no account was created and no access was ever delivered. That is a stronger answer to a 'product not received' or fraud dispute than an account with no viewing — state it plainly in the response.") }}
+                {% elif packet.link_kind == "account" %}
                   {{ _("This purchase is linked to an account, but no playback sessions were recorded. Absence of use is itself relevant: it weakens a 'product not received' defence and may make a refund the cheaper outcome.") }}
                 {% else %}
                   {{ _("This event could not be linked to an account. Either the invitation was never redeemed, or the checkout email differs from the one used to sign up.") }}

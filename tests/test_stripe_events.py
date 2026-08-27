@@ -13,13 +13,21 @@ The money-adjacent behaviours these pin down:
 from __future__ import annotations
 
 import json
+import pathlib
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
 
 from app.extensions import db
-from app.models import ActivitySession, Invitation, MediaServer, StripeEvent, User
+from app.models import (
+    ActivitySession,
+    ActivitySnapshot,
+    Invitation,
+    MediaServer,
+    StripeEvent,
+    User,
+)
 from app.services import stripe_events as se
 from app.services import stripe_evidence as sev
 
@@ -977,8 +985,10 @@ class TestEvidence:
             assert ce3["customer_purchase_ip"] == ["189.10.0.1", "189.10.0.9"]
             assert ce3["customer_account_ids"] == ["buyer"]
             assert ce3["customer_email"] == "buyer@example.com"
-            # Visa 10.4 is the reason code eligible for a CE 3.0 response.
-            assert ce3["ce3_eligible_reason_code"] is True
+            # 10.4 is necessary but not sufficient, and this fixture carries no
+            # Stripe verdict — so the honest answer is "unconfirmed", not "yes".
+            # See TestCE3Eligibility.
+            assert ce3["ce3_eligibility"] == "unconfirmed"
 
     def test_packet_reports_absence_of_evidence_honestly(
         self, app, clean_stripe_events
@@ -1998,8 +2008,13 @@ class TestDisputeAlerts:
 
         message = alerts[0]["message"]
         assert "due by" in message
-        assert "Compelling Evidence 3.0" in message
         assert "150.00 MXN" in message
+        # The row carries 10.4 but no Stripe verdict, so the alert names CE 3.0
+        # while saying plainly that Stripe has not granted it. Promising the
+        # strongest defence off the reason code alone is what sent an operator
+        # after a remedy Stripe had already ruled out.
+        assert "Compelling Evidence 3.0" in message
+        assert "NOT marked this dispute eligible" in message
 
     def _linked_user(self) -> int:
         server = MediaServer(name="jf-al", server_type="jellyfin", url="http://al")
@@ -2290,3 +2305,863 @@ class TestDisputeAlerts:
             "stripe_fraud_warning",
         ):
             assert is_operational(key), key
+
+
+class TestWatchTimeHonesty:
+    """The number that goes to a card issuer must be one we actually measured.
+
+    Reproduces the 2026-08-27 finding: a live session reported "1h 26m watched"
+    while the player had moved 13 seconds. ``ActivitySession.duration_ms`` holds
+    the FILE RUNTIME for any session that has not ended yet — only the
+    ``session_end`` branch of the collectors swaps in the playback position — so
+    summing it blindly overstates use by orders of magnitude.
+    """
+
+    @pytest.fixture
+    def live_playback(self, app, clean_stripe_events):
+        """One session still playing: runtime 87 min, position 13 s."""
+        with app.app_context():
+            server = MediaServer(name="jf-live", server_type="jellyfin", url="http://x")
+            db.session.add(server)
+            db.session.flush()
+
+            invitation = Invitation(code="LIVEWATCH", used=True)
+            user = User(
+                username="watcher",
+                email="watcher@example.com",
+                code="LIVEWATCH",
+                token="tok-live",
+                server_id=server.id,
+            )
+            db.session.add_all([invitation, user])
+            db.session.flush()
+            invitation.users.append(user)
+
+            started = datetime(2026, 8, 27, 2, 7, tzinfo=UTC)
+            session = ActivitySession(
+                server_id=server.id,
+                session_id="live-1",
+                user_name="watcher",
+                media_title="The End of Evangelion",
+                started_at=started,
+                # RunTimeTicks of the title, which is what the collector stores
+                # while the session is still open. 87 minutes.
+                duration_ms=5_220_000,
+                ip_address="189.10.0.1",
+                device_name="MacBookPro18 1",
+                wizarr_user_id=user.id,
+                active=True,
+            )
+            db.session.add(session)
+            db.session.flush()
+
+            # What the player actually reported: 13 seconds in.
+            for offset, position in ((0, 0), (30, 6_000), (90, 13_000)):
+                db.session.add(
+                    ActivitySnapshot(
+                        session_id=session.id,
+                        timestamp=started + timedelta(seconds=offset),
+                        position_ms=position,
+                        state="playing",
+                    )
+                )
+
+            event = StripeEvent(
+                stripe_event_id="evt_live_watch",
+                type="charge.dispute.created",
+                category="dispute",
+                severity="critical",
+                created_at_stripe=started + timedelta(days=3),
+                livemode=True,
+                object_id="dp_live",
+                charge_id="ch_live",
+                payment_intent_id="pi_live",
+                customer_email="watcher@example.com",
+                amount=15000,
+                currency="mxn",
+                network_reason_code="10.4",
+                invitation_id=invitation.id,
+                wizarr_user_id=user.id,
+            )
+            db.session.add(event)
+            db.session.commit()
+            yield event.id
+
+            StripeEvent.query.delete()
+            ActivitySnapshot.query.delete()
+            ActivitySession.query.delete()
+            db.session.delete(user)
+            db.session.delete(invitation)
+            db.session.delete(server)
+            db.session.commit()
+
+    def test_live_session_reports_position_not_file_runtime(self, app, live_playback):
+        """13 seconds played must not be rendered as an hour and a half."""
+        with app.app_context():
+            event = db.session.get(StripeEvent, live_playback)
+            log = sev.build_access_activity_log(event)
+
+            assert "1h 27m" not in log
+            assert "1h 26m" not in log
+            assert "5220000" not in log
+
+    def test_packet_watch_time_comes_from_the_snapshot(self, app, live_playback):
+        with app.app_context():
+            event = db.session.get(StripeEvent, live_playback)
+            packet = sev.build_evidence_packet(event)
+
+            # 13 s rounds to under a minute; the file runtime would be 1h 27m.
+            assert packet["furthest_position"] not in ("1h 27m", "1h 26m")
+
+    def test_label_says_position_reached_not_watch_time(self, app, live_playback):
+        """`position_ms` is how far the player got, not time accumulated.
+
+        Seeking forward inflates it and a rewatch does not add to it, so calling
+        it "watch time" claims a precision we do not have.
+        """
+        with app.app_context():
+            event = db.session.get(StripeEvent, live_playback)
+            log = sev.build_access_activity_log(event)
+
+            assert "Total watch time" not in log
+            assert "Furthest playback position" in log
+
+    def test_no_position_data_omits_the_line_rather_than_guessing(
+        self, app, clean_stripe_events
+    ):
+        """An absent line costs nothing; a fabricated one loses the dispute.
+
+        Same rule `_payment_time` already applies to time-to-first-use.
+        """
+        with app.app_context():
+            server = MediaServer(name="jf-np", server_type="jellyfin", url="http://x")
+            db.session.add(server)
+            db.session.flush()
+
+            user = User(
+                username="noposition",
+                email="np@example.com",
+                code="NOPOS1",
+                token="tok-np",
+                server_id=server.id,
+            )
+            db.session.add(user)
+            db.session.flush()
+
+            db.session.add(
+                ActivitySession(
+                    server_id=server.id,
+                    session_id="np-1",
+                    user_name="noposition",
+                    media_title="Solaris",
+                    started_at=datetime(2026, 8, 27, 2, 7, tzinfo=UTC),
+                    duration_ms=9_000_000,  # runtime only, no snapshots at all
+                    wizarr_user_id=user.id,
+                    active=True,
+                )
+            )
+
+            event = StripeEvent(
+                stripe_event_id="evt_no_position",
+                type="charge.dispute.created",
+                category="dispute",
+                severity="critical",
+                created_at_stripe=datetime(2026, 8, 30, tzinfo=UTC),
+                livemode=True,
+                object_id="dp_np",
+                wizarr_user_id=user.id,
+            )
+            db.session.add(event)
+            db.session.commit()
+
+            log = sev.build_access_activity_log(event)
+            assert "2h 30m" not in log
+            assert "Furthest playback position" not in log
+
+            StripeEvent.query.delete()
+            ActivitySession.query.delete()
+            db.session.delete(user)
+            db.session.delete(server)
+            db.session.commit()
+
+    def test_ended_session_without_snapshots_still_counts(
+        self, app, clean_stripe_events
+    ):
+        """Closed sessions keep a trustworthy `duration_ms`.
+
+        The collectors' `session_end` branch already swaps the file runtime for
+        the playback position, so the stored value is the measured one. Dropping
+        it would throw away the evidence this module exists to produce — and
+        every historical import lands this way.
+        """
+        with app.app_context():
+            server = MediaServer(name="jf-end", server_type="jellyfin", url="http://x")
+            db.session.add(server)
+            db.session.flush()
+
+            user = User(
+                username="finished",
+                email="fin@example.com",
+                code="FIN1",
+                token="tok-fin",
+                server_id=server.id,
+            )
+            db.session.add(user)
+            db.session.flush()
+
+            db.session.add(
+                ActivitySession(
+                    server_id=server.id,
+                    session_id="end-1",
+                    user_name="finished",
+                    media_title="Stalker",
+                    started_at=datetime(2026, 8, 20, 12, 0, tzinfo=UTC),
+                    duration_ms=3_600_000,
+                    wizarr_user_id=user.id,
+                    active=False,
+                )
+            )
+
+            event = StripeEvent(
+                stripe_event_id="evt_ended",
+                type="charge.dispute.created",
+                category="dispute",
+                severity="critical",
+                created_at_stripe=datetime(2026, 8, 30, tzinfo=UTC),
+                livemode=True,
+                object_id="dp_end",
+                wizarr_user_id=user.id,
+            )
+            db.session.add(event)
+            db.session.commit()
+
+            log = sev.build_access_activity_log(event)
+            assert "1h 00m" in log
+
+            StripeEvent.query.delete()
+            ActivitySession.query.delete()
+            db.session.delete(user)
+            db.session.delete(server)
+            db.session.commit()
+
+
+class TestCE3MatchingElements:
+    """What may honestly be offered as a Visa CE 3.0 matching element.
+
+    CE 3.0 asks the disputed transaction and two prior undisputed ones to agree
+    on the customer's purchase IP. The address Jellyfin reports is the one it
+    sees behind the proxy — on 2026-08-27 that was `172.16.10.1`, while the IP
+    Stripe recorded for the same purchase was `201.156.50.146`. An RFC 1918
+    address cannot match anything Stripe ever saw, so offering it under
+    "matching elements" promises a coincidence that cannot happen.
+    """
+
+    @pytest.fixture
+    def dispute_with_ips(self, app, clean_stripe_events):
+        def _make(ips: list[str]):
+            server = MediaServer(name="jf-ip", server_type="jellyfin", url="http://x")
+            db.session.add(server)
+            db.session.flush()
+
+            user = User(
+                username="ipuser",
+                email="ip@example.com",
+                code="IPCODE1",
+                token="tok-ip",
+                server_id=server.id,
+            )
+            db.session.add(user)
+            db.session.flush()
+
+            for index, ip in enumerate(ips):
+                db.session.add(
+                    ActivitySession(
+                        server_id=server.id,
+                        session_id=f"ip-{index}",
+                        user_name="ipuser",
+                        media_title="Solaris",
+                        started_at=datetime(2026, 8, 20, 12, 0, tzinfo=UTC),
+                        duration_ms=3_600_000,
+                        ip_address=ip,
+                        device_name="Android TV",
+                        wizarr_user_id=user.id,
+                        active=False,
+                    )
+                )
+
+            event = StripeEvent(
+                stripe_event_id="evt_ce3_ip",
+                type="charge.dispute.created",
+                category="dispute",
+                severity="critical",
+                created_at_stripe=datetime(2026, 8, 30, tzinfo=UTC),
+                livemode=True,
+                object_id="dp_ip",
+                network_reason_code="10.4",
+                wizarr_user_id=user.id,
+            )
+            db.session.add(event)
+            db.session.commit()
+            return event.id
+
+        with app.app_context():
+            yield _make
+
+            StripeEvent.query.delete()
+            ActivitySession.query.delete()
+            User.query.filter_by(username="ipuser").delete()
+            MediaServer.query.filter_by(name="jf-ip").delete()
+            db.session.commit()
+
+    def test_private_ip_is_not_offered_as_a_matching_element(
+        self, app, dispute_with_ips
+    ):
+        event_id = dispute_with_ips(["172.16.10.1"])
+        event = db.session.get(StripeEvent, event_id)
+
+        ce3 = sev.build_ce3_elements(event)
+
+        assert ce3["customer_purchase_ip"] == []
+
+    def test_private_ip_is_still_reported_as_what_the_server_saw(
+        self, app, dispute_with_ips
+    ):
+        """It is true, and it belongs in the narrative — just not as a match."""
+        event_id = dispute_with_ips(["172.16.10.1"])
+        event = db.session.get(StripeEvent, event_id)
+
+        ce3 = sev.build_ce3_elements(event)
+        log = sev.build_access_activity_log(event)
+
+        assert ce3["server_observed_ip"] == ["172.16.10.1"]
+        assert "172.16.10.1" in log
+
+    def test_public_ip_still_qualifies(self, app, dispute_with_ips):
+        event_id = dispute_with_ips(["201.156.50.146"])
+        event = db.session.get(StripeEvent, event_id)
+
+        ce3 = sev.build_ce3_elements(event)
+
+        assert ce3["customer_purchase_ip"] == ["201.156.50.146"]
+        assert ce3["server_observed_ip"] == []
+
+    @pytest.mark.parametrize(
+        "private",
+        ["10.0.0.4", "192.168.1.30", "172.31.255.1", "127.0.0.1", "::1", "fd00::1"],
+    )
+    def test_every_private_range_is_excluded(self, app, dispute_with_ips, private):
+        event_id = dispute_with_ips([private, "201.156.50.146"])
+        event = db.session.get(StripeEvent, event_id)
+
+        ce3 = sev.build_ce3_elements(event)
+
+        assert ce3["customer_purchase_ip"] == ["201.156.50.146"]
+        assert private in ce3["server_observed_ip"]
+
+    def test_unparseable_address_is_not_promoted_to_a_match(
+        self, app, dispute_with_ips
+    ):
+        """A hostname or a mangled value is not something Stripe can match on."""
+        event_id = dispute_with_ips(["not-an-ip"])
+        event = db.session.get(StripeEvent, event_id)
+
+        ce3 = sev.build_ce3_elements(event)
+
+        assert ce3["customer_purchase_ip"] == []
+        assert ce3["server_observed_ip"] == ["not-an-ip"]
+
+
+class TestCE3Eligibility:
+    """Whether a dispute may be announced as CE 3.0 eligible.
+
+    sauron inferred eligibility from the Visa reason code alone. The real
+    criteria also require two prior undisputed transactions on the same payment
+    method, 120-364 days old, with matching elements — none of which a new
+    customer can have. Stripe answers this directly in
+    ``enhanced_eligibility_types``, and on both disputes of the 2026-08-26
+    battery it answered with an empty list while sauron's badge said "eligible".
+
+    Announcing the strongest available defence for a dispute Stripe has already
+    ruled out sends the operator down a road that does not exist.
+    """
+
+    def _dispute(self, *, reason_code="10.4", enhanced=None, event_id="evt_ce3"):
+        obj = {
+            "id": "dp_ce3",
+            "charge": "ch_ce3",
+            "payment_intent": "pi_ce3",
+            "reason": "fraudulent",
+            "status": "needs_response",
+            "amount": 15000,
+            "currency": "mxn",
+            "payment_method_details": {"card": {"network_reason_code": reason_code}},
+        }
+        if enhanced is not None:
+            obj["enhanced_eligibility_types"] = enhanced
+        return _event("charge.dispute.created", obj, id=event_id)
+
+    def _store(self, payload):
+        """Through the real extractor, so the payload column is the real one."""
+        event = StripeEvent(**se.extract_fields(payload))
+        db.session.add(event)
+        db.session.commit()
+        return event
+
+    def test_stripe_confirming_eligibility_is_reported_as_confirmed(
+        self, app, clean_stripe_events
+    ):
+        with app.app_context():
+            event = self._store(self._dispute(enhanced=["visa_compelling_evidence_3"]))
+
+            assert sev.ce3_eligibility(event) == "confirmed"
+
+    def test_reason_code_alone_is_not_confirmation(self, app, clean_stripe_events):
+        """The exact case observed live: 10.4 with an empty Stripe verdict."""
+        with app.app_context():
+            event = self._store(self._dispute(enhanced=[]))
+
+            assert sev.ce3_eligibility(event) == "unconfirmed"
+
+    def test_absent_field_is_not_confirmation_either(self, app, clean_stripe_events):
+        """Stripe populates this late, or only in livemode. Absent is not yes."""
+        with app.app_context():
+            event = self._store(self._dispute(enhanced=None))
+
+            assert sev.ce3_eligibility(event) == "unconfirmed"
+
+    def test_other_reason_codes_are_not_applicable(self, app, clean_stripe_events):
+        with app.app_context():
+            event = self._store(self._dispute(reason_code="13.1"))
+
+            assert sev.ce3_eligibility(event) == "not_applicable"
+
+    def test_alert_does_not_promise_the_strongest_answer_without_stripe(
+        self, app, clean_stripe_events
+    ):
+        """The Telegram copy has to move with the badge, or the fix is half done."""
+        with app.app_context():
+            event = self._store(self._dispute(enhanced=[]))
+            body = sev._dispute_alert_body(event, None)
+
+            assert "strongest answer available" not in body
+            assert "10.4" in body
+            assert "not marked" in body.lower() or "no marc" in body.lower()
+
+    def test_alert_still_says_strongest_when_stripe_confirms(
+        self, app, clean_stripe_events
+    ):
+        with app.app_context():
+            event = self._store(self._dispute(enhanced=["visa_compelling_evidence_3"]))
+            body = sev._dispute_alert_body(event, None)
+
+            assert "strongest answer available" in body
+
+    def test_packet_exposes_the_three_states_not_a_boolean(
+        self, app, clean_stripe_events
+    ):
+        with app.app_context():
+            event = self._store(self._dispute(enhanced=[]))
+            ce3 = sev.build_ce3_elements(event)
+
+            assert ce3["ce3_eligibility"] == "unconfirmed"
+
+
+class TestCE3BadgeRendering:
+    """The badge in the dispute queue is the third surface of one fact.
+
+    A corrected packet and a corrected alert beside a list still shouting
+    "CE 3.0 eligible" is the same defect wearing different clothes, so this
+    pins the badge to the same verdict the other two read.
+    """
+
+    @pytest.fixture
+    def logged_in(self, client, app):
+        from app.models import AdminAccount
+
+        with app.app_context():
+            account = AdminAccount.query.filter_by(username="ce3admin").first()
+            created = account is None
+            if created:
+                account = AdminAccount(username="ce3admin")
+                account.set_password("Ce3Pass12345")
+                db.session.add(account)
+                db.session.commit()
+        response = client.post(
+            "/login", data={"username": "ce3admin", "password": "Ce3Pass12345"}
+        )
+        assert response.status_code in {200, 302, 303}
+        yield client
+        with app.app_context():
+            if created:
+                db.session.delete(
+                    AdminAccount.query.filter_by(username="ce3admin").first()
+                )
+                db.session.commit()
+
+    def _open_dispute(self, app, enhanced):
+        obj = {
+            "id": "dp_badge",
+            "charge": "ch_badge",
+            "payment_intent": "pi_badge",
+            "reason": "fraudulent",
+            "status": "needs_response",
+            "amount": 15000,
+            "currency": "mxn",
+            "evidence_details": {
+                "due_by": int((datetime.now(UTC) + timedelta(days=5)).timestamp())
+            },
+            "payment_method_details": {"card": {"network_reason_code": "10.4"}},
+            "enhanced_eligibility_types": enhanced,
+        }
+        payload = _event("charge.dispute.created", obj, id="evt_badge")
+        with app.app_context():
+            StripeEvent.query.delete()
+            db.session.add(StripeEvent(**se.extract_fields(payload)))
+            db.session.commit()
+
+    def test_badge_absent_when_stripe_has_not_confirmed(
+        self, app, logged_in, clean_stripe_events
+    ):
+        self._open_dispute(app, [])
+
+        body = logged_in.get("/activity/eventos").get_data(as_text=True)
+
+        assert "CE 3.0 eligible" not in body
+
+    def test_badge_shown_when_stripe_confirms(
+        self, app, logged_in, clean_stripe_events
+    ):
+        self._open_dispute(app, ["visa_compelling_evidence_3"])
+
+        body = logged_in.get("/activity/eventos").get_data(as_text=True)
+
+        assert "CE 3.0 eligible" in body
+
+
+class TestLinkKind:
+    """ "Linked to an account" must not be said of an unredeemed invitation.
+
+    Event 26 of the 2026-08-26 battery: the storefront stamped
+    ``wizarrInvitationId`` on a purchase whose invitation was created and never
+    redeemed. The link is real, but it points at an INVITATION — no account was
+    ever created. The packet said "linked to an account, but no playback
+    sessions were recorded" and the alert told the operator to "check that the
+    account was actually revoked", both about something that never existed.
+
+    And it loses the stronger argument. For a fraud dispute on a signup that was
+    never redeemed, the fact worth stating is not "no playback" — it is that no
+    access was ever delivered.
+    """
+
+    def _event_with(self, *, invitation_id=None, user_id=None, event_type=None):
+        event = StripeEvent(
+            stripe_event_id=f"evt_link_{invitation_id}_{user_id}",
+            type=event_type or "charge.dispute.created",
+            category="dispute",
+            severity="critical",
+            created_at_stripe=datetime(2026, 8, 26, 14, 39, tzinfo=UTC),
+            livemode=True,
+            object_id="dp_link",
+            amount=15000,
+            currency="mxn",
+            invitation_id=invitation_id,
+            wizarr_user_id=user_id,
+        )
+        db.session.add(event)
+        db.session.commit()
+        return event
+
+    @pytest.fixture
+    def unredeemed(self, app, clean_stripe_events):
+        """An invitation that was minted and never used — no account behind it."""
+        with app.app_context():
+            invitation = Invitation(code="NEVERUSED", used=False)
+            db.session.add(invitation)
+            db.session.commit()
+            yield invitation.id
+
+            StripeEvent.query.delete()
+            db.session.delete(db.session.get(Invitation, invitation.id))
+            db.session.commit()
+
+    @pytest.fixture
+    def redeemed(self, app, clean_stripe_events):
+        with app.app_context():
+            server = MediaServer(name="jf-lk", server_type="jellyfin", url="http://x")
+            db.session.add(server)
+            db.session.flush()
+            invitation = Invitation(code="WASUSED1", used=True)
+            user = User(
+                username="realuser",
+                email="real@example.com",
+                code="WASUSED1",
+                token="tok-lk",
+                server_id=server.id,
+            )
+            db.session.add_all([invitation, user])
+            db.session.flush()
+            invitation.users.append(user)
+            db.session.commit()
+            yield invitation.id, user.id
+
+            StripeEvent.query.delete()
+            db.session.delete(user)
+            db.session.delete(invitation)
+            db.session.delete(server)
+            db.session.commit()
+
+    def test_unredeemed_invitation_is_not_an_account(self, app, unredeemed):
+        with app.app_context():
+            event = self._event_with(invitation_id=unredeemed)
+
+            packet = sev.build_evidence_packet(event)
+
+            assert packet["link_kind"] == "invitation_unredeemed"
+
+    def test_redeemed_invitation_is_an_account(self, app, redeemed):
+        invitation_id, user_id = redeemed
+        with app.app_context():
+            event = self._event_with(invitation_id=invitation_id, user_id=user_id)
+
+            packet = sev.build_evidence_packet(event)
+
+            assert packet["link_kind"] == "account"
+
+    def test_no_link_at_all(self, app, clean_stripe_events):
+        with app.app_context():
+            event = self._event_with()
+
+            packet = sev.build_evidence_packet(event)
+
+            assert packet["link_kind"] == "none"
+
+    def test_alert_states_no_access_was_delivered(self, app, unredeemed):
+        """The strongest fact available, and the one the copy used to omit."""
+        with app.app_context():
+            event = self._event_with(invitation_id=unredeemed)
+            packet = sev.build_evidence_packet(event)
+
+            text = sev._evidence_text(packet)
+
+            assert "never redeemed" in text.lower()
+            assert "no playback recorded" not in text.lower()
+
+    def test_closed_dispute_does_not_ask_to_check_a_nonexistent_account(
+        self, app, unredeemed
+    ):
+        """The exact wrong instruction event 26 produced."""
+        with app.app_context():
+            event = self._event_with(
+                invitation_id=unredeemed, event_type="charge.dispute.closed"
+            )
+            event.status = "lost"
+            db.session.commit()
+            packet = sev.build_evidence_packet(event)
+
+            body = sev._dispute_alert_body(event, packet)
+
+            assert "account was actually revoked" not in body
+
+    def test_closed_dispute_still_asks_when_an_account_exists(self, app, redeemed):
+        invitation_id, user_id = redeemed
+        with app.app_context():
+            event = self._event_with(
+                invitation_id=invitation_id,
+                user_id=user_id,
+                event_type="charge.dispute.closed",
+            )
+            event.status = "lost"
+            db.session.commit()
+            packet = sev.build_evidence_packet(event)
+
+            body = sev._dispute_alert_body(event, packet)
+
+            assert "account was actually revoked" in body
+
+    def test_view_copy_distinguishes_the_two(self, app, unredeemed):
+        """The template must read the field, not re-derive it from the columns.
+
+        Branching on `event.invitation_id or event.wizarr_user_id` is exactly
+        the inference that produced the bug.
+        """
+        template = pathlib.Path(
+            "app/activity/templates/activity/_eventos_detail.html"
+        ).read_text()
+
+        assert "packet.link_kind" in template
+        assert "event.wizarr_user_id or event.invitation_id" not in template
+
+
+class TestEvidenceEmailFallback:
+    """An EFW object carries no email, but the linked account does.
+
+    Event 75 rendered ``Email: -`` while event 73, on the very same purchase,
+    had it. Customer email is a SECONDARY CE 3.0 element: in a case with few
+    elements it decides between qualifying and not.
+    """
+
+    def test_email_falls_back_to_the_linked_account(self, app, clean_stripe_events):
+        with app.app_context():
+            server = MediaServer(name="jf-em", server_type="jellyfin", url="http://x")
+            db.session.add(server)
+            db.session.flush()
+            user = User(
+                username="efwuser",
+                email="efw@example.com",
+                code="EFWCODE1",
+                token="tok-efw",
+                server_id=server.id,
+            )
+            db.session.add(user)
+            db.session.flush()
+
+            event = StripeEvent(
+                stripe_event_id="evt_efw_email",
+                type="radar.early_fraud_warning.created",
+                category="dispute",
+                severity="critical",
+                created_at_stripe=datetime(2026, 8, 27, 2, 2, tzinfo=UTC),
+                livemode=True,
+                object_id="issfr_1",
+                charge_id="ch_efw",
+                customer_email=None,
+                wizarr_user_id=user.id,
+            )
+            db.session.add(event)
+            db.session.commit()
+
+            ce3 = sev.build_ce3_elements(event)
+
+            assert ce3["customer_email"] == "efw@example.com"
+
+            StripeEvent.query.delete()
+            db.session.delete(user)
+            db.session.delete(server)
+            db.session.commit()
+
+
+class TestLinkKindEdges:
+    """Two ways the "never redeemed" claim could be made falsely.
+
+    It is the strongest sentence in the packet, so it must be the best
+    evidenced. Presence of an ``invitation_id`` is not enough: the invitation
+    carries its own ``used`` flag, which means "an account was actually
+    created" — and an invitation that WAS redeemed by a user since deleted
+    leaves no users behind, looking identical to one nobody ever touched.
+    """
+
+    def _event_for(self, invitation_id):
+        event = StripeEvent(
+            stripe_event_id=f"evt_edge_{invitation_id}",
+            type="charge.dispute.created",
+            category="dispute",
+            severity="critical",
+            created_at_stripe=datetime(2026, 8, 26, 14, 39, tzinfo=UTC),
+            livemode=True,
+            object_id="dp_edge",
+            invitation_id=invitation_id,
+        )
+        db.session.add(event)
+        db.session.commit()
+        return event
+
+    def test_redeemed_invitation_whose_user_is_gone_is_not_called_unredeemed(
+        self, app, clean_stripe_events
+    ):
+        """An account existed. Claiming none ever did would be a false statement."""
+        with app.app_context():
+            invitation = Invitation(code="USEDGONE", used=True)
+            db.session.add(invitation)
+            db.session.commit()
+
+            packet = sev.build_evidence_packet(self._event_for(invitation.id))
+
+            assert packet["link_kind"] != "invitation_unredeemed"
+
+            StripeEvent.query.delete()
+            db.session.delete(db.session.get(Invitation, invitation.id))
+            db.session.commit()
+
+    def test_unredeemed_invitation_still_reads_as_unredeemed(
+        self, app, clean_stripe_events
+    ):
+        with app.app_context():
+            invitation = Invitation(code="TRULYNEW", used=False)
+            db.session.add(invitation)
+            db.session.commit()
+
+            packet = sev.build_evidence_packet(self._event_for(invitation.id))
+
+            assert packet["link_kind"] == "invitation_unredeemed"
+
+            StripeEvent.query.delete()
+            db.session.delete(db.session.get(Invitation, invitation.id))
+            db.session.commit()
+
+
+class TestAggregateWatchLabel:
+    """A sum across sessions is not "the furthest position reached".
+
+    One session's furthest point is exact. Three sessions summed is a total, and
+    labelling a total as a maximum misdescribes it — the same class of error as
+    calling a file runtime a watch time.
+    """
+
+    @pytest.fixture
+    def two_sessions(self, app, clean_stripe_events):
+        with app.app_context():
+            server = MediaServer(name="jf-agg", server_type="jellyfin", url="http://x")
+            db.session.add(server)
+            db.session.flush()
+            user = User(
+                username="agguser",
+                email="agg@example.com",
+                code="AGGCODE1",
+                token="tok-agg",
+                server_id=server.id,
+            )
+            db.session.add(user)
+            db.session.flush()
+
+            for index in range(2):
+                db.session.add(
+                    ActivitySession(
+                        server_id=server.id,
+                        session_id=f"agg-{index}",
+                        user_name="agguser",
+                        media_title="Solaris",
+                        started_at=datetime(2026, 8, 20, 12 + index, tzinfo=UTC),
+                        duration_ms=1_800_000,
+                        wizarr_user_id=user.id,
+                        active=False,
+                    )
+                )
+
+            event = StripeEvent(
+                stripe_event_id="evt_agg",
+                type="charge.dispute.created",
+                category="dispute",
+                severity="critical",
+                created_at_stripe=datetime(2026, 8, 30, tzinfo=UTC),
+                livemode=True,
+                object_id="dp_agg",
+                wizarr_user_id=user.id,
+            )
+            db.session.add(event)
+            db.session.commit()
+            yield event.id
+
+            StripeEvent.query.delete()
+            ActivitySession.query.delete()
+            db.session.delete(user)
+            db.session.delete(server)
+            db.session.commit()
+
+    def test_multiple_sessions_are_labelled_as_a_sum(self, app, two_sessions):
+        with app.app_context():
+            event = db.session.get(StripeEvent, two_sessions)
+            log = sev.build_access_activity_log(event)
+
+            assert "1h 00m" in log
+            assert "Furthest playback position reached:" not in log
+            assert "sum" in log.lower()

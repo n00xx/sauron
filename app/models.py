@@ -1296,6 +1296,20 @@ class StripeEvent(db.Model):
             return {}
         return parsed if isinstance(parsed, dict) else {}
 
+    @property
+    def ce3_eligibility(self) -> str:
+        """Stripe's CE 3.0 verdict: "confirmed" / "unconfirmed" / "not_applicable".
+
+        Delegates so the queue badge, the evidence packet and the dispute alert
+        all read one definition. Deriving it separately per surface is how the
+        list ended up announcing an eligibility the packet could not support.
+
+        Imported lazily: the service imports this module.
+        """
+        from app.services.stripe_evidence import ce3_eligibility
+
+        return ce3_eligibility(self)
+
     def __repr__(self) -> str:
         return f"<StripeEvent {self.stripe_event_id} {self.type}>"
 

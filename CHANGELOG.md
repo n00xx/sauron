@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [Unreleased]
+
+### Fixed
+
+- **Las URLs absolutas degradaban a `http://` detras del proxy.**
+  `/settings/notifications` (sin barra final) respondia **308** hacia
+  `http://sauron.neexy.net/settings/notifications/` — esquema http. Con HSTS el
+  navegador lo repara antes de emitir la peticion, pero un cliente que no lo
+  aplique manda la cookie de sesion en claro.
+
+  La causa no estaba en esa ruta. **Nada traducia `X-Forwarded-Proto`**, asi que
+  Flask veia `wsgi.url_scheme == "http"` en toda peticion y construia sobre el
+  **todas** sus URLs absolutas: las redirecciones de `strict_slashes` y el
+  enlace de restablecimiento que se renderiza en el modal de admin
+  (`request.url_root`), que un administrador puede copiar y enviar. El enlace
+  **enviado por correo** ya estaba a salvo — `resend_email._public_base_url`
+  prefiere la URL publica guardada—; el copiable no.
+
+  **Requiere `TRUSTED_PROXY_COUNT`.** La cabecera la controla quien hace la
+  peticion mientras no haya un proxy propio reescribiendola, asi que solo se
+  honra cuando la variable declara que lo hay — la misma puerta que
+  `auth.routes._client_ip` ya aplicaba a `X-Forwarded-For`, ahora leida de una
+  sola definicion (`config.trusted_proxy_count`) porque dos lectores que
+  discrepan no serian una inconsistencia sino un fallo de seguridad. **Sin esa
+  variable el arreglo no hace nada**, que es el comportamiento correcto en un
+  despliegue sin proxy delante.
+
+  Se toma **solo el esquema**. `x_for` se deja en 0 a proposito: reescribiria
+  `remote_addr`, que es la clave de todos los limites de tasa, y
+  `api_routes.RequestPasswordReset` dimensiono sus topes sin clave **como
+  guardia de cuota** precisamente porque la direccion de salida de la tienda es
+  compartida. Redefinir eso en silencio no es un efecto secundario aceptable.
+
 ## [2026.9.10] (2026-08-26)
 
 ### Added

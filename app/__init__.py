@@ -2,7 +2,7 @@ import os
 
 from flask import Flask
 
-from .config import DevelopmentConfig
+from .config import DevelopmentConfig, trusted_proxy_count
 from .error_handlers import register_error_handlers
 from .extensions import init_extensions
 from .logging_config import configure_logging
@@ -31,6 +31,26 @@ def create_app(config_object=DevelopmentConfig):
         logger.step("Creating Flask application", "🌐")
     app = Flask(__name__)
     app.config.from_object(config_object)
+
+    # Behind a TLS-terminating proxy the WSGI environ says "http", so every
+    # absolute URL Flask builds says http too: the strict_slashes redirects
+    # (observed as a 308 to http://sauron.neexy.net/settings/notifications/,
+    # which hands the session cookie to any client that does not enforce HSTS)
+    # and the reset link rendered in the admin modal alike.
+    #
+    # ONLY the scheme is taken. x_for is deliberately left at 0: it would
+    # rewrite remote_addr, which keys every rate limit, and
+    # api_routes.RequestPasswordReset sized its unkeyed caps as a quota guard
+    # precisely because the caller's egress address is shared. Redefining that
+    # silently is not a side effect worth having. Address resolution stays
+    # where it already is, in auth.routes._client_ip.
+    proxy_hops = trusted_proxy_count()
+    if proxy_hops:
+        from werkzeug.middleware.proxy_fix import ProxyFix
+
+        app.wsgi_app = ProxyFix(  # type: ignore[method-assign]
+            app.wsgi_app, x_for=0, x_proto=proxy_hops, x_host=0, x_prefix=0
+        )
 
     # Step 3: Initialize extensions
     if show_startup:
