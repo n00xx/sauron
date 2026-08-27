@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.1] (2026-08-27)
+
+### Added
+
+- **La IP de compra para Visa CE 3.0 sale ahora de Stripe.** El paquete ofrecia
+  bajo ese nombre las direcciones desde las que se habia **reproducido**. Donde
+  alguien ve no es donde paga, asi que como elemento de emparejamiento eso
+  reclamaba un dato que sauron no puede aportar.
+
+  Stripe si lo tiene —`customer_purchase_ip`, mas nombre, correo y direccion de
+  facturacion—, pero no donde sauron miraba: las filas de `StripeEvent` son
+  instantaneas del instante del evento, y ahi los 25 campos de `evidence` estan
+  en null. Stripe los rellena despues, en el objeto vivo.
+
+  `fetch_dispute()` lo lee con timeout de 5 s (no los 20 del sync: aqui espera
+  una persona), solo para eventos `charge.dispute.*`, una vez por paquete, y en
+  best effort — sin llave no llama, y si Stripe falla la vista sale igual.
+
+  Reetiquetado en consecuencia: `customer_purchase_ip` es solo de Stripe,
+  `access_ip` son las publicas de reproduccion (corroboran, no casan) y
+  `server_observed_ip` las privadas.
+
 ## [2026.10.0] (2026-08-27)
 
 ### Fixed
