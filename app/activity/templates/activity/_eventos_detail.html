@@ -53,9 +53,18 @@
             <div><span class="text-gray-500 dark:text-gray-400">{{ _("Due by") }}:</span> {{ event.dispute_due_by.strftime('%Y-%m-%d %H:%M') if event.dispute_due_by else '-' }}</div>
             <div><span class="text-gray-500 dark:text-gray-400">{{ _("Network code") }}:</span> {{ event.network_reason_code or '-' }}</div>
           </div>
-          {% if event.network_reason_code == '10.4' %}
+          {# Stripe's verdict, never our inference from the reason code. 10.4 is
+             necessary and nowhere near sufficient: CE 3.0 also needs two prior
+             undisputed transactions 120-364 days old with matching elements,
+             which a new customer cannot have. Same source as the queue badge
+             and the alert — the three must never disagree. #}
+          {% if event.ce3_eligibility == "confirmed" %}
             <p class="mt-2 text-xs text-primary font-medium">
-              {{ _("Visa reason code 10.4 — eligible for a Compelling Evidence 3.0 counter-response.") }}
+              {{ _("Visa reason code 10.4, and Stripe confirms this dispute is eligible for a Compelling Evidence 3.0 counter-response — the strongest answer available.") }}
+            </p>
+          {% elif event.ce3_eligibility == "unconfirmed" %}
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {{ _("Visa reason code 10.4: a Compelling Evidence 3.0 response would apply given prior transaction history, but Stripe has NOT marked this dispute eligible. Answer on the access log instead.") }}
             </p>
           {% endif %}
         </div>

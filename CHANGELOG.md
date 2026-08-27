@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.9.12] (2026-08-27)
+
+### Fixed
+
+- **Una CUARTA superficie de la insignia CE 3.0 seguia prometiendo
+  elegibilidad.** 2026.9.11 corrigio tres —la insignia de la cola, el paquete y
+  el texto del aviso— sobre el criterio de que solo Stripe puede declarar una
+  disputa elegible. Se escapo la linea del panel "Dispute" de la **vista de
+  detalle**, que seguia diciendo *"Visa reason code 10.4 — eligible for a
+  Compelling Evidence 3.0 counter-response"* deduciendolo del codigo de red.
+
+  Encontrada **en produccion, mirando el evento 26**, cuyo payload trae
+  `enhanced_eligibility_types` vacio: Stripe no la considera elegible y la vista
+  afirmaba que si. No la vieron los tests porque los de la insignia solo
+  ejercitaban la cola, no el detalle.
+
+  Ahora las cuatro leen `ce3_eligibility()` desde una sola definicion, y hay dos
+  tests que fijan el detalle en sus dos ramas.
+
 ## [2026.9.11] (2026-08-27)
 
 ### Fixed

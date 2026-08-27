@@ -2837,6 +2837,36 @@ class TestCE3BadgeRendering:
 
         assert "CE 3.0 eligible" in body
 
+    def test_detail_view_does_not_promise_eligibility_either(
+        self, app, logged_in, clean_stripe_events
+    ):
+        """The FOURTH surface, found in production and not by the first pass.
+
+        The queue badge, the packet and the alert were corrected together while
+        this line — in the dispute panel of the detail view — kept asserting
+        eligibility off the reason code alone. Observed live on event 26, whose
+        payload carries an empty `enhanced_eligibility_types`.
+        """
+        self._open_dispute(app, [])
+        event = StripeEvent.query.filter_by(stripe_event_id="evt_badge").one()
+
+        body = logged_in.get(f"/activity/eventos/{event.id}").get_data(as_text=True)
+
+        assert "10.4" in body
+        assert "eligible for a Compelling Evidence 3.0 counter-response." not in body
+        assert "not marked" in body.lower()
+
+    def test_detail_view_says_so_when_stripe_confirms(
+        self, app, logged_in, clean_stripe_events
+    ):
+        self._open_dispute(app, ["visa_compelling_evidence_3"])
+        event = StripeEvent.query.filter_by(stripe_event_id="evt_badge").one()
+
+        body = logged_in.get(f"/activity/eventos/{event.id}").get_data(as_text=True)
+
+        assert "Compelling Evidence 3.0" in body
+        assert "not marked" not in body.lower()
+
 
 class TestLinkKind:
     """ "Linked to an account" must not be said of an unredeemed invitation.
