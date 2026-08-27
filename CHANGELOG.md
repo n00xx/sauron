@@ -6,9 +6,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
-## [Unreleased]
+## [2026.9.11] (2026-08-27)
 
 ### Fixed
+
+- **El paquete de evidencia afirmaba cuatro datos que nunca midio.** El
+  2026-08-27 se ejercito por primera vez el `access_activity_log` con
+  reproduccion real, y lo que salio no se sostenia. Este texto va a la casilla
+  de evidencia de Stripe y de ahi a un emisor cuya decision depende de que el
+  relato sea creible, asi que un dato que no se puede defender no es un detalle
+  cosmetico: mina el paquete entero.
+
+  1. **"Total watch time" era la duracion de la obra, no lo reproducido.**
+     `ActivitySession.duration_ms` guarda el `RunTimeTicks` del titulo mientras
+     la sesion sigue abierta — los colectores solo metian la posicion en
+     `session_end`. Medido en vivo: el paquete decia **1h 26m sobre 13 segundos**
+     reproducidos, ~400x, y el valor no se movia en 90 s de reproduccion
+     continua. Ahora se deriva del maximo de `ActivitySnapshot.position_ms`, y
+     una sesion cerrada conserva su `duration_ms` porque ahi ya es el medido.
+     Arreglado tambien en origen: `jellyfin.py` y `emby.py` prefieren
+     `position_ms` en **todo** tipo de evento.
+
+     Reetiquetado ademas, no solo recalculado: `position_ms` es la posicion
+     alcanzada, no tiempo acumulado — un salto adelante la infla y un
+     revisionado no la suma. Y si nadie midio, la linea **se omite**, la misma
+     regla que `_payment_time` ya se aplicaba a si mismo.
+
+  2. **La IP ofrecida como elemento CE 3.0 era RFC 1918.** `172.16.10.1` es lo
+     que ve Jellyfin detras del proxy; la que Stripe guardo en la misma disputa
+     es `201.156.50.146`. CE 3.0 exige que la *purchase IP* **coincida** entre
+     la transaccion disputada y las previas, todas registradas por Stripe desde
+     internet: una direccion de LAN no puede coincidir con ninguna. Se
+     particiona en vez de filtrar — las privadas siguen en el log narrativo,
+     porque son ciertas; solo dejan de presentarse como emparejables.
+
+  3. **"CE 3.0 eligible" salia de un dato de tres.** Se deducia solo del codigo
+     de red Visa 10.4, pero los criterios reales piden ademas dos transacciones
+     previas no disputadas entre 120 y 364 dias antes — un cliente nuevo no
+     puede cumplirlos. Las dos disputas de la bateria traian
+     `enhanced_eligibility_types` **vacio**: Stripe no las consideraba
+     elegibles mientras la insignia decia que si. Ahora se lee del payload ya
+     guardado, en tres estados, y las **tres** superficies (insignia de la cola,
+     paquete y aviso) se mueven juntas.
+
+  4. **"Vinculado a una cuenta" se decia de invitaciones sin redimir.** El
+     vinculo era real y apuntaba a una *invitacion*; no hubo cuenta jamas. El
+     aviso mandaba a *"check that the account was actually revoked"* sobre algo
+     inexistente, y se perdia el argumento mas fuerte: para un alta nunca
+     redimida, el hecho que responde una disputa de fraude no es "no hubo
+     reproducciones", es que **nunca se entrego acceso**. `link_kind` se calcula
+     una vez y lo leen la vista y los avisos; la plantilla ramificaba sobre
+     `invitation_id or wizarr_user_id`, que es justo la inferencia que produjo
+     el bug.
+
+  Dos afirmaciones mas las encontro la revision y no los 40 tests nuevos:
+  `_link_kind` no consultaba `Invitation.used` —una invitacion redimida por un
+  usuario ya borrado habria salido con "no se entrego acceso jamas" siendo
+  falso— y una suma entre varias sesiones se anunciaba como si fuera un maximo.
+
+- **Un objeto EFW no lleva correo**, asi que el paquete renderizaba `Email: -`
+  con la cuenta perfectamente identificada. Cae de vuelta al correo del usuario
+  vinculado. Es elemento **secundario** de CE 3.0: en un caso con pocos
+  elementos decide entre calificar y no.
 
 - **Las URLs absolutas degradaban a `http://` detras del proxy.**
   `/settings/notifications` (sin barra final) respondia **308** hacia
