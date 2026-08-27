@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.0] (2026-08-27)
+
+### Fixed
+
+- **La vista de detalle de un evento llegaba sin CSS al abrirla por enlace.**
+  `_eventos_detail.html` es un parcial de HTMX y no lleva `{% extends %}`, asi
+  que no genera `<html>`, `<head>` ni hoja de estilos. Inyectado en una pagina
+  que ya la cargo se ve bien; abierto directamente el navegador cae a sus
+  valores por defecto — serif, sin color, sin espaciado. Se notaba en que se
+  leia "Close" sobre la X: es un `sr-only`, y sin CSS esa clase no hace nada.
+
+  **Afecta a quien llega desde un aviso.** `_event_link` construye esa misma URL
+  y los tres avisos de disputa la mandan por Telegram.
+
+  La ruta distingue ahora los dos llamadores por `HX-Request` — la convencion
+  que ya usaban `settings` y `api_keys`. Con ella, el fragmento; sin ella, un
+  envoltorio que extiende `base.html` e incluye el mismo parcial.
+
+  Van con ello el boton Close (inerte fuera del tab, y la accion equivocada para
+  quien viene de un enlace: ahora "Back to events") y el parametro `?tab=` de
+  `index.html`, que no se leia — el enlace de vuelta habria prometido Eventos y
+  aterrizado en Dashboard.
+
 ## [2026.9.12] (2026-08-27)
 
 ### Fixed
