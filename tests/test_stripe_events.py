@@ -3038,3 +3038,130 @@ class TestEvidenceEmailFallback:
             db.session.delete(user)
             db.session.delete(server)
             db.session.commit()
+
+
+class TestLinkKindEdges:
+    """Two ways the "never redeemed" claim could be made falsely.
+
+    It is the strongest sentence in the packet, so it must be the best
+    evidenced. Presence of an ``invitation_id`` is not enough: the invitation
+    carries its own ``used`` flag, which means "an account was actually
+    created" — and an invitation that WAS redeemed by a user since deleted
+    leaves no users behind, looking identical to one nobody ever touched.
+    """
+
+    def _event_for(self, invitation_id):
+        event = StripeEvent(
+            stripe_event_id=f"evt_edge_{invitation_id}",
+            type="charge.dispute.created",
+            category="dispute",
+            severity="critical",
+            created_at_stripe=datetime(2026, 8, 26, 14, 39, tzinfo=UTC),
+            livemode=True,
+            object_id="dp_edge",
+            invitation_id=invitation_id,
+        )
+        db.session.add(event)
+        db.session.commit()
+        return event
+
+    def test_redeemed_invitation_whose_user_is_gone_is_not_called_unredeemed(
+        self, app, clean_stripe_events
+    ):
+        """An account existed. Claiming none ever did would be a false statement."""
+        with app.app_context():
+            invitation = Invitation(code="USEDGONE", used=True)
+            db.session.add(invitation)
+            db.session.commit()
+
+            packet = sev.build_evidence_packet(self._event_for(invitation.id))
+
+            assert packet["link_kind"] != "invitation_unredeemed"
+
+            StripeEvent.query.delete()
+            db.session.delete(db.session.get(Invitation, invitation.id))
+            db.session.commit()
+
+    def test_unredeemed_invitation_still_reads_as_unredeemed(
+        self, app, clean_stripe_events
+    ):
+        with app.app_context():
+            invitation = Invitation(code="TRULYNEW", used=False)
+            db.session.add(invitation)
+            db.session.commit()
+
+            packet = sev.build_evidence_packet(self._event_for(invitation.id))
+
+            assert packet["link_kind"] == "invitation_unredeemed"
+
+            StripeEvent.query.delete()
+            db.session.delete(db.session.get(Invitation, invitation.id))
+            db.session.commit()
+
+
+class TestAggregateWatchLabel:
+    """A sum across sessions is not "the furthest position reached".
+
+    One session's furthest point is exact. Three sessions summed is a total, and
+    labelling a total as a maximum misdescribes it — the same class of error as
+    calling a file runtime a watch time.
+    """
+
+    @pytest.fixture
+    def two_sessions(self, app, clean_stripe_events):
+        with app.app_context():
+            server = MediaServer(name="jf-agg", server_type="jellyfin", url="http://x")
+            db.session.add(server)
+            db.session.flush()
+            user = User(
+                username="agguser",
+                email="agg@example.com",
+                code="AGGCODE1",
+                token="tok-agg",
+                server_id=server.id,
+            )
+            db.session.add(user)
+            db.session.flush()
+
+            for index in range(2):
+                db.session.add(
+                    ActivitySession(
+                        server_id=server.id,
+                        session_id=f"agg-{index}",
+                        user_name="agguser",
+                        media_title="Solaris",
+                        started_at=datetime(2026, 8, 20, 12 + index, tzinfo=UTC),
+                        duration_ms=1_800_000,
+                        wizarr_user_id=user.id,
+                        active=False,
+                    )
+                )
+
+            event = StripeEvent(
+                stripe_event_id="evt_agg",
+                type="charge.dispute.created",
+                category="dispute",
+                severity="critical",
+                created_at_stripe=datetime(2026, 8, 30, tzinfo=UTC),
+                livemode=True,
+                object_id="dp_agg",
+                wizarr_user_id=user.id,
+            )
+            db.session.add(event)
+            db.session.commit()
+            yield event.id
+
+            StripeEvent.query.delete()
+            ActivitySession.query.delete()
+            db.session.delete(user)
+            db.session.delete(server)
+            db.session.commit()
+
+    def test_multiple_sessions_are_labelled_as_a_sum(self, app, two_sessions):
+        with app.app_context():
+            event = db.session.get(StripeEvent, two_sessions)
+            log = sev.build_access_activity_log(event)
+
+            assert "1h 00m" in log
+            assert "Furthest playback position reached:" not in log
+            assert "sum" in log.lower()

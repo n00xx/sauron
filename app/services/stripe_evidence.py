@@ -475,7 +475,14 @@ def build_access_activity_log(event: StripeEvent) -> str:
     # same reason: an absent line costs nothing, a wrong one submitted as
     # evidence is worse than no evidence at all.
     if total_ms is not None:
-        lines.append(f"Furthest playback position reached: {_fmt_duration(total_ms)}")
+        # One session's furthest point is exact; several summed is a total, and
+        # a total announced as a maximum misdescribes itself.
+        label = (
+            "Furthest playback position reached"
+            if len(sessions) == 1
+            else "Playback recorded (sum of furthest position per session)"
+        )
+        lines.append(f"{label}: {_fmt_duration(total_ms)}")
     lines.append(f"First access: {_fmt_dt(first)}")
     lines.append(f"Last access: {_fmt_dt(last)}")
     if ips:
@@ -570,7 +577,9 @@ LINK_INVITATION_UNREDEEMED = "invitation_unredeemed"
 LINK_NONE = "none"
 
 
-def _link_kind(event: StripeEvent, users: list[User]) -> str:
+def _link_kind(
+    event: StripeEvent, users: list[User], invitation: Invitation | None
+) -> str:
     """Account, unredeemed invitation, or nothing at all.
 
     An invitation the storefront minted and nobody redeemed is a real link to a
@@ -579,14 +588,20 @@ def _link_kind(event: StripeEvent, users: list[User]) -> str:
     existed, and buried the better argument: for a signup never redeemed, the
     fact that answers a fraud dispute is that ACCESS WAS NEVER DELIVERED, which
     is stronger than reporting an account with no viewing.
+
+    "Never redeemed" is the strongest sentence this module emits, so it is held
+    to the strongest evidence: the invitation's own ``used`` flag, which means
+    an account was actually created. An empty user list will not do — an
+    invitation redeemed by a user since deleted leaves exactly the same trace as
+    one nobody ever touched, and claiming no access was delivered when it was
+    is the very kind of unbacked assertion this whole change removes.
     """
     if users:
         return LINK_ACCOUNT
-    if event.invitation_id:
-        return LINK_INVITATION_UNREDEEMED
+    if invitation is not None:
+        return LINK_ACCOUNT if invitation.used else LINK_INVITATION_UNREDEEMED
     if event.wizarr_user_id:
-        # Row points at a user that is gone: still an account link, just a
-        # deleted one. Not the unredeemed case.
+        # Row points at a user we could not load: still an account link.
         return LINK_ACCOUNT
     return LINK_NONE
 
@@ -677,7 +692,7 @@ def build_evidence_packet(event: StripeEvent) -> dict[str, Any]:
         # Computed once, here, and read verbatim by the view and the alerts.
         # Both used to re-derive it from `invitation_id or wizarr_user_id`,
         # which cannot tell a redeemed invitation from an unredeemed one.
-        "link_kind": _link_kind(event, users),
+        "link_kind": _link_kind(event, users, invitation),
     }
 
 
