@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import pathlib
 from datetime import UTC, datetime, timedelta
+from typing import ClassVar
 from unittest.mock import patch
 
 import pytest
@@ -982,7 +983,9 @@ class TestEvidence:
             event = db.session.get(StripeEvent, purchase)
             ce3 = sev.build_ce3_elements(event)
 
-            assert ce3["customer_purchase_ip"] == ["189.10.0.1", "189.10.0.9"]
+            assert ce3["access_ip"] == ["189.10.0.1", "189.10.0.9"]
+            # Not ours to supply: Stripe records where the card was used.
+            assert ce3["customer_purchase_ip"] == []
             assert ce3["customer_account_ids"] == ["buyer"]
             assert ce3["customer_email"] == "buyer@example.com"
             # 10.4 is necessary but not sufficient, and this fixture carries no
@@ -2548,12 +2551,13 @@ class TestWatchTimeHonesty:
 class TestCE3MatchingElements:
     """What may honestly be offered as a Visa CE 3.0 matching element.
 
-    CE 3.0 asks the disputed transaction and two prior undisputed ones to agree
-    on the customer's purchase IP. The address Jellyfin reports is the one it
-    sees behind the proxy — on 2026-08-27 that was `172.16.10.1`, while the IP
-    Stripe recorded for the same purchase was `201.156.50.146`. An RFC 1918
-    address cannot match anything Stripe ever saw, so offering it under
-    "matching elements" promises a coincidence that cannot happen.
+    These are the PLAYBACK addresses — `ce3["access_ip"]`. The purchase IP is
+    Stripe's and is tested in TestStripePrefilledEvidence.
+
+    The address Jellyfin reports is the one it sees behind the proxy — on
+    2026-08-27 that was `172.16.10.1`. An RFC 1918 address corroborates nothing:
+    it cannot coincide with anything ever seen from the internet, so listing it
+    beside real evidence pads the packet with a value that can only weaken it.
     """
 
     @pytest.fixture
@@ -2621,7 +2625,7 @@ class TestCE3MatchingElements:
 
         ce3 = sev.build_ce3_elements(event)
 
-        assert ce3["customer_purchase_ip"] == []
+        assert ce3["access_ip"] == []
 
     def test_private_ip_is_still_reported_as_what_the_server_saw(
         self, app, dispute_with_ips
@@ -2642,7 +2646,7 @@ class TestCE3MatchingElements:
 
         ce3 = sev.build_ce3_elements(event)
 
-        assert ce3["customer_purchase_ip"] == ["201.156.50.146"]
+        assert ce3["access_ip"] == ["201.156.50.146"]
         assert ce3["server_observed_ip"] == []
 
     @pytest.mark.parametrize(
@@ -2655,7 +2659,7 @@ class TestCE3MatchingElements:
 
         ce3 = sev.build_ce3_elements(event)
 
-        assert ce3["customer_purchase_ip"] == ["201.156.50.146"]
+        assert ce3["access_ip"] == ["201.156.50.146"]
         assert private in ce3["server_observed_ip"]
 
     def test_unparseable_address_is_not_promoted_to_a_match(
@@ -2667,7 +2671,7 @@ class TestCE3MatchingElements:
 
         ce3 = sev.build_ce3_elements(event)
 
-        assert ce3["customer_purchase_ip"] == []
+        assert ce3["access_ip"] == []
         assert ce3["server_observed_ip"] == ["not-an-ip"]
 
 
@@ -3317,3 +3321,213 @@ class TestEventDetailStandalone:
 
         assert response.status_code == 404
         assert "<html" not in response.get_data(as_text=True).lower()
+
+
+class TestStripePrefilledEvidence:
+    """The CE 3.0 purchase IP belongs to Stripe, and Stripe already has it.
+
+    Verified live on the 2026-08-26 dispute: the *live* dispute object carries
+    `customer_purchase_ip = 201.156.50.146`, plus name, email and billing
+    address. sauron never saw them because it builds from `StripeEvent` rows,
+    which are SNAPSHOTS taken when the event fired — and there the 25 `evidence`
+    fields are all null. Stripe fills them in afterwards.
+
+    Until now the packet offered the media server's playback IPs under
+    "customer purchase IP". Those are where the customer WATCHED, not where they
+    PAID: useful supporting evidence, but not the element Visa matches on.
+    """
+
+    LIVE_DISPUTE: ClassVar[dict] = {
+        "id": "dp_live",
+        "evidence": {
+            "customer_purchase_ip": "201.156.50.146",
+            "customer_email_address": "buyer@example.com",
+            "customer_name": "QA Disputa",
+            "billing_address": "MX",
+            "receipt": None,
+        },
+    }
+
+    @pytest.fixture
+    def dispute_event(self, app, clean_stripe_events):
+        with app.app_context():
+            server = MediaServer(name="jf-pre", server_type="jellyfin", url="http://x")
+            db.session.add(server)
+            db.session.flush()
+            user = User(
+                username="preuser",
+                email="pre@example.com",
+                code="PRECODE1",
+                token="tok-pre",
+                server_id=server.id,
+            )
+            db.session.add(user)
+            db.session.flush()
+
+            db.session.add(
+                ActivitySession(
+                    server_id=server.id,
+                    session_id="pre-1",
+                    user_name="preuser",
+                    media_title="Solaris",
+                    started_at=datetime(2026, 8, 20, 12, 0, tzinfo=UTC),
+                    duration_ms=3_600_000,
+                    # A public playback address: matchable in the old sense, but
+                    # still not the purchase IP.
+                    ip_address="189.10.0.1",
+                    wizarr_user_id=user.id,
+                    active=False,
+                )
+            )
+
+            event = StripeEvent(
+                stripe_event_id="evt_prefilled",
+                type="charge.dispute.created",
+                category="dispute",
+                severity="critical",
+                created_at_stripe=datetime(2026, 8, 26, 14, 39, tzinfo=UTC),
+                livemode=True,
+                object_id="dp_live",
+                charge_id="ch_live",
+                network_reason_code="10.4",
+                wizarr_user_id=user.id,
+            )
+            db.session.add(event)
+            db.session.commit()
+            yield event.id
+
+            StripeEvent.query.delete()
+            ActivitySession.query.delete()
+            db.session.delete(user)
+            db.session.delete(server)
+            db.session.commit()
+
+    def test_purchase_ip_comes_from_stripe(self, app, dispute_event, monkeypatch):
+        with app.app_context():
+            monkeypatch.setattr(sev, "get_setting", lambda *a, **k: "sk_test_x")
+            monkeypatch.setattr(sev, "fetch_dispute", lambda *a, **k: self.LIVE_DISPUTE)
+
+            event = db.session.get(StripeEvent, dispute_event)
+            ce3 = sev.build_ce3_elements(event)
+
+            assert ce3["customer_purchase_ip"] == ["201.156.50.146"]
+
+    def test_playback_ips_are_not_called_purchase_ips(
+        self, app, dispute_event, monkeypatch
+    ):
+        """Where they watched is not where they paid."""
+        with app.app_context():
+            monkeypatch.setattr(sev, "get_setting", lambda *a, **k: "sk_test_x")
+            monkeypatch.setattr(sev, "fetch_dispute", lambda *a, **k: self.LIVE_DISPUTE)
+
+            event = db.session.get(StripeEvent, dispute_event)
+            ce3 = sev.build_ce3_elements(event)
+
+            assert "189.10.0.1" not in ce3["customer_purchase_ip"]
+            assert ce3["access_ip"] == ["189.10.0.1"]
+
+    def test_no_api_key_never_calls_stripe(self, app, dispute_event, monkeypatch):
+        """The packet renders on every page visit; it must not need the network."""
+        calls: list = []
+
+        with app.app_context():
+            monkeypatch.setattr(sev, "get_setting", lambda *a, **k: None)
+            monkeypatch.setattr(
+                sev, "fetch_dispute", lambda *a, **k: calls.append(1) or {}
+            )
+
+            event = db.session.get(StripeEvent, dispute_event)
+            ce3 = sev.build_ce3_elements(event)
+
+            assert calls == []
+            assert ce3["customer_purchase_ip"] == []
+
+    def test_stripe_failure_still_builds_the_packet(
+        self, app, dispute_event, monkeypatch
+    ):
+        """Stripe being down must not take the evidence view with it."""
+
+        def _boom(*a, **k):
+            raise sev.StripeApiError("down", 503, True)
+
+        with app.app_context():
+            monkeypatch.setattr(sev, "get_setting", lambda *a, **k: "sk_test_x")
+            monkeypatch.setattr(sev, "fetch_dispute", _boom)
+
+            event = db.session.get(StripeEvent, dispute_event)
+            packet = sev.build_evidence_packet(event)
+
+            assert packet["ce3"]["customer_purchase_ip"] == []
+            # The half sauron owns is unaffected.
+            assert packet["ce3"]["access_ip"] == ["189.10.0.1"]
+            assert packet["has_evidence"] is True
+
+    def test_non_dispute_event_never_calls_stripe(
+        self, app, clean_stripe_events, monkeypatch
+    ):
+        """An early fraud warning has no dispute object to read."""
+        calls: list = []
+
+        with app.app_context():
+            monkeypatch.setattr(sev, "get_setting", lambda *a, **k: "sk_test_x")
+            monkeypatch.setattr(
+                sev, "fetch_dispute", lambda *a, **k: calls.append(1) or {}
+            )
+
+            event = StripeEvent(
+                stripe_event_id="evt_efw_nofetch",
+                type="radar.early_fraud_warning.created",
+                category="dispute",
+                severity="critical",
+                created_at_stripe=datetime(2026, 8, 27, 2, 2, tzinfo=UTC),
+                livemode=True,
+                object_id="issfr_1",
+            )
+            db.session.add(event)
+            db.session.commit()
+
+            sev.build_ce3_elements(event)
+            assert calls == []
+
+            StripeEvent.query.delete()
+            db.session.commit()
+
+    def test_prefilled_block_is_exposed_for_the_operator(
+        self, app, dispute_event, monkeypatch
+    ):
+        """Name, email and billing address arrive in the same response.
+
+        All three are CE 3.0 secondary elements, and knowing Stripe has already
+        filled them saves the operator retyping what is on file.
+        """
+        with app.app_context():
+            monkeypatch.setattr(sev, "get_setting", lambda *a, **k: "sk_test_x")
+            monkeypatch.setattr(sev, "fetch_dispute", lambda *a, **k: self.LIVE_DISPUTE)
+
+            event = db.session.get(StripeEvent, dispute_event)
+            packet = sev.build_evidence_packet(event)
+
+            prefilled = packet["stripe_prefilled"]
+            assert prefilled["customer_name"] == "QA Disputa"
+            assert prefilled["billing_address"] == "MX"
+            # Nulls are dropped: an empty row reads as a missing field, not
+            # as a field Stripe filled with nothing.
+            assert "receipt" not in prefilled
+
+    def test_stripe_is_read_once_not_per_session(self, app, dispute_event, monkeypatch):
+        """`build_evidence_packet` calls the element builder and the log builder."""
+        calls: list = []
+
+        with app.app_context():
+            monkeypatch.setattr(sev, "get_setting", lambda *a, **k: "sk_test_x")
+
+            def _count(*a, **k):
+                calls.append(1)
+                return self.LIVE_DISPUTE
+
+            monkeypatch.setattr(sev, "fetch_dispute", _count)
+
+            event = db.session.get(StripeEvent, dispute_event)
+            sev.build_evidence_packet(event)
+
+            assert len(calls) == 1

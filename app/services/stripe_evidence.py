@@ -96,6 +96,94 @@ def fetch_payment_intent(api_key: str, payment_intent_id: str) -> dict[str, Any]
     return body if isinstance(body, dict) else {}
 
 
+# Shorter than REQUEST_TIMEOUT on purpose: this call runs while an operator
+# waits for the evidence page. Everything it adds is a bonus on top of a packet
+# that already builds without it, so a slow Stripe must cost seconds, not the
+# twenty a sync job can afford.
+DISPUTE_FETCH_TIMEOUT = 5
+
+# The prefilled fields worth surfacing, all of them CE 3.0 elements: the
+# purchase IP is the MAIN one, the rest secondary.
+_PREFILLED_EVIDENCE_FIELDS = (
+    "customer_purchase_ip",
+    "customer_email_address",
+    "customer_name",
+    "billing_address",
+)
+
+
+def fetch_dispute(api_key: str, dispute_id: str) -> dict[str, Any]:
+    """Read one live dispute. Read-only; used to reach its ``evidence`` block."""
+    try:
+        response = requests.get(
+            f"{STRIPE_API_BASE}/disputes/{dispute_id}",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=DISPUTE_FETCH_TIMEOUT,
+        )
+    except requests.RequestException as exc:
+        raise StripeApiError(f"Stripe request failed: {exc}", None, True) from exc
+
+    if response.status_code >= 400:
+        raise StripeApiError(
+            f"Could not read dispute ({response.status_code}).",
+            response.status_code,
+            response.status_code >= 500 or response.status_code == 429,
+        )
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise StripeApiError("Stripe returned invalid JSON.", None, True) from exc
+    return body if isinstance(body, dict) else {}
+
+
+def stripe_prefilled_evidence(event: StripeEvent) -> dict[str, str]:
+    """Evidence fields Stripe has already filled in on the live dispute.
+
+    Verified live on 2026-08-26: the dispute object carries
+    ``customer_purchase_ip``, ``customer_name``, ``customer_email_address`` and
+    ``billing_address`` — while the ``StripeEvent`` row sauron builds from has
+    all 25 evidence fields null. The row is a SNAPSHOT of the moment the event
+    fired; Stripe populates the object afterwards. So the data exists and the
+    only way to it is the live object.
+
+    Best effort by design. Every caller already has a packet without this, and
+    the evidence view must render whether or not Stripe answers.
+    """
+    if not event.type.startswith("charge.dispute."):
+        return {}
+
+    dispute_id = event.object_id
+    if not dispute_id:
+        return {}
+
+    api_key = get_setting("stripe_api_key")
+    if not api_key:
+        return {}
+
+    try:
+        dispute = fetch_dispute(api_key, dispute_id)
+    except StripeApiError as exc:
+        logger.warning(
+            "Could not read prefilled evidence from Stripe",
+            event_id=event.stripe_event_id,
+            dispute_id=dispute_id,
+            error=str(exc),
+        )
+        return {}
+
+    evidence = dispute.get("evidence")
+    if not isinstance(evidence, dict):
+        return {}
+
+    # Nulls are dropped rather than carried as empty strings: a blank row reads
+    # as a field Stripe filled with nothing, which is not what happened.
+    return {
+        field: str(evidence[field])
+        for field in _PREFILLED_EVIDENCE_FIELDS
+        if evidence.get(field)
+    }
+
+
 def _invitation_from_metadata(metadata: Any) -> Invitation | None:
     """Read an invitation id off the PaymentIntent metadata, if one is there.
 
@@ -627,7 +715,9 @@ def _is_matchable_ip(value: str) -> bool:
     return parsed.is_global
 
 
-def build_ce3_elements(event: StripeEvent) -> dict[str, Any]:
+def build_ce3_elements(
+    event: StripeEvent, prefilled: dict[str, str] | None = None
+) -> dict[str, Any]:
     """The element set Visa CE 3.0 matches a disputed charge against.
 
     CE 3.0 needs the disputed transaction and two prior undisputed ones to agree
@@ -639,13 +729,24 @@ def build_ce3_elements(event: StripeEvent) -> dict[str, Any]:
     sauron supplies the IP, the device and the account ID. Stripe supplies the
     prior transactions; this function only surfaces what to match on.
 
-    Addresses are split rather than filtered away: a private one is still a true
-    statement about what the server saw and belongs in the narrative log, it
-    just cannot serve as a matching element. See :func:`_is_matchable_ip`.
+    The purchase IP comes from STRIPE, not from us. sauron only ever sees where
+    somebody watched, and where they watched is not where they paid — offering a
+    playback address under that name claims an element we cannot supply. Stripe
+    records the real one at checkout and prefills it on the dispute; see
+    :func:`stripe_prefilled_evidence`. When it cannot be read the field is
+    empty, which is the honest answer.
+
+    The playback addresses stay, under their own name: they are what proves the
+    service was used, and the public ones can corroborate. Private ones are
+    split off again — a LAN address is a true statement about what the server
+    saw and belongs in the narrative log, but it can match nothing Stripe
+    recorded. See :func:`_is_matchable_ip`.
     """
     sessions = _sessions_for(event)
+    prefilled = prefilled or stripe_prefilled_evidence(event)
     observed = {s.ip_address for s in sessions if s.ip_address}
     matchable = {ip for ip in observed if _is_matchable_ip(ip)}
+    purchase_ip = prefilled.get("customer_purchase_ip")
     # An early fraud warning object carries no email, but the account it
     # resolved to does. Email is a SECONDARY CE 3.0 element, so in a case
     # carrying few elements this is the difference between qualifying and not.
@@ -654,7 +755,10 @@ def build_ce3_elements(event: StripeEvent) -> dict[str, Any]:
         linked = db.session.get(User, event.wizarr_user_id)
         email = linked.email if linked else None
     return {
-        "customer_purchase_ip": sorted(matchable),
+        # Stripe's own record of where the card was used. The CE 3.0 element.
+        "customer_purchase_ip": [purchase_ip] if purchase_ip else [],
+        # Where the service was consumed. Supporting evidence, not a match.
+        "access_ip": sorted(matchable),
         "server_observed_ip": sorted(observed - matchable),
         "device_ids": sorted({s.device_name for s in sessions if s.device_name}),
         "clients": sorted({s.client_name for s in sessions if s.client_name}),
@@ -667,7 +771,12 @@ def build_ce3_elements(event: StripeEvent) -> dict[str, Any]:
 
 
 def build_evidence_packet(event: StripeEvent) -> dict[str, Any]:
-    """Everything the operator needs to answer one dispute, in one dict."""
+    """Everything the operator needs to answer one dispute, in one dict.
+
+    Reads Stripe once, here, and hands the result down: the element builder
+    would otherwise call out again for the same dispute on the same render.
+    """
+    prefilled = stripe_prefilled_evidence(event)
     sessions = _sessions_for(event)
     invitation = (
         db.session.get(Invitation, event.invitation_id) if event.invitation_id else None
@@ -687,7 +796,10 @@ def build_evidence_packet(event: StripeEvent) -> dict[str, Any]:
         "first_access": sessions[0].started_at if sessions else None,
         "last_access": sessions[-1].started_at if sessions else None,
         "access_activity_log": build_access_activity_log(event),
-        "ce3": build_ce3_elements(event),
+        "ce3": build_ce3_elements(event, prefilled),
+        # Surfaced so the operator can see what Stripe already has on file
+        # rather than retyping it into the evidence form.
+        "stripe_prefilled": prefilled,
         "has_evidence": bool(sessions),
         # Computed once, here, and read verbatim by the view and the alerts.
         # Both used to re-derive it from `invitation_id or wizarr_user_id`,
