@@ -25,17 +25,52 @@ EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,7}$")
 # display-preferences id "usersettings" with client "emby" — that client string
 # is what jellyfin-web itself sends (CLIENT_ID = 'emby' in userSettings.js), NOT
 # a copy-paste slip from the Emby back-end. Changing it writes to a bucket the
-# user's client never reads.
+# user's client never reads. jellyfin-roku reads that same bucket, by the same
+# id and client (source/utils/session.bs, LoadUserPreferences).
 HOME_PREFS_ID = "usersettings"
 HOME_PREFS_CLIENT = "emby"
-
-# On write the server clears every stored HomeSection and re-adds only the keys
-# it receives, so a section we omit falls back to the client's built-in default
-# (My Media, Continue Watching, …). Current jellyfin-web exposes 10 configurable
-# sections, older releases expose 7; writing all 10 holds the invariant across
-# both and costs the same single request.
-HOME_SECTION_COUNT = 10
 HOME_SECTION_NONE = "none"
+
+# Sauron used to blank all ten sections on every account it created. On the TV
+# that produced a Home screen with nothing on it: jellyfin-roku only falls back
+# to its own defaults when `homesection0` is ABSENT (session.bs,
+# SaveUserHomeSections), and it skips every section reading "none" (HomeRows.bs,
+# processUserSections) — so a blanked account got no rows, no library tiles, no
+# navigation, just the top bar. It went unnoticed on the web client because
+# there the libraries stay reachable from the sidebar regardless of the Home.
+#
+# Sauron no longer writes this at all. An untouched account has no homesection
+# keys and every client applies its own defaults, which is the state of the
+# accounts that were never provisioned through here. What remains below is the
+# repair for the ones blanked before that change.
+#
+# Measured against Jellyfin 10.11.11, because the original assumption was the
+# opposite and wrong: POSTing DisplayPreferences with the homesection keys
+# OMITTED returns 204 and LEAVES THE STORED VALUES ALONE. It does not clear
+# them. So a blanked account cannot be returned to its pristine, key-less state
+# — the only way out is to write real section names over the blanks.
+#
+# The set below is Jellyfin's own default (DEFAULT_SECTIONS in jellyfin-web's
+# src/types/homeSectionType.ts, which the file documents as mirroring the
+# server's DisplayPreferencesController). Both the web client and Roku
+# understand every name in it.
+DEFAULT_HOME_SECTIONS = (
+    "smalllibrarytiles",
+    "resume",
+    "resumeaudio",
+    "resumebook",
+    "livetv",
+    "nextup",
+    "latestmedia",
+    "none",
+    "none",
+    "none",
+)
+
+# jellyfin-roku only reads sections 0-7 (HomeRows.bs loops `for i = 0 to 7`), so
+# those are the ones that decide whether the TV has anything to draw. Sections 8
+# and 9 exist for newer jellyfin-web and cannot rescue a blank Roku Home.
+ROKU_HOME_SECTION_COUNT = 8
 
 # ── Playlists library ────────────────────────────────────────────────────────
 # Never grant Jellyfin's Playlists folder to a provisioned account. Matched on
@@ -156,25 +191,59 @@ class JellyfinClient(RestApiMixin):
     def set_policy(self, user_id: str, policy: dict) -> None:
         self.post(f"/Users/{user_id}/Policy", json=policy)
 
-    def reset_home_sections(self, user_id: str) -> None:
-        """Set every Home screen section of a Jellyfin user to "None".
+    def get_home_sections(self, user_id: str) -> dict[str, str]:
+        """Return the stored ``homesection*`` entries for a user.
 
-        Raises on transport errors; callers decide whether that is fatal. It is
-        not, for account creation — see the call sites.
+        Comes back empty when no Home layout was ever written to the account,
+        which is exactly the state every client reads as "apply my defaults".
 
-        Only valid for Jellyfin. EmbyClient subclasses JellyfinClient and so
-        inherits this method, but Emby's display-preferences semantics differ,
-        so callers must not invoke it for an Emby server.
+        Only meaningful for Jellyfin. EmbyClient subclasses JellyfinClient and
+        so inherits this, but Emby stores display preferences differently.
+        """
+        params = {"userId": user_id, "client": HOME_PREFS_CLIENT}
+        prefs = self.get(f"/DisplayPreferences/{HOME_PREFS_ID}", params=params).json()
+        custom_prefs = prefs.get("CustomPrefs") or {}
+        return {
+            key: value
+            for key, value in custom_prefs.items()
+            if key.startswith("homesection")
+        }
+
+    def home_screen_is_blank(self, user_id: str) -> bool:
+        """True when every section the Roku app reads is "none".
+
+        That is the signature sauron used to leave behind, and it is what makes
+        the TV draw an empty Home. An account that never had sections written
+        answers False: absent keys are the healthy state, not a blanked one.
+        """
+        sections = self.get_home_sections(user_id)
+        if not sections:
+            return False
+
+        return all(
+            (sections.get(f"homesection{index}") or HOME_SECTION_NONE)
+            == HOME_SECTION_NONE
+            for index in range(ROKU_HOME_SECTION_COUNT)
+        )
+
+    def restore_default_home_sections(self, user_id: str) -> None:
+        """Write Jellyfin's own default Home layout over a blanked account.
+
+        Read-modify-write that keeps every unrelated preference: the POST
+        replaces the whole document, so dropping the rest would take the
+        member's playback and Live TV settings with it.
+
+        Raises on transport errors; the caller decides whether that is fatal.
         """
         params = {"userId": user_id, "client": HOME_PREFS_CLIENT}
         prefs = self.get(f"/DisplayPreferences/{HOME_PREFS_ID}", params=params).json()
 
-        # A freshly created user has no HomeSections rows yet, so the GET comes
-        # back with no homesection* keys at all — assign them rather than expect
-        # to overwrite existing ones.
         custom_prefs = {
             **(prefs.get("CustomPrefs") or {}),
-            **{f"homesection{i}": HOME_SECTION_NONE for i in range(HOME_SECTION_COUNT)},
+            **{
+                f"homesection{index}": name
+                for index, name in enumerate(DEFAULT_HOME_SECTIONS)
+            },
         }
 
         self.post(
@@ -971,18 +1040,9 @@ class JellyfinClient(RestApiMixin):
 
             self.set_policy(user_id, current_policy)
 
-            # Cosmetic preference, and it runs last on purpose: the account, its
-            # libraries and its policy already exist by now. Letting an exception
-            # escape would hit the handler below, roll back, and leave an
-            # orphaned Jellyfin user behind a "sign-up failed" message.
-            try:
-                self.reset_home_sections(user_id)
-            except Exception:
-                logging.warning(
-                    "Jellyfin: could not blank home sections for %s",
-                    username,
-                    exc_info=True,
-                )
+            # The Home screen layout is deliberately left alone. Sauron used to
+            # blank it here, which cost the Roku app every row it had to draw.
+            # An account with no homesection keys gets each client's defaults.
 
             from app.services.expiry import calculate_user_expiry
 

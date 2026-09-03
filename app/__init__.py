@@ -190,6 +190,27 @@ def create_app(config_object=DevelopmentConfig):
             logger.step("Scanning media server libraries", "📚")
             logger.info("Skipped during migrations")
 
+        # Step 8b: Repair Jellyfin Home screens sauron blanked before 2026.10.4.
+        # Shares the library scan's guard: both talk to the media servers, and
+        # neither should run while migrations hold the database.
+        if not skip_library_scan:
+            try:
+                from .services.jellyfin_home_repair import (
+                    repair_blank_home_sections,
+                )
+
+                repair_summary = repair_blank_home_sections()
+
+                if show_startup and repair_summary["repaired"]:
+                    logger.success(
+                        f"Restored the Home screen on {repair_summary['repaired']} "
+                        "Jellyfin account(s)"
+                    )
+            except Exception as exc:
+                # Non-fatal – log and continue startup to avoid blocking the app
+                if show_startup:
+                    logger.warning(f"Jellyfin Home screen repair failed: {exc}")
+
     # Step 9: Initialize Plus features if enabled
     if show_startup:
         logger.step("Checking for Plus features", "⭐")

@@ -52,13 +52,9 @@ def _stub_http_layer(monkeypatch, server_id):
     def set_policy(self, user_id, policy):
         return None
 
-    def reset_home_sections(self, user_id):
-        return None
-
     monkeypatch.setattr(JellyfinClient, "create_user", create_user)
     monkeypatch.setattr(JellyfinClient, "get", get)
     monkeypatch.setattr(JellyfinClient, "set_policy", set_policy)
-    monkeypatch.setattr(JellyfinClient, "reset_home_sections", reset_home_sections)
     return created
 
 
