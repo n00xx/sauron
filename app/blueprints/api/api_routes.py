@@ -539,15 +539,80 @@ class UserExtendResource(Resource):
     @api.marshal_with(user_extend_response)
     @api.response(401, "Invalid or missing API key", error_model)
     @api.response(404, "User not found", error_model)
+    @api.response(502, "Media server refused to reactivate the account", error_model)
     @api.response(500, "Internal server error", error_model)
     @require_api_key
     def post(self, user_id):
-        """Extend a user's expiry date."""
+        """Extend a user's expiry date, reactivating the account if needed.
+
+        This is the whole renewal in one call. A disabled account — which is
+        what an expired one looks like — is turned back on before the date
+        moves, so a caller does NOT need to follow this with POST /enable.
+
+        Returns 502 when the account could not be reactivated. The expiry is
+        left UNCHANGED in that case, which makes the call safe to retry: `days`
+        is added to the existing date, so a partial success followed by a retry
+        would otherwise grant the time twice.
+
+        `reactivated` in the response says whether this renewal actually turned
+        an account back on, as opposed to extending one that was still active.
+        """
         # Find user first, outside try block to allow abort to work properly
         user = db.session.get(User, user_id)
         if not user:
             abort(404, error="User not found")
             return None  # Type narrowing: unreachable but helps type checker
+
+        # A renewal is ONE operation from the buyer's side: they paid for
+        # access, so moving the date while the account stays disabled delivers a
+        # renewal that does not work. Reactivating here is what makes this
+        # endpoint sufficient on its own; callers no longer have to remember to
+        # follow it with POST /enable.
+        #
+        # Order matters twice over:
+        #
+        # 1. The enable runs BEFORE the date moves because extending is not
+        #    idempotent — `days` is added to what is already there — so a caller
+        #    retrying after a failure would stack a second `days` on top.
+        #    Failing before the write leaves nothing to undo.
+        #
+        # 2. It sits OUTSIDE the try block below for the same reason the 404
+        #    above does: `abort` raises an HTTPException, and that block's broad
+        #    `except Exception` would swallow the 502 into a 500 whose body
+        #    marshals to {"message": null, ...} — a failed renewal that reads
+        #    like a delivered one, which is the exact bug POST /enable's 502 was
+        #    introduced to kill.
+        #
+        # `user.is_disabled` rather than a live read of the media server's
+        # policy: sauron's own column is the source of truth here, the same
+        # choice app/services/credentials.py makes and for the same reason.
+        reactivated = False
+        if user.is_disabled:
+            try:
+                enabled = enable_user(user.id)
+            except Exception as exc:
+                logger.error(
+                    "Renewal reactivation raised for user %s: %s", user_id, exc
+                )
+                enabled = False
+
+            if not enabled:
+                logger.warning(
+                    "Renewal for user %s could not reactivate the account", user_id
+                )
+                abort(
+                    502,
+                    error=(
+                        f"Expiry NOT extended: could not reactivate "
+                        f"{user.username} on the media server. Safe to retry."
+                    ),
+                )
+            reactivated = True
+
+            # The account is live again, so the expiry sweep's record of it is
+            # stale. Mirrors the same cleanup in POST /enable.
+            if user.email:
+                cleanup_expired_user_by_email(user.email)
 
         try:
             logger.info("API: Extending expiry for user %s", user_id)
@@ -556,13 +621,22 @@ class UserExtendResource(Resource):
             data = api.payload or {}
             days = data.get("days", 30)
 
-            # Extend expiry
+            # Extend from the LATER of now and the current expiry.
+            #
+            # Adding to a past date was the bug this replaces: an account that
+            # lapsed 60 days ago, renewed for 30, landed 30 days BEFORE today,
+            # and the next expiry sweep disabled the buyer again minutes after
+            # they paid. Taking the maximum still credits unused time to
+            # somebody renewing early, which is the behaviour worth keeping.
+            now = datetime.datetime.now(datetime.UTC)
+            base = now
             if user.expires:
-                new_expiry = user.expires + datetime.timedelta(days=days)
-            else:
-                new_expiry = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
-                    days=days
-                )
+                current = user.expires
+                if current.tzinfo is None:
+                    current = current.replace(tzinfo=datetime.UTC)
+                base = max(now, current)
+
+            new_expiry = base + datetime.timedelta(days=days)
 
             user.expires = new_expiry
             db.session.commit()
@@ -578,7 +652,8 @@ class UserExtendResource(Resource):
                 notify(
                     "Membership renewed",
                     f"{user.username} renewed for {days} more days "
-                    f"(now expires {new_expiry.date().isoformat()}).",
+                    f"(now expires {new_expiry.date().isoformat()})"
+                    + (" and was reactivated." if reactivated else "."),
                     tags="tada",
                     event_type="user_renewed",
                 )
@@ -588,6 +663,7 @@ class UserExtendResource(Resource):
             return {
                 "message": f"User {user.username} expiry extended by {days} days",
                 "new_expiry": new_expiry.isoformat(),
+                "reactivated": reactivated,
             }
 
         except Exception as e:
@@ -606,7 +682,17 @@ class UserUpdateExpiryResource(Resource):
     @api.response(500, "Internal server error", error_model)
     @require_api_key
     def put(self, user_id):
-        """Update a user's expiry date to a specific date or unlimited."""
+        """Update a user's expiry date to a specific date or unlimited.
+
+        Deliberately does NOT reactivate a disabled account, unlike
+        POST /extend. This endpoint sets an arbitrary date, and setting one in
+        the PAST is how an operator schedules an expiry — turning the account
+        back on here would defeat that. `/extend` is the renewal path; this one
+        is administrative.
+
+        The gap that leaves — a future date on a disabled account — is caught by
+        app/services/renewal_health.py rather than papered over here.
+        """
         # Find user first, outside try block to allow abort to work properly
         user = db.session.get(User, user_id)
         if not user:

@@ -72,6 +72,12 @@ user_extend_response = api.model(
     {
         "message": fields.String(description="Success message"),
         "new_expiry": fields.DateTime(description="New expiration date"),
+        "reactivated": fields.Boolean(
+            description=(
+                "True when the account was disabled and this renewal turned it "
+                "back on. False when it was already active."
+            )
+        ),
     },
 )
 
