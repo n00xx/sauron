@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.3] (2026-09-03)
+
+### Fixed
+
+- **La alerta de socios bloqueados podia dispararse en medio de una renovacion
+  sana.** La tienda renueva con dos llamadas HTTP —fija la caducidad primero y
+  habilita despues, a proposito, porque el orden inverso dejaria la cuenta
+  habilitada pero vencida y la barredora la apagaria de nuevo— asi que durante
+  los milisegundos entre ambas una renovacion perfecta se lee como "membresia
+  vigente, cuenta apagada", que es justo lo que la deteccion busca.
+
+  La ventana era diminuta y la alerta se auto-limpiaba en la pasada siguiente,
+  pero un falso positivo en un canal operational, que llega a todos los agentes,
+  es exactamente lo que hace que un canal deje de leerse.
+
+  Ahora una alerta exige dos avistamientos consecutivos: la primera vez que se ve
+  a un socio se anota en silencio, y solo si sigue bloqueado en la pasada
+  siguiente se avisa. Cuesta un ciclo de retraso en una alerta legitima. El
+  estado guardado pasa de una lista a `{"seen": [...], "reported": [...]}`, y lee
+  el formato de 2026.10.2 sin volver a avisar de lo que aquella version ya
+  reporto.
+
 ## [2026.10.2] (2026-09-03)
 
 ### Added
