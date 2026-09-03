@@ -6,6 +6,79 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.2] (2026-09-03)
+
+### Added
+
+- **Quick Connect: entrar en la TV sin teclear la contrasena con el mando.** Un
+  paso nuevo del asistente pregunta donde se va a configurar y, para televisores
+  y consolas, muestra la direccion del servidor y una caja donde el comprador
+  escribe los 6 digitos que su TV le ensena. Sauron autoriza ese codigo contra
+  Jellyfin y el televisor entra solo.
+
+  El flujo va en esa direccion y no en la contraria porque el protocolo lo
+  impone: el codigo NACE en el televisor y quien lo inicia se queda con el
+  secret, asi que sauron no puede emitir un codigo y darselo al comprador. Lo
+  que se elimina es usuario y contrasena en el mando; escribir la direccion del
+  servidor una vez por dispositivo sigue haciendo falta, porque ningun cliente
+  de Jellyfin descubre servidores remotos.
+
+  Verificado contra Jellyfin 10.11.11: la API key de admin si puede autorizar en
+  nombre de otro usuario, y un codigo desconocido responde 404 y no 403, que es
+  como se distingue un codigo caducado de una key que perdio el permiso. Sauron
+  no necesita nunca la contrasena del comprador para esto.
+
+  El `userId` sale exclusivamente de la sesion, nunca del request: si viniera del
+  cuerpo, cualquiera apuntaria el codigo de su propia TV al id del administrador
+  y se llevaria un token de admin. Sin identidad en sesion la peticion se
+  rechaza, en vez de resolverse por codigo de invitacion — que en invitaciones
+  multiuso serviria la cuenta equivocada.
+
+  Samsung va por rama aparte a usuario y contrasena: la tabla oficial de clientes
+  de Jellyfin no tiene fila de Tizen para Quick Connect. Si la funcion esta
+  apagada en el servidor, el paso degrada a credenciales en vez de ofrecer una
+  caja de codigo que no puede funcionar.
+
+- **Alerta cuando un socio al corriente queda bloqueado.** Busca membresias
+  vigentes cuya cuenta esta apagada — un cliente que pago, no tiene acceso, y
+  nada se ve mal desde fuera. Corre en la misma cadencia que la barredora de
+  caducidad y por la razon espejo: aquella quita el acceso cuando la membresia
+  vence, esta nota cuando el acceso no volvio nunca.
+
+  Solo cuenta la caducidad futura, porque una cuenta desactivada sin fecha es
+  casi siempre una suspension deliberada, y avisar de esas para siempre es como
+  se acaba silenciando un canal de alertas. Deduplica por socio: una situacion
+  que persiste avisa una vez y no en cada tick, y olvida los ids ya resueltos
+  para que una reincidencia vuelva a avisar.
+
+### Fixed
+
+- **Renovar extendia la fecha y dejaba la cuenta desactivada.** `POST
+  /api/users/<id>/extend` movia `expires` sin reactivar nada; reactivar era una
+  segunda llamada a `/enable` que el llamador tenia que recordar. Si se olvidaba,
+  fallaba, o el proceso se cortaba entre las dos, el comprador pagaba y no podia
+  entrar, mientras la membresia leia como vigente.
+
+  Ahora `/extend` es la renovacion entera. El enable va antes de mover la fecha
+  porque extender no es idempotente — `days` se suma a lo que ya hay — asi que
+  una llamada que moviera la fecha y luego fallara al reactivar regalaria el
+  tiempo dos veces al reintentar. Si no puede reactivar responde 502 y no
+  extiende, lo que hace el reintento seguro. La respuesta trae `reactivated`.
+
+  `PUT /update-expiry` se deja como estaba a proposito: tambien sirve para
+  programar caducidades en el pasado, asi que reactivar ahi lo romperia. El hueco
+  que deja lo cubre la alerta nueva.
+
+  La secuencia vieja de dos llamadas sigue funcionando; el `/enable` queda
+  redundante pero inofensivo.
+
+- **Renovar una cuenta vencida hace tiempo la dejaba vencida igual.** La fecha se
+  extendia desde `user.expires`, asi que quien vencio hace 60 dias y renovaba 30
+  quedaba con una fecha 30 dias en el pasado, y la barredora lo desactivaba de
+  nuevo minutos despues de pagar. Ahora se extiende desde el mayor entre hoy y la
+  caducidad actual, que sigue acreditando el tiempo sin usar a quien renueva
+  antes de tiempo.
+
 ## [2026.10.1] (2026-08-27)
 
 ### Added
