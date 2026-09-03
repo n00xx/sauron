@@ -20,6 +20,7 @@ from app.extensions import db, limiter, scaled_limit
 from app.models import Invitation, MediaServer, Settings, User
 from app.services.invites import is_invite_valid
 from app.services.media.plex import PlexInvitationError, handle_oauth_token
+from app.services.wizard_identity import remember_wizard_user
 
 public_bp = Blueprint("public", __name__)
 
@@ -495,6 +496,12 @@ def password_prompt(code):
 
                 invitation.used_by = invitation.used_by or new_user
                 mark_server_used(invitation, srv.id)
+
+                # Remember WHICH account this browser session just got, so the
+                # wizard can act on it later (Quick Connect authorises against
+                # it). `invitation.used_by` cannot answer that on a multi-use
+                # invitation — see app/services/wizard_identity.py.
+                remember_wizard_user(srv.id, new_user.id)
             except Exception as exc:
                 db.session.rollback()
                 import logging

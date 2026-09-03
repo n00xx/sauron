@@ -5,6 +5,7 @@ Widgets are inserted into markdown content using special syntax:
 {{ widget:recently_added_media }}
 {{ widget:recently_added_media limit=6 }}
 {{ widget:button url="https://example.com" text="Click Here" }}
+{{ widget:quick_connect }}
 
 Cards use delimiter syntax:
 |||
@@ -15,10 +16,11 @@ This is the card content with **markdown** support.
 
 import logging
 import re
-from typing import Any
+from typing import Any, ClassVar
 
 import markdown
-from flask import render_template_string
+from flask import render_template, render_template_string
+from flask_babel import lazy_gettext as _l
 
 from app.services.media.service import get_media_client
 
@@ -289,10 +291,92 @@ class ButtonWidget(WizardWidget):
             return f'\n\n<div class="text-sm text-gray-500 italic">Button widget error: {e}</div>\n\n'
 
 
+class QuickConnectWidget(WizardWidget):
+    """Device picker plus the Quick Connect code box.
+
+    Renders from a real Jinja file rather than the inline-string style the
+    widgets above use. Tailwind v4 scans only the globs in
+    app/static/src/style.css, and `app/services/**` is not among them, so every
+    class written in this module is silently never generated — `dark:` variants
+    doubly so, because each variant is its own candidate.
+    """
+
+    # (key, emoji, label). `tv` and `console` get Quick Connect; `samsung` and
+    # `other` fall through to username and password.
+    #
+    # Samsung is split out deliberately. Jellyfin's own client support table
+    # lists Android TV, Roku, WebOS, Swiftfin/tvOS and Xbox for Quick Connect
+    # log-in but has no row for Tizen, so offering a Samsung owner the code box
+    # would be a dead end.
+    DEVICE_OPTIONS: ClassVar[list[tuple[str, str, Any]]] = [
+        ("tv", "📺", _l("Smart TV, Fire TV, Roku, projector")),
+        ("console", "🎮", _l("Apple TV, Xbox")),
+        ("samsung", "🖥️", _l("Samsung TV")),
+        ("other", "📱", _l("Phone or computer")),
+    ]
+
+    def __init__(self):
+        super().__init__("quick_connect", "")
+
+    def render(self, server_type: str, _context: dict | None = None, **kwargs) -> str:
+        context = _context or kwargs.pop("context", {}) or {}
+
+        try:
+            html_content = render_template(
+                "wizard/widgets/quick_connect.html",
+                server_address=context.get("external_url")
+                or context.get("server_url")
+                or "",
+                server_name=context.get("server_name") or "Jellyfin",
+                quick_connect_available=self._quick_connect_available(
+                    server_type, context.get("server_id")
+                ),
+                device_options=[
+                    {"key": key, "icon": icon, "label": label}
+                    for key, icon, label in self.DEVICE_OPTIONS
+                ],
+            )
+        except Exception as exc:
+            logging.warning("Quick Connect widget failed to render: %s", exc)
+            return (
+                '\n\n<div class="text-sm text-gray-500 italic">'
+                "Quick Connect is temporarily unavailable</div>\n\n"
+            )
+
+        # Collapsed to single lines so Python-Markdown treats the whole thing as
+        # one raw HTML block instead of wrapping stray fragments in <p> tags.
+        collapsed = "\n".join(
+            line for line in html_content.splitlines() if line.strip()
+        )
+        return f'\n\n<div class="widget-container">\n{collapsed}\n</div>\n\n'
+
+    def _quick_connect_available(self, server_type: str, server_id) -> bool:
+        """Is Quick Connect actually usable right now?
+
+        Only Jellyfin implements it, and an admin can switch it off server-side
+        at any time. Answering False routes the step to credentials rather than
+        showing a code box that can never succeed.
+        """
+        if server_type != "jellyfin":
+            return False
+
+        try:
+            from app.extensions import db
+            from app.models import MediaServer
+
+            media_server = db.session.get(MediaServer, server_id) if server_id else None
+            client = get_media_client(server_type, media_server=media_server)
+            return bool(client.quick_connect_enabled())
+        except Exception as exc:
+            logging.warning("Could not determine Quick Connect availability: %s", exc)
+            return False
+
+
 # Widget registry
 WIDGET_REGISTRY = {
     "recently_added_media": RecentlyAddedMediaWidget(),
     "button": ButtonWidget(),
+    "quick_connect": QuickConnectWidget(),
 }
 
 
@@ -344,6 +428,7 @@ def process_widget_placeholders(
     {{ widget:recently_added_media }}
     {{ widget:recently_added_media limit=6 }}
     {{ widget:button url="https://example.com" text="Click Here" }}
+    {{ widget:quick_connect }}
     """
     context = context or {}
 

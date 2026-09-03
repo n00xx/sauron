@@ -12,6 +12,7 @@ from flask_babel import lazy_gettext as _l
 from app.models import Invitation, MediaServer
 from app.services.media.service import get_client_for_media_server
 from app.services.ombi_client import invite_user_to_connections
+from app.services.wizard_identity import remember_wizard_user
 
 from .results import InvitationResult, ProcessingStatus, ServerResult
 from .strategies import StrategyFactory
@@ -189,6 +190,15 @@ class InvitationWorkflow(ABC):
                         ):
                             invitation.used_by = user  # type: ignore
                         mark_server_used(invitation, server.id, user)
+
+                        # Remember WHICH account this session just got, so the
+                        # wizard can act on it later (Quick Connect authorises
+                        # against it). Recorded here rather than derived from
+                        # `invitation.used_by` later, which on an unlimited
+                        # invitation still points at the first redeemer — see
+                        # app/services/wizard_identity.py.
+                        if user:
+                            remember_wizard_user(server.id, user.id)
 
                     # Invite user to connected external services (Ombi/Overseerr)
                     try:

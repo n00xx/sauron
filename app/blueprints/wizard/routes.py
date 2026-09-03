@@ -18,7 +18,7 @@ from flask_babel import _
 from flask_login import current_user
 from sqlalchemy.orm import joinedload
 
-from app.extensions import db
+from app.extensions import db, limiter, scaled_limit
 from app.models import (
     Invitation,
     MediaServer,
@@ -27,8 +27,11 @@ from app.models import (
     WizardBundleStep,
     WizardStep,
 )
+from app.services.expiry import get_expiry_status
 from app.services.invite_code_manager import InviteCodeManager
+from app.services.media.service import get_client_for_media_server
 from app.services.ombi_client import run_all_importers
+from app.services.wizard_identity import current_wizard_user
 
 wizard_bp = Blueprint("wizard", __name__, url_prefix="/wizard")
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "wizard_steps"
@@ -83,7 +86,7 @@ def restrict_wizard():
 
 
 # ─── helpers ────────────────────────────────────────────────────
-def _get_server_context(server_type: str) -> dict[str, str | None]:
+def _get_server_context(server_type: str) -> dict[str, str | int | None]:
     """Get server-specific context variables for a given server type"""
     # Find the server for this specific server type
     # Priority: 1) From invitation servers, 2) First server of this type
@@ -115,12 +118,16 @@ def _get_server_context(server_type: str) -> dict[str, str | None]:
         context["server_url"] = server.url or ""
         context["server_name"] = getattr(server, "name", "") or ""
         context["server_type"] = server.server_type
+        # Widgets that talk to the server need the row itself, not just its URL
+        # (the Quick Connect widget asks whether the feature is switched on).
+        context["server_id"] = server.id
     else:
         # Fallback values to prevent template errors
         context["external_url"] = ""
         context["server_url"] = ""
         context["server_name"] = ""
         context["server_type"] = server_type
+        context["server_id"] = None
 
     return context
 
@@ -875,6 +882,92 @@ def complete():
         )
 
     return resp
+
+
+@wizard_bp.route("/quick-connect", methods=["POST"])
+@limiter.limit(scaled_limit("10 per minute"))
+def quick_connect():
+    """Approve a device's Quick Connect code for the account this session owns.
+
+    The buyer reads a six-digit code off their television and types it here, and
+    we vouch for it against Jellyfin using the admin API key. That is what keeps
+    a username and password off the remote control.
+
+    SECURITY — read before changing anything here:
+
+    This route spends the ADMIN API key on a request that arrives from the
+    public internet, so the only thing standing between it and a server takeover
+    is where the target account comes from. It comes from ``current_wizard_user``
+    and nowhere else. If a ``userId`` (or username, or account id) from the
+    request body were ever allowed to reach ``authorize_quick_connect``, an
+    attacker would point their own television's code at the administrator's
+    account and be handed an admin token.
+
+    It also fails CLOSED on a missing session identity rather than falling back
+    to a lookup by invitation code. ``restrict_wizard`` admits a request whose
+    Referer merely contains "/j/", which the client controls, so "got this far"
+    is not proof of anything. Only the server-set account id is.
+    """
+    user = current_wizard_user("jellyfin")
+    if user is None:
+        # No account recorded for this session: either it predates this
+        # bookkeeping or the caller never created one. Nothing to authorise.
+        return (
+            render_template(
+                "wizard/widgets/quick_connect_result.html", state="no_session"
+            ),
+            403,
+        )
+
+    # An expired or disabled membership must not connect a new device.
+    #
+    # Jellyfin will NOT stop this on its own: verified on 10.11.11, both
+    # /QuickConnect/Authorize and /Users/AuthenticateWithQuickConnect happily
+    # hand a disabled account a token, and only later requests come back 401.
+    # (AuthenticateByName, by contrast, refuses a disabled account outright with
+    # 403 — the two login paths disagree.) Without this guard the wizard would
+    # cheerfully report "Connected!" for a television that can then load
+    # nothing, which reads as a broken product rather than a lapsed membership.
+    if user.is_disabled or get_expiry_status(user.expires) == "expired":
+        return (
+            render_template(
+                "wizard/widgets/quick_connect_result.html", state="expired_membership"
+            ),
+            403,
+        )
+
+    code = (request.form.get("code") or "").strip()
+    if not code.isdigit() or not 4 <= len(code) <= 10:
+        return render_template(
+            "wizard/widgets/quick_connect_result.html", state="invalid"
+        )
+
+    server = user.server
+    if server is None or server.server_type != "jellyfin":
+        return render_template(
+            "wizard/widgets/quick_connect_result.html", state="error"
+        )
+
+    try:
+        client = get_client_for_media_server(server)
+        # user.token holds the Jellyfin user id assigned at account creation.
+        ok, reason = client.authorize_quick_connect(code, user.token)
+    except Exception as exc:
+        current_app.logger.error("Quick Connect authorisation failed: %s", exc)
+        return render_template(
+            "wizard/widgets/quick_connect_result.html", state="error"
+        )
+
+    if ok:
+        current_app.logger.info(
+            "Quick Connect authorised for user %s on server %s", user.id, server.id
+        )
+        return render_template("wizard/widgets/quick_connect_result.html", state="ok")
+
+    return render_template(
+        "wizard/widgets/quick_connect_result.html",
+        state="expired" if reason == "expired" else "error",
+    )
 
 
 @wizard_bp.route("/")

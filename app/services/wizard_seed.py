@@ -155,3 +155,62 @@ def import_default_wizard_steps() -> None:
 
     # NOTE: existing steps are never modified to preserve UI customizations.
     # This function only imports steps for server types that don't exist yet.
+
+
+# Marker used to recognise the Quick Connect step wherever it ended up. Matching
+# on the widget rather than on the title survives an admin renaming the step or
+# translating it.
+QUICK_CONNECT_MARKER = "widget:quick_connect"
+QUICK_CONNECT_SOURCE = BASE_DIR / "jellyfin" / "03_setup_device.md"
+
+
+def ensure_quick_connect_step() -> None:
+    """Add the Jellyfin device-setup step to installations that predate it.
+
+    ``import_default_wizard_steps`` deliberately only seeds server types that
+    are missing entirely, so a server already running Jellyfin would never see a
+    newly shipped step. This is the narrow exception: without it the Quick
+    Connect feature ships as code nobody can reach.
+
+    Idempotent and additive. It appends when the marker is absent and otherwise
+    does nothing at all — it never edits or reorders an existing row, which
+    keeps the module's promise not to trample UI customisations.
+    """
+    inspector = inspect(db.engine)
+    if not inspector.has_table(WizardStep.__tablename__):
+        return
+
+    if not QUICK_CONNECT_SOURCE.exists():
+        return
+
+    existing = (
+        db.session.query(WizardStep).filter(WizardStep.server_type == "jellyfin").all()
+    )
+
+    # Nothing seeded for Jellyfin yet: this is a fresh install and
+    # import_default_wizard_steps already picks the file up from disk.
+    if not existing:
+        return
+
+    # Marker check spans every category: an admin may have moved the step.
+    if any(QUICK_CONNECT_MARKER in (row.markdown or "") for row in existing):
+        return
+
+    # Position is unique per (server_type, category), so it has to be computed
+    # within post_invite alone — the highest pre_invite position would collide
+    # or leave a gap.
+    post_invite = [row for row in existing if row.category == "post_invite"]
+    next_position = max((row.position for row in post_invite), default=-1) + 1
+
+    meta = _parse_markdown(QUICK_CONNECT_SOURCE)
+    step = WizardStep(
+        server_type="jellyfin",
+        category="post_invite",
+        position=next_position,
+        title=meta["title"],
+        markdown=meta["markdown"],
+        requires=meta["requires"],
+    )
+    db.session.add(step)
+    db.session.commit()
+    current_app.logger.info("Added the Jellyfin Quick Connect wizard step")

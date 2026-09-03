@@ -96,6 +96,15 @@ Make sure disabled buttons don't get the pointer cursor.
   cursor: default;
 }
 
+/*
+Alpine's x-cloak needs a stylesheet rule to mean anything; the attribute alone
+does nothing until Alpine boots and removes it. Without this, every panel that
+starts hidden flashes on screen during page load.
+*/
+[x-cloak] {
+  display: none !important;
+}
+
 .btn-nav{
   @apply inline-flex items-center px-4 py-2 text-sm font-medium
          bg-white text-gray-500 border border-gray-300 rounded-lg

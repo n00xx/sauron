@@ -69,6 +69,30 @@ VERIFY_VERSION = "1.0.0"
 # where a hung media server should fail fast rather than hold the buyer.
 VERIFY_TIMEOUT_SECONDS = 15
 
+# ── Quick Connect ────────────────────────────────────────────────────────────
+# Deliberately NOT the VERIFY_* constants above. Both identify sauron to
+# Jellyfin, but they are different jobs with different lifetimes: the verify
+# session is opened and revoked inside one request, while authorising a Quick
+# Connect code hands a long-lived token to somebody's television. Sharing a
+# DeviceId would put both under one row in Jellyfin's dashboard, so revoking a
+# credential check would also kick the TV off.
+QC_CLIENT = "sauron"
+QC_DEVICE = "sauron-quick-connect"
+QC_DEVICE_ID = "sauron-quick-connect"
+QC_VERSION = "1.0.0"
+
+# Same reasoning as VERIFY_TIMEOUT_SECONDS: a person is staring at a spinner on
+# their phone with the code already on screen, and the code itself expires in
+# minutes. Waiting a full minute on a hung server helps nobody.
+QC_TIMEOUT_SECONDS = 15
+
+# Much shorter, and deliberately so. The availability probe runs while RENDERING
+# the wizard page — the first thing a buyer sees after paying — so a slow
+# Jellyfin would hold that page blank for the whole timeout. Authorising is a
+# button the buyer chose to press and can afford to wait on; this is not. On a
+# timeout the step degrades to username and password, which still works.
+QC_PROBE_TIMEOUT_SECONDS = 3
+
 
 @register_media_client("jellyfin")
 class JellyfinClient(RestApiMixin):
@@ -549,6 +573,115 @@ class JellyfinClient(RestApiMixin):
             )
         except Exception as e:
             structlog.get_logger().warning(f"Could not revoke Jellyfin session: {e}")
+
+    def _quick_connect_headers(self) -> dict[str, str]:
+        """Authorization header for the Quick Connect calls.
+
+        Fuller than `media_browser_auth_headers`: the admin API key alone
+        authenticates the call, but the client identification is what makes the
+        resulting session recognisable in Jellyfin's dashboard as "authorised by
+        sauron" rather than an anonymous token.
+        """
+        return {
+            "Accept": "application/json",
+            "Authorization": (
+                f'MediaBrowser Token="{self.token}", '
+                f'Client="{QC_CLIENT}", '
+                f'Device="{QC_DEVICE}", '
+                f'DeviceId="{QC_DEVICE_ID}", '
+                f'Version="{QC_VERSION}"'
+            ),
+        }
+
+    def quick_connect_enabled(self) -> bool:
+        """Is Quick Connect switched on for this server?
+
+        An admin can turn it off under Dashboard → General at any moment, which
+        would leave the wizard offering a code box that can never succeed.
+        Callers use this to fall back to username and password instead.
+
+        Answers False on any transport fault: an unreachable server is not a
+        server that can complete a Quick Connect handshake either.
+        """
+        if self.url is None:
+            return False
+
+        try:
+            response = requests.get(
+                f"{self.url.rstrip('/')}/QuickConnect/Enabled",
+                headers=self._quick_connect_headers(),
+                timeout=QC_PROBE_TIMEOUT_SECONDS,
+            )
+        except Exception as e:
+            structlog.get_logger().warning(
+                f"Jellyfin: could not read Quick Connect state – {e}"
+            )
+            return False
+
+        if response.status_code != 200:
+            return False
+        return response.text.strip().lower() == "true"
+
+    def authorize_quick_connect(
+        self, code: str, jellyfin_user_id: str
+    ) -> tuple[bool, str | None]:
+        """Approve a device's Quick Connect *code* on behalf of a user.
+
+        This is the whole point of the feature: the television initiates and
+        holds the secret, we only vouch for it, so the buyer never types a
+        username or password with a remote control.
+
+        SECURITY: `jellyfin_user_id` decides whose account the requesting device
+        gets a token for, and this runs under the admin API key. It must only
+        ever come from server-held state. A caller that lets it come from the
+        request is handing out admin tokens to anyone who can point a TV at the
+        server — see `app/blueprints/wizard/routes.py::quick_connect`.
+
+        Returns ``(ok, reason)`` where reason is None on success and otherwise
+        one of ``expired`` (the code is unknown, mistyped or timed out),
+        ``disabled`` (Quick Connect is off), ``forbidden`` (the API key may no
+        longer authorise on behalf of others — see the version risk in the
+        Quick Connect tests) or ``error``.
+        """
+        if self.url is None:
+            return False, "error"
+
+        try:
+            response = requests.post(
+                f"{self.url.rstrip('/')}/QuickConnect/Authorize",
+                params={"code": code, "userId": jellyfin_user_id},
+                headers=self._quick_connect_headers(),
+                timeout=QC_TIMEOUT_SECONDS,
+            )
+        except Exception as e:
+            structlog.get_logger().error(
+                f"Jellyfin: Quick Connect authorize failed: {e}"
+            )
+            return False, "error"
+
+        # 404 is the expected answer for a code that was mistyped or has already
+        # timed out, so it is a message to the buyer rather than a fault.
+        if response.status_code == 404:
+            return False, "expired"
+        if response.status_code in (401, 403):
+            structlog.get_logger().error(
+                "Jellyfin refused a Quick Connect authorisation (HTTP %s). The API "
+                "key may no longer be allowed to authorise on behalf of a user.",
+                response.status_code,
+            )
+            return False, "forbidden"
+        if response.status_code != 200:
+            structlog.get_logger().error(
+                "Jellyfin: unexpected Quick Connect authorize status %s",
+                response.status_code,
+            )
+            return False, "error"
+
+        # Jellyfin answers a bare `true`/`false`; false means it knew the code
+        # but would not approve it.
+        if response.text.strip().lower() != "true":
+            return False, "expired"
+        return True, None
 
     def set_max_active_sessions(self, user_id: str, max_sessions: int) -> bool:
         """Set `MaxActiveSessions` on an EXISTING Jellyfin user.
