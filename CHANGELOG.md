@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.4] (2026-09-03)
+
+### Fixed
+
+- **La aplicacion de la TV no mostraba nada: ni peliculas, ni series, ni
+  bibliotecas.** Solo el nombre del socio, la lupa y los ajustes. No era el
+  Quick Connect ni un problema del Roku: era sauron, que desde 2026.7.9 dejaba
+  las diez secciones de la pantalla de Inicio en "None" en cada cuenta que
+  creaba.
+
+  El cliente de Roku aplica sus valores por defecto unicamente cuando la clave
+  `homesection0` NO EXISTE (`session.bs`, `SaveUserHomeSections`), y descarta
+  toda seccion que diga "none" (`HomeRows.bs`, `processUserSections`). Con las
+  diez escritas en blanco no quedaba ni una fila que dibujar, y en el televisor
+  la pantalla de Inicio es la aplicacion entera: no hay menu lateral por donde
+  llegar a las bibliotecas. En el navegador el mismo destrozo pasaba
+  desapercibido porque ahi la barra lateral alcanza las bibliotecas igual.
+
+  Sauron ya no escribe esa preferencia. Una cuenta que nadie toca no tiene
+  claves `homesection`, y cada cliente aplica las suyas — que es exactamente el
+  estado de las cuentas creadas a mano, las unicas que funcionaban.
+
+- **Las cuentas ya creadas no se arreglaban solas al corregir el codigo.** La
+  premisa del cambio original era que Jellyfin borra las secciones que no
+  recibe, y por eso escribia las diez. Medido contra Jellyfin 10.11.11, es al
+  reves: un POST a DisplayPreferences omitiendo las claves `homesection`
+  responde 204 y deja los valores guardados intactos. No las borra.
+
+  Es decir que una cuenta en blanco no puede volver a su estado virgen, y
+  quitar el codigo culpable no la repara. Hace falta escribirle nombres de
+  seccion reales encima, asi que el arranque hace una pasada unica que busca
+  cuentas con todas las secciones en blanco y les restaura el Inicio por
+  defecto de Jellyfin. Corre una sola vez, se salta a quien personalizo su
+  pantalla, y un servidor caido no impide arrancar.
+
+
 ## [2026.10.3] (2026-09-03)
 
 ### Fixed
