@@ -4,6 +4,10 @@
 `PUT /update-expiry`, which sets an arbitrary date and deliberately does not
 reactivate because it is also how an operator schedules an expiry in the past.
 Without this check the first report of a locked-out customer is the customer.
+
+An alert needs the member locked out on TWO consecutive runs: the storefront
+renews with two HTTP calls, and the gap between the expiry write and the
+enable looks exactly like the fault this hunts for.
 """
 
 import datetime
@@ -17,6 +21,12 @@ from app.services.renewal_health import (
     check_locked_out_members,
     find_locked_out_members,
 )
+
+
+def _tick():
+    """One scheduler run. An alert needs the member locked out on two in a row,
+    so most tests need two of these before anything is reported."""
+    return check_locked_out_members()
 
 
 @pytest.fixture
@@ -98,16 +108,41 @@ def test_ignores_a_suspension_with_no_expiry_date(jellyfin_server):
 # ── Alerting, and not repeating it ──────────────────────────────────────────
 
 
+def test_the_first_sighting_is_silent(jellyfin_server, _silence_notifications):
+    """The neexy race: a healthy renewal writes the expiry and enables a few
+    hundred milliseconds later, and in between it looks exactly like a fault."""
+    _member(jellyfin_server, "mid_renewal", disabled=True, expires_days=20)
+
+    assert _tick() == [], "a first sighting may be a renewal in flight"
+    assert _silence_notifications == []
+
+
+def test_a_renewal_that_completes_between_ticks_never_alerts(
+    jellyfin_server, _silence_notifications
+):
+    victim = _member(jellyfin_server, "mid_renewal", disabled=True, expires_days=20)
+
+    _tick()  # caught mid-renewal
+
+    victim.is_disabled = False  # the enable call lands
+    db.session.commit()
+
+    assert _tick() == []
+    assert _silence_notifications == [], "a completed renewal must stay silent"
+
+
 def test_alerts_once_and_then_stays_quiet(jellyfin_server, _silence_notifications):
     _member(jellyfin_server, "victim", disabled=True, expires_days=20)
 
-    first = check_locked_out_members()
-    second = check_locked_out_members()
-    third = check_locked_out_members()
+    first = _tick()
+    second = _tick()
+    third = _tick()
+    fourth = _tick()
 
-    assert [u.username for u in first] == ["victim"]
-    assert second == [], "a standing situation must not alert on every tick"
-    assert third == []
+    assert first == [], "still unconfirmed"
+    assert [u.username for u in second] == ["victim"]
+    assert third == [], "a standing situation must not alert on every tick"
+    assert fourth == []
     assert len(_silence_notifications) == 1
 
 
@@ -118,7 +153,8 @@ def test_the_alert_is_operational_so_it_reaches_every_agent(
 
     _member(jellyfin_server, "victim", disabled=True, expires_days=20)
 
-    check_locked_out_members()
+    _tick()
+    _tick()
 
     _args, kwargs = _silence_notifications[0]
     assert kwargs["event_type"] == "membership_locked_out"
@@ -132,9 +168,11 @@ def test_a_second_victim_alerts_even_while_the_first_is_outstanding(
 ):
     _member(jellyfin_server, "first", disabled=True, expires_days=20)
 
-    check_locked_out_members()
+    _tick()
+    _tick()  # "first" alerts here
     _member(jellyfin_server, "second", disabled=True, expires_days=20)
-    newly = check_locked_out_members()
+    _tick()  # "second" seen for the first time — silent
+    newly = _tick()
 
     assert [u.username for u in newly] == ["second"]
     assert len(_silence_notifications) == 2
@@ -146,15 +184,17 @@ def test_a_fixed_member_can_alert_again_if_it_recurs(
     """Forgetting a resolved id is what makes a recurrence visible."""
     victim = _member(jellyfin_server, "victim", disabled=True, expires_days=20)
 
-    check_locked_out_members()
+    _tick()
+    _tick()  # alerts
 
     victim.is_disabled = False  # an operator puts it right
     db.session.commit()
-    assert check_locked_out_members() == []
+    assert _tick() == []
 
     victim.is_disabled = True  # and it happens again
     db.session.commit()
-    again = check_locked_out_members()
+    _tick()  # first sighting of the recurrence
+    again = _tick()
 
     assert [u.username for u in again] == ["victim"]
     assert len(_silence_notifications) == 2
@@ -167,7 +207,8 @@ def test_a_corrupted_marker_does_not_stop_the_check(
     db.session.commit()
     _member(jellyfin_server, "victim", disabled=True, expires_days=20)
 
-    found = check_locked_out_members()
+    _tick()
+    found = _tick()
 
     assert [u.username for u in found] == ["victim"]
 
@@ -175,6 +216,26 @@ def test_a_corrupted_marker_does_not_stop_the_check(
 def test_nothing_wrong_means_no_alert(jellyfin_server, _silence_notifications):
     _member(jellyfin_server, "happy", disabled=False, expires_days=20)
 
-    assert check_locked_out_members() == []
+    assert _tick() == []
+    assert _tick() == []
 
+    assert _silence_notifications == []
+
+
+def test_reads_the_marker_written_by_2026_10_2(jellyfin_server, _silence_notifications):
+    """The upgrade path.
+
+    2026.10.2 stored a bare JSON list of reported ids. It is read as `reported`
+    with nothing seen, which costs one extra silent cycle after the upgrade and
+    nothing else — in particular it must not re-alert about a member that
+    version already reported.
+    """
+    import json
+
+    victim = _member(jellyfin_server, "victim", disabled=True, expires_days=20)
+    db.session.add(Settings(key=REPORTED_SETTING_KEY, value=json.dumps([victim.id])))
+    db.session.commit()
+
+    assert _tick() == [], "first run after the upgrade has nothing seen yet"
+    assert _tick() == [], "already reported by the previous version"
     assert _silence_notifications == []

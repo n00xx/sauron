@@ -21,6 +21,20 @@ expiry date at all is almost always a deliberate suspension — abuse, fraud, a
 chargeback — and alerting on those forever is how an alert channel gets muted.
 That does mean a deliberately suspended member with a future expiry still trips
 this once; deduplication below keeps it to once rather than every tick.
+
+── Why an alert needs TWO consecutive sightings ────────────────────────────
+Because the storefront's renewal is two HTTP calls, and the gap between them
+looks exactly like the fault this hunts for. neexy sets the expiry first and
+enables second — deliberately, since the reverse order would leave an account
+enabled but still expired for the sweep to disable again — so for the few
+hundred milliseconds between those calls, a perfectly healthy renewal reads as
+"valid membership, account switched off".
+
+A run that sees a member for the first time therefore records it and says
+nothing. Only a member still locked out on the NEXT run is real. The cost is
+one cycle of delay on a genuine alert; the alternative is a false positive on
+an operational channel that reaches every agent, which is how a channel stops
+being read.
 """
 
 import datetime
@@ -30,9 +44,10 @@ import logging
 from app.extensions import db
 from app.models import Settings, User
 
-# Remembers which members have already been reported so a standing situation
-# alerts once instead of on every scheduler tick. Stored as a JSON list of user
-# ids in the generic settings table — this needs no schema of its own.
+# Holds {"seen": [...], "reported": [...]} as JSON in the generic settings
+# table — no schema of its own. `seen` is what the previous run observed, which
+# is what makes the two-sighting rule possible; `reported` is what has already
+# been alerted, so a standing situation stays quiet.
 REPORTED_SETTING_KEY = "locked_out_members_reported"
 
 
@@ -53,21 +68,35 @@ def find_locked_out_members() -> list[User]:
     )
 
 
-def _read_reported() -> set[int]:
+def _read_state() -> tuple[set[int], set[int]]:
+    """Return ``(seen, reported)`` from the settings row.
+
+    Tolerates the shape 2026.10.2 wrote — a bare JSON list of reported ids —
+    by reading it as `reported` with nothing seen. That costs one extra cycle
+    before the first alert after the upgrade and nothing else.
+
+    A corrupted marker must not stop the check; the worst case is one repeated
+    alert, which beats a diagnostic that silently stops running.
+    """
     row = Settings.query.filter_by(key=REPORTED_SETTING_KEY).first()
     if not row or not row.value:
-        return set()
+        return set(), set()
+
     try:
-        return {int(x) for x in json.loads(row.value)}
-    except (ValueError, TypeError):
-        # A corrupted marker must not stop the check; the worst case is one
-        # repeated alert.
-        return set()
+        parsed = json.loads(row.value)
+        if isinstance(parsed, list):  # 2026.10.2 format
+            return set(), {int(x) for x in parsed}
+        return (
+            {int(x) for x in parsed.get("seen", [])},
+            {int(x) for x in parsed.get("reported", [])},
+        )
+    except (ValueError, TypeError, AttributeError):
+        return set(), set()
 
 
-def _write_reported(user_ids: set[int]) -> None:
+def _write_state(seen: set[int], reported: set[int]) -> None:
+    value = json.dumps({"seen": sorted(seen), "reported": sorted(reported)})
     row = Settings.query.filter_by(key=REPORTED_SETTING_KEY).first()
-    value = json.dumps(sorted(user_ids))
     if row:
         row.value = value
     else:
@@ -78,19 +107,23 @@ def _write_reported(user_ids: set[int]) -> None:
 def check_locked_out_members() -> list[User]:
     """Report members who are paid up but cannot get in.
 
-    Returns only the NEWLY locked-out members — the ones this run is alerting
-    about. Members already reported stay silent, and an id that has been put
-    right is forgotten so a recurrence alerts again.
+    Returns only the members this run is alerting about: locked out now, locked
+    out on the previous run too, and not already reported. A member seen for the
+    first time is recorded silently — see the two-sightings note at the top of
+    this module.
     """
     locked_out = find_locked_out_members()
     current_ids = {user.id for user in locked_out}
-    already_reported = _read_reported()
+    previously_seen, already_reported = _read_state()
 
-    new_ids = current_ids - already_reported
-    if current_ids != already_reported:
-        # Rewrite rather than union: dropping ids that are no longer locked out
-        # is what lets the same member alert again if it happens twice.
-        _write_reported(current_ids)
+    # Two sightings: anything that appeared only now may be the millisecond gap
+    # between a storefront's expiry write and its enable.
+    confirmed = current_ids & previously_seen
+    new_ids = confirmed - already_reported
+
+    # `reported` is intersected with what is still locked out so a member who
+    # was put right is forgotten — that is what lets a recurrence alert again.
+    _write_state(current_ids, (already_reported | new_ids) & current_ids)
 
     if not new_ids:
         return []
