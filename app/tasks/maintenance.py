@@ -113,3 +113,35 @@ def notify_streaming_expirers(app=None):
         )
     elif os.getenv("WIZARR_ENABLE_SCHEDULER") == "true":
         logging.info("📩 Expiry notices: no streaming expirers to notify.")
+
+
+def check_locked_out(app=None):
+    """Alert on members who are paid up but whose account is switched off.
+
+    Runs on the same cadence as the expiry sweep, and for the mirror-image
+    reason: that one takes access away when a membership lapses, this one
+    notices when access was never given back.
+
+    Args:
+        app: Flask application instance. If None, will try to get from current context.
+    """
+    if app is None:
+        from flask import current_app
+
+        try:
+            app = current_app._get_current_object()  # type: ignore
+        except RuntimeError:
+            logging.error(
+                "check_locked_out called outside application context and no app provided"
+            )
+            return
+
+    with app.app_context():
+        try:
+            from app.services.renewal_health import check_locked_out_members
+
+            check_locked_out_members()
+        except Exception:
+            # A diagnostic must never take the scheduler down with it, but a
+            # silent one is worthless — hence exception(), not debug().
+            logging.exception("Locked-out member check failed")

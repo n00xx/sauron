@@ -230,6 +230,7 @@ def init_extensions(app):
         from app.tasks.maintenance import (
             _get_expiry_check_interval,
             check_expiring,
+            check_locked_out,
             notify_streaming_expirers,
         )
         from app.tasks.update_check import fetch_and_cache_manifest
@@ -238,6 +239,18 @@ def init_extensions(app):
         scheduler.add_job(
             id="check_expiring",
             func=lambda: check_expiring(app),
+            trigger="interval",
+            minutes=_get_expiry_check_interval(),
+            replace_existing=True,
+        )
+
+        # The mirror image of check_expiring: that one removes access when a
+        # membership lapses, this one notices when a valid membership never got
+        # its access back. Same cadence, because a paying customer locked out is
+        # at least as urgent as a lapsed one still watching.
+        scheduler.add_job(
+            id="check_locked_out",
+            func=lambda: check_locked_out(app),
             trigger="interval",
             minutes=_get_expiry_check_interval(),
             replace_existing=True,

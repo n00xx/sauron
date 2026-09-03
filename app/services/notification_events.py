@@ -71,6 +71,12 @@ EVENT_TYPES: tuple[EventType, ...] = (
     EventType(
         "stripe_sync_stalled", "Stripe Sync Stalled", _BADGE_RED, operational=True
     ),
+    # Operational because it is a customer who paid and cannot watch. Nothing
+    # in sauron looks wrong from the outside — the membership reads as valid —
+    # so without this alert the first report comes from the customer.
+    EventType(
+        "membership_locked_out", "Members Locked Out", _BADGE_RED, operational=True
+    ),
     # The dispute trio. Operational because every one of them is a deadline with
     # money attached: a dispute goes unanswered by default, and "nobody ticked
     # the box" is not a reason anyone would accept for losing one.
