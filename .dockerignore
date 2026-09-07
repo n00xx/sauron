@@ -41,6 +41,11 @@ unraid.xml
 # Node modules (handled separately in multi-stage build)
 node_modules/
 
+# Remotion project that renders the onboarding video. The finished mp4 is
+# committed to app/static/video/ and ships from there; the sources, the source
+# screenshots and the ElevenLabs voice tracks have no business in the image.
+promo/
+
 # Built assets (external dependencies will be built in container)
 app/static/css/main.css
 app/static/js/sortable.min.js

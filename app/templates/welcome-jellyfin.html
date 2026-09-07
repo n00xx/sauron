@@ -540,16 +540,18 @@
               formScreen.style.pointerEvents = 'auto';
               welcomeScreen.style.display = 'none';
               mainContainer.style.maxWidth = isMobile ? '100%' : '32rem';
-              cardContainer.style.height = isMobile ? 'auto' : '520px';
-              cardContainer.style.minHeight = isMobile ? `${formScreen.scrollHeight + 48}px` : '';
-              cardContainer.style.overflow = isMobile ? 'visible' : 'hidden';
+              // Same clamp, same bug, same fix as the animated path above: never pin
+              // the card to a fixed height with the form clipped inside it.
+              cardContainer.style.height = 'auto';
+              cardContainer.style.minHeight = '';
+              cardContainer.style.overflow = 'visible';
+              formScreen.style.position = 'relative';
+              formScreen.style.height = 'auto';
+              formScreen.style.overflow = 'visible';
               if (isMobile) {
                   layoutWrapper.style.justifyContent = 'flex-start';
                   layoutWrapper.style.paddingTop = '3rem';
                   layoutWrapper.style.paddingBottom = '2rem';
-                  formScreen.style.position = 'relative';
-                  formScreen.style.height = 'auto';
-                  formScreen.style.overflow = 'visible';
               }
               const formFields = formScreen.querySelectorAll('.form-field');
               formFields.forEach(field => {
@@ -572,7 +574,11 @@
                   }
 
                   const isMobile = window.innerWidth < 768;
-                  let mobileCardHeight = null;
+                  // Measured, never assumed. The desktop branch used to animate to a
+                  // hardcoded 520px and leave overflow:hidden on the card, which sliced
+                  // the submit button in half the moment the form was taller than that
+                  // — 556px at 1440px wide, so it always was.
+                  let revealedCardHeight = null;
 
                   // Mobile: Hide header when form appears
                   if (isMobile) {
@@ -595,9 +601,7 @@
                   formScreen.style.opacity = '0';
                   formScreen.style.pointerEvents = 'none';
 
-                  if (isMobile) {
-                      mobileCardHeight = Math.max(formScreen.scrollHeight + 48, cardContainer.offsetHeight);
-                  }
+                  revealedCardHeight = Math.max(formScreen.scrollHeight, cardContainer.offsetHeight);
 
                   // Step 2: Create timeline animation with Anime.js
                   const timeline = anime.timeline({
@@ -616,7 +620,7 @@
                   // Container height expansion
                   timeline.add({
                       targets: cardContainer,
-                      height: isMobile ? `${mobileCardHeight}px` : '520px',
+                      height: `${revealedCardHeight}px`,
                       duration: 800,
                       easing: 'cubicBezier(0.25, 0.46, 0.45, 0.94)'
                   }, 0);
@@ -664,14 +668,20 @@
                           if (firstInput) firstInput.focus();
                       }, formFields.length * 80 + 150);
 
-                      if (isMobile) {
-                          cardContainer.style.height = 'auto';
-                          cardContainer.style.minHeight = `${mobileCardHeight}px`;
-                          cardContainer.style.overflow = 'visible';
-                          formScreen.style.position = 'relative';
-                          formScreen.style.height = 'auto';
-                          formScreen.style.overflow = 'visible';
+                      // Let the card size itself now that the animation has landed:
+                      // height auto and no floor, so it hugs the form instead of
+                      // trailing dead space under the button. The card carries a
+                      // 700ms transition, so the last few pixels ease rather than
+                      // snap. formScreen has to leave `absolute inset-0` first, or
+                      // the card would collapse with no in-flow child to measure.
+                      cardContainer.style.height = 'auto';
+                      cardContainer.style.minHeight = '';
+                      cardContainer.style.overflow = 'visible';
+                      formScreen.style.position = 'relative';
+                      formScreen.style.height = 'auto';
+                      formScreen.style.overflow = 'visible';
 
+                      if (isMobile) {
                           requestAnimationFrame(() => {
                               cardContainer.scrollIntoView({
                                   behavior: 'smooth',

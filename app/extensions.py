@@ -399,11 +399,26 @@ def _normalize_locale(code: str | None) -> str | None:
 # Endpoints whose rendered page (and its form validation) is forced to es_MX.
 # The invite landing + create-account form are all served by welcome-jellyfin.html
 # through these three public endpoints.
-_SPANISH_INVITE_ENDPOINTS = frozenset(
+# Every page a buyer sees between opening the invite link and finishing setup.
+# All of it is force-rendered in Mexican Spanish; the admin side keeps the
+# browser/session locale.
+_SPANISH_GUEST_ENDPOINTS = frozenset(
     {
         "public.invite",
         "public.process_invitation",
         "public.join",
+        # The onboarding wizard. Without these the buyer went from a Spanish
+        # invite page straight into an English wizard.
+        "wizard.start",
+        "wizard.pre_wizard",
+        "wizard.pre_wizard_complete",
+        "wizard.post_wizard",
+        "wizard.complete",
+        "wizard.quick_connect",
+        # Multi-server invites, and the preview route an admin uses to check a
+        # step — included so the preview shows what the buyer will actually get.
+        "wizard.combo",
+        "wizard.step",
     }
 )
 
@@ -425,11 +440,12 @@ def _select_locale():
             session["lang"] = normalised
             return normalised
 
-    # The public invite / create-account screens are served in Mexican Spanish
-    # regardless of the visitor's browser language. Scoped to these endpoints so
-    # the rest of the app keeps its normal (browser/admin) locale, and applied
-    # without touching session["lang"] so it never leaks to later pages.
-    if request.endpoint in _SPANISH_INVITE_ENDPOINTS:
+    # The public invite / create-account / wizard screens are served in Mexican
+    # Spanish regardless of the visitor's browser language. Scoped to these
+    # endpoints so the rest of the app keeps its normal (browser/admin) locale,
+    # and applied without touching session["lang"] so it never leaks to later
+    # pages.
+    if request.endpoint in _SPANISH_GUEST_ENDPOINTS:
         forced_invite = _normalize_locale("es_MX")
         if forced_invite:
             return forced_invite

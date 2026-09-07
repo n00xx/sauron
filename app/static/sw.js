@@ -31,6 +31,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Video is streamed with Range requests. Letting the worker proxy those
+  // breaks seeking in Safari and would park an 11 MB file in the cache, so step
+  // out of the way entirely and let the browser talk to the network itself.
+  if (event.request.destination === 'video' || event.request.url.includes('/static/video/')) {
+    return;
+  }
+
   // Network-first for HTML page navigation to ensure dynamic Flask backend state works
   if (event.request.mode === 'navigate' || (event.request.headers.get('accept') && event.request.headers.get('accept').includes('text/html'))) {
     event.respondWith(

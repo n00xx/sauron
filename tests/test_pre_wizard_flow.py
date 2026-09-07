@@ -70,7 +70,9 @@ class TestPreWizardFlow:
         anchor_id = 'id="wizard-next-btn-desktop"'
         assert anchor_id in body
         snippet = body[body.index(anchor_id) : body.index(anchor_id) + 460]
-        assert "Continue to Invite" in snippet
+        # The guest-facing wizard is force-rendered in es_MX (see
+        # _SPANISH_GUEST_ENDPOINTS), so the label arrives translated.
+        assert "Continuar a la invitación" in snippet
         assert 'href="/wizard/pre-wizard/complete"' in snippet
         assert 'hx-get="/wizard/pre-wizard/complete"' in snippet
         assert "hx-vals" not in snippet
@@ -120,7 +122,9 @@ class TestPreWizardFlow:
         snippet = final_body[
             final_body.index(anchor_id) : final_body.index(anchor_id) + 460
         ]
-        assert "Continue to Invite" in snippet
+        # The guest-facing wizard is force-rendered in es_MX (see
+        # _SPANISH_GUEST_ENDPOINTS), so the label arrives translated.
+        assert "Continuar a la invitación" in snippet
         assert 'href="/wizard/pre-wizard/complete"' in snippet
         assert 'hx-get="/wizard/pre-wizard/complete"' in snippet
         assert "hx-vals" not in snippet

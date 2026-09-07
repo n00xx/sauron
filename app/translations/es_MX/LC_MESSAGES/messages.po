@@ -123,3 +123,358 @@ msgstr "Favor de corregir los campos marcados."
 
 msgid "User or e-mail already exists."
 msgstr "El usuario o el correo electrónico ya existe."
+
+# ════════════════════════════════════════════════════════════════════════════
+# Onboarding wizard. Added when the wizard endpoints joined the forced-es_MX
+# list in extensions.py — before that the buyer went from a Spanish invite page
+# straight into an English wizard.
+# ════════════════════════════════════════════════════════════════════════════
+
+# ─── Wizard chrome (progress bar + navigation) ──────────────────────────────
+msgid "Step"
+msgstr "Paso"
+
+msgid "of"
+msgstr "de"
+
+msgid "Next"
+msgstr "Siguiente"
+
+msgid "Previous"
+msgstr "Anterior"
+
+msgid "Continue to Invite"
+msgstr "Continuar a la invitación"
+
+msgid "Before Invitation"
+msgstr "Antes de la invitación"
+
+msgid "After Invitation"
+msgstr "Después de la invitación"
+
+msgid "Click the link in this step to be able to continue"
+msgstr "Abre el enlace de este paso para poder continuar"
+
+msgid "Setup complete! Welcome to your media server."
+msgstr "¡Todo listo! Bienvenido a tu servidor multimedia."
+
+# ─── Step 1: the video ──────────────────────────────────────────────────────
+msgid "Watch this first"
+msgstr "Ve esto primero"
+
+msgid "Everything in 90 seconds"
+msgstr "Todo en 90 segundos"
+
+msgid ""
+"This short video walks you through the whole thing: which app to install on "
+"your TV, phone or computer, and how to sign in without typing a password. "
+"The next step has the buttons to do it."
+msgstr ""
+"Este video corto te explica todo: qué app instalar en tu tele, celular o "
+"computadora, y cómo entrar sin escribir una contraseña. El siguiente paso "
+"trae los botones para hacerlo."
+
+msgid "Your browser cannot play this video."
+msgstr "Tu navegador no puede reproducir este video."
+
+msgid "Download it here"
+msgstr "Descárgalo aquí"
+
+# ─── Step 2: connect your device (Quick Connect) ────────────────────────────
+msgid "Connect your device"
+msgstr "Conecta tu dispositivo"
+
+msgid "Set up your first device"
+msgstr "Configura tu primer dispositivo"
+
+msgid ""
+"Pick where you want to watch and we will walk you through it. You will not "
+"have to type your password on that device — we handle the sign-in for you."
+msgstr ""
+"Elige dónde quieres ver y te guiamos paso a paso. No vas a tener que "
+"escribir tu contraseña en ese dispositivo — nosotros nos encargamos de "
+"iniciar la sesión."
+
+msgid "Where are you setting up %(server)s?"
+msgstr "¿Dónde vas a configurar %(server)s?"
+
+msgid "Smart TV, Fire TV, Roku, projector"
+msgstr "Smart TV, Fire TV, Roku, proyector"
+
+msgid "Apple TV, Xbox"
+msgstr "Apple TV, Xbox"
+
+msgid "Phone, tablet or computer"
+msgstr "Celular, tablet o computadora"
+
+msgid ""
+"Install Jellyfin on your device and, when it asks for a server, enter this "
+"address:"
+msgstr ""
+"Instala Jellyfin en tu dispositivo y, cuando te pida un servidor, escribe "
+"esta dirección:"
+
+msgid "Copy"
+msgstr "Copiar"
+
+msgid "Copied"
+msgstr "¡Copiado!"
+
+msgid "You only type this once, the app remembers it."
+msgstr "Sólo la escribes una vez, la app la recuerda."
+
+msgid "On the sign-in screen choose"
+msgstr "En la pantalla de inicio de sesión elige"
+
+msgid "Your device will show a code."
+msgstr "Tu dispositivo va a mostrar un código."
+
+msgid ""
+"Type that code here and you are in — no username, no password to type on "
+"that device."
+msgstr ""
+"Escribe ese código aquí y ya estás dentro — sin usuario ni contraseña en ese "
+"dispositivo."
+
+msgid "Connect"
+msgstr "Conectar"
+
+msgid ""
+"Quick Connect is unavailable right now. Sign in on your device with the "
+"server address below plus the username and password you just created."
+msgstr ""
+"Quick Connect no está disponible en este momento. Entra en tu dispositivo "
+"con la dirección del servidor de abajo, más el usuario y la contraseña que "
+"acabas de crear."
+
+# ─── Quick Connect result messages ──────────────────────────────────────────
+msgid "Connected!"
+msgstr "¡Conectado!"
+
+msgid ""
+"Look at your device — it is signing in on its own. You will not need to do "
+"this again on it."
+msgstr ""
+"Mira tu dispositivo: ya está entrando solo. No vas a tener que repetir esto "
+"en él."
+
+msgid "That code did not work"
+msgstr "Ese código no funcionó"
+
+msgid ""
+"Codes expire after a few minutes. Go back to the app, ask for a new Quick "
+"Connect code, and type it here."
+msgstr ""
+"Los códigos vencen a los pocos minutos. Regresa a la app, pide un código "
+"nuevo de Quick Connect y escríbelo aquí."
+
+msgid "Check the code"
+msgstr "Revisa el código"
+
+msgid "Enter only the digits shown on your device."
+msgstr "Escribe sólo los dígitos que aparecen en tu dispositivo."
+
+msgid "Your membership is not active"
+msgstr "Tu membresía no está activa"
+
+msgid "Renew it and you can connect your devices again right away."
+msgstr "Renuévala y vas a poder conectar tus dispositivos de inmediato."
+
+msgid "Your session expired"
+msgstr "Tu sesión expiró"
+
+msgid ""
+"Sign in on your device with your username and password instead, or reopen "
+"the link you were sent."
+msgstr ""
+"Entra en tu dispositivo con tu usuario y contraseña, o vuelve a abrir el "
+"enlace que te enviamos."
+
+msgid "We could not connect your device"
+msgstr "No pudimos conectar tu dispositivo"
+
+msgid "Try once more. If it keeps failing, sign in with your username and password."
+msgstr "Inténtalo otra vez. Si sigue fallando, entra con tu usuario y contraseña."
+
+# ─── Step 3: tips ───────────────────────────────────────────────────────────
+msgid "Tips for the best experience"
+msgstr "Consejos para que se vea mejor"
+
+msgid "Get the best quality"
+msgstr "Saca la mejor calidad"
+
+msgid ""
+"Jellyfin offers great quality, but here's how to make sure you get the best "
+"experience:"
+msgstr ""
+"Jellyfin da muy buena calidad; así te aseguras de aprovecharla al máximo:"
+
+msgid "Force original quality"
+msgstr "Fuerza la calidad original"
+
+msgid "Settings → Playback → set"
+msgstr "Ajustes → Reproducción → cambia"
+
+msgid "Automatic"
+msgstr "Automático"
+
+msgid "to"
+msgstr "a"
+
+msgid "Maximum"
+msgstr "Máximo"
+
+msgid "Enable hardware decoding"
+msgstr "Activa la decodificación por hardware"
+
+msgid "Settings → Playback → enable for smoother 4K"
+msgstr "Ajustes → Reproducción → actívala para un 4K más fluido"
+
+msgid "Use a wired connection"
+msgstr "Usa conexión por cable"
+
+msgid "if you're on a smart-TV for stutter-free 4K."
+msgstr "si estás en una smart TV, para un 4K sin cortes."
+
+msgid "Happy viewing!"
+msgstr "¡Disfrútalo!"
+
+msgid "Go to Jellyfin"
+msgstr "Ir a Jellyfin"
+
+# ─── Wizard error / edge-case messages ──────────────────────────────────────
+msgid "Error Loading Step"
+msgstr "Error al cargar el paso"
+
+msgid ""
+"This step could not be loaded. Please contact the administrator or skip to "
+"the next step."
+msgstr ""
+"No se pudo cargar este paso. Contacta al administrador o pasa al siguiente."
+
+msgid "Invalid or expired invitation"
+msgstr "Invitación inválida o vencida"
+
+msgid ""
+"Your invitation has expired or is no longer valid. Please request a new "
+"invitation."
+msgstr ""
+"Tu invitación venció o ya no es válida. Favor de solicitar una nueva."
+
+msgid ""
+"No media servers are configured. Please contact the administrator to set up "
+"a media server."
+msgstr ""
+"No hay servidores multimedia configurados. Contacta al administrador para "
+"que configure uno."
+
+msgid "Unable to load wizard steps. Proceeding to invitation acceptance."
+msgstr "No se pudieron cargar los pasos. Continuamos con la invitación."
+
+msgid "Please log in to continue"
+msgstr "Inicia sesión para continuar"
+
+msgid "Unable to load wizard steps. Setup complete! Welcome to your media server."
+msgstr "No se pudieron cargar los pasos. ¡Todo listo! Bienvenido a tu servidor multimedia."
+
+msgid "Unable to load wizard configuration. Please try again."
+msgstr "No se pudo cargar la configuración. Inténtalo de nuevo."
+
+msgid "Unable to load wizard bundle. Please try again."
+msgstr "No se pudo cargar el paquete de pasos. Inténtalo de nuevo."
+
+msgid "Unable to load wizard steps. Please try again."
+msgstr "No se pudieron cargar los pasos. Inténtalo de nuevo."
+
+msgid "This bundle has no steps to preview."
+msgstr "Este paquete no tiene pasos que mostrar."
+
+# ════════════════════════════════════════════════════════════════════════════
+# Legacy step text. These msgids are no longer in any bundled file, but they
+# are still stored in the wizard_step table of installations created before
+# 2026.10.5, and they render from there until an admin deletes those steps in
+# the UI. Translated so nothing shows up in English in the meantime.
+# ════════════════════════════════════════════════════════════════════════════
+msgid ""
+"Pick where you want to watch and we will walk you through it. On a TV you "
+"will not have to type your password with the remote — we handle the sign-in "
+"for you."
+msgstr ""
+"Elige dónde quieres ver y te guiamos paso a paso. En una tele no vas a tener "
+"que escribir tu contraseña con el control — nosotros nos encargamos de "
+"iniciar la sesión."
+
+msgid "What is Jellyfin?"
+msgstr "¿Qué es Jellyfin?"
+
+msgid "Welcome to Our Jellyfin Server"
+msgstr "Bienvenido a nuestro servidor Jellyfin"
+
+msgid "Great news — you now have access to our **media library** through Jellyfin!"
+msgstr "¡Buenas noticias! Ya tienes acceso a nuestra **biblioteca** a través de Jellyfin."
+
+msgid ""
+"Jellyfin is a free, open-source media server that lets people share their "
+"film and TV libraries with friends and family. If you're here, it means "
+"you've been invited to join ours — welcome!"
+msgstr ""
+"Jellyfin es un servidor multimedia gratuito y de código abierto que permite "
+"compartir bibliotecas de películas y series con familia y amigos. Si estás "
+"aquí es porque te invitamos a la nuestra. ¡Bienvenido!"
+
+msgid "What You'll Get"
+msgstr "Qué incluye"
+
+msgid "Access to our constantly updated list of movies and shows"
+msgstr "Acceso a nuestro catálogo de películas y series, siempre actualizado"
+
+msgid "Watch on-demand or download for offline viewing"
+msgstr "Ve cuando quieras o descarga para verlo sin internet"
+
+msgid "Personalised watchlists & recommendations"
+msgstr "Listas y recomendaciones personalizadas"
+
+msgid "Download Jellyfin Clients"
+msgstr "Descarga las apps de Jellyfin"
+
+msgid "Jellyfin has many clients from which you can view our media!"
+msgstr "Jellyfin tiene muchas apps desde las que puedes ver nuestro contenido."
+
+msgid "Watch Anywhere"
+msgstr "Ve donde quieras"
+
+msgid "Jellyfin works almost everywhere — install the app on your favourite devices:"
+msgstr "Jellyfin funciona casi en todos lados — instala la app en tus dispositivos:"
+
+msgid "Mobile"
+msgstr "Celular"
+
+msgid "iOS & Android phones/tablets"
+msgstr "Celulares y tablets iOS y Android"
+
+msgid "Desktop"
+msgstr "Computadora"
+
+msgid "Windows, macOS, Linux"
+msgstr "Windows, macOS, Linux"
+
+msgid "Smart TVs & Streaming Devices"
+msgstr "Smart TVs y dispositivos de streaming"
+
+msgid "Apple TV, Fire TV, Roku, Chromecast, Android TV"
+msgstr "Apple TV, Fire TV, Roku, Chromecast, Android TV"
+
+msgid "Consoles"
+msgstr "Consolas"
+
+msgid "PlayStation & Xbox"
+msgstr "PlayStation y Xbox"
+
+msgid "Web App"
+msgstr "Navegador"
+
+msgid "Watch instantly in your browser"
+msgstr "Ve al instante desde tu navegador"
+
+msgid "⬇️ Download Jellyfin Clients"
+msgstr "⬇️ Descargar las apps de Jellyfin"

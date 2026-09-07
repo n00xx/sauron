@@ -111,10 +111,18 @@ def _get_server_context(server_type: str) -> dict[str, str | int | None]:
     if server is None:
         server = MediaServer.query.first()
 
+    from app.services.wizard_widgets import PUBLIC_SERVER_ADDRESS
+
     context = {}
     if server:
-        # Server-specific variables that steps can use
-        context["external_url"] = server.external_url or server.url or ""
+        # Server-specific variables that steps can use.
+        #
+        # `server.url` deliberately does NOT back this up any more: it holds the
+        # LAN address the container dials (http://192.168.x.x:30013), and every
+        # wizard step that renders `external_url` shows it to a buyer who is
+        # usually not on that network. When the admin has not filled in External
+        # URL we show the public address the onboarding video teaches instead.
+        context["external_url"] = server.external_url or PUBLIC_SERVER_ADDRESS
         context["server_url"] = server.url or ""
         context["server_name"] = getattr(server, "name", "") or ""
         context["server_type"] = server.server_type
@@ -123,7 +131,7 @@ def _get_server_context(server_type: str) -> dict[str, str | int | None]:
         context["server_id"] = server.id
     else:
         # Fallback values to prevent template errors
-        context["external_url"] = ""
+        context["external_url"] = PUBLIC_SERVER_ADDRESS
         context["server_url"] = ""
         context["server_name"] = ""
         context["server_type"] = server_type

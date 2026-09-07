@@ -126,13 +126,15 @@ def create_app(config_object=DevelopmentConfig):
         try:
             from .services.wizard_seed import (
                 ensure_quick_connect_step,
+                ensure_video_step,
                 import_default_wizard_steps,
             )
 
             import_default_wizard_steps()
             # Existing Jellyfin installs never receive newly shipped steps from
-            # the seeder above, so this one is backfilled explicitly.
+            # the seeder above, so these are backfilled explicitly.
             ensure_quick_connect_step()
+            ensure_video_step()
             if show_startup:
                 logger.success("Wizard steps imported")
         except Exception as exc:

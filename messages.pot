@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-07-06 07:54+0000\n"
+"POT-Creation-Date: 2026-09-07 14:06-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,162 +17,319 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: app/activity/api/blueprint.py:118 app/activity/api/helpers.py:89
+#: app/error_handlers.py:59
+msgid ""
+"Your session expired before the form was submitted. Please check your "
+"details and send it again."
+msgstr ""
+
+#: app/activity/api/blueprint.py:134 app/activity/api/helpers.py:89
 msgid "Failed to load settings"
 msgstr ""
 
-#: app/activity/api/blueprint.py:256
+#: app/activity/api/blueprint.py:257
+msgid "overdue"
+msgstr ""
+
+#: app/activity/api/blueprint.py:260
+#, python-format
+msgid "%(n)sd left"
+msgstr ""
+
+#: app/activity/api/blueprint.py:262
+#, python-format
+msgid "%(n)sh left"
+msgstr ""
+
+#: app/activity/api/blueprint.py:292
 msgid "Failed to load dashboard data"
 msgstr ""
 
-#: app/activity/api/blueprint.py:279
+#: app/activity/api/blueprint.py:315
 msgid "Failed to load history data"
 msgstr ""
 
-#: app/activity/api/blueprint.py:390
+#: app/activity/api/blueprint.py:426
 msgid "Failed to load activity data"
 msgstr ""
 
-#: app/activity/api/blueprint.py:445
+#: app/activity/api/blueprint.py:481
 msgid "Failed to load activity summary"
 msgstr ""
 
-#: app/activity/api/blueprint.py:466
+#: app/activity/api/blueprint.py:502
 msgid "Failed to get activity statistics"
 msgstr ""
 
-#: app/activity/api/blueprint.py:475
+#: app/activity/api/blueprint.py:511
 msgid "Database not available"
 msgstr ""
 
-#: app/activity/api/blueprint.py:489
+#: app/activity/api/blueprint.py:525
 msgid "Failed to get session details"
 msgstr ""
 
-#: app/activity/api/blueprint.py:571
+#: app/activity/api/blueprint.py:607
 msgid "Failed to export activity data"
 msgstr ""
 
-#: app/activity/api/blueprint.py:590
+#: app/activity/api/blueprint.py:626
 msgid "Monitoring restarted"
 msgstr ""
 
-#: app/activity/api/blueprint.py:593
+#: app/activity/api/blueprint.py:629
 msgid "Monitor not available"
 msgstr ""
 
-#: app/activity/api/blueprint.py:603
+#: app/activity/api/blueprint.py:639
 #, python-brace-format
 msgid "Cleaned up {} old activity records"
 msgstr ""
 
-#: app/activity/api/blueprint.py:616
+#: app/activity/api/blueprint.py:652
 #, python-brace-format
 msgid "Ended {} stale sessions"
 msgstr ""
 
-#: app/activity/api/blueprint.py:620
+#: app/activity/api/blueprint.py:656
 msgid "Unknown action"
 msgstr ""
 
-#: app/activity/api/blueprint.py:626
+#: app/activity/api/blueprint.py:662
 msgid "Failed to update settings"
 msgstr ""
 
-#: app/activity/api/blueprint.py:641
+#: app/activity/api/blueprint.py:677
 #, python-brace-format
 msgid "Activity data has been successfully deleted ({} records)."
 msgstr ""
 
-#: app/activity/api/blueprint.py:646
+#: app/activity/api/blueprint.py:682
 #, python-brace-format
 msgid "Failed to delete activity data: {}"
 msgstr ""
 
-#: app/activity/api/blueprint.py:666 app/activity/api/blueprint.py:725
+#: app/activity/api/blueprint.py:702 app/activity/api/blueprint.py:761
 msgid "Please select a media server."
 msgstr ""
 
-#: app/activity/api/blueprint.py:677
+#: app/activity/api/blueprint.py:713
 msgid "Media server not found."
 msgstr ""
 
-#: app/activity/api/blueprint.py:688
+#: app/activity/api/blueprint.py:724
 msgid ""
 "Historical data import is currently only supported for Plex, Jellyfin, "
 "Emby, and AudiobookShelf servers."
 msgstr ""
 
-#: app/activity/api/blueprint.py:699
+#: app/activity/api/blueprint.py:735
 #, python-brace-format
 msgid "Historical import job #{job_id} started for {server} (last {days} days)."
 msgstr ""
 
-#: app/activity/api/blueprint.py:709
+#: app/activity/api/blueprint.py:745
 #, python-brace-format
 msgid "Failed to import historical data: {}"
 msgstr ""
 
-#: app/activity/api/blueprint.py:732
+#: app/activity/api/blueprint.py:768
 #, python-brace-format
 msgid "Successfully cleared {} historical entries."
 msgstr ""
 
-#: app/activity/api/blueprint.py:739 app/activity/api/blueprint.py:748
+#: app/activity/api/blueprint.py:775 app/activity/api/blueprint.py:784
 #, python-brace-format
 msgid "Failed to clear historical data: {}"
 msgstr ""
 
-#: app/activity/api/blueprint.py:740
+#: app/activity/api/blueprint.py:776
 msgid "Unknown error"
 msgstr ""
 
-#: app/activity/api/blueprint.py:778
+#: app/activity/api/blueprint.py:814
 msgid "Cannot remove a job that is still queued or running."
 msgstr ""
 
-#: app/activity/api/blueprint.py:806
+#: app/activity/api/blueprint.py:842
 msgid "An internal error has occurred."
 msgstr ""
 
-#: app/blueprints/admin/routes.py:333
+#: app/activity/api/blueprint.py:1126 app/activity/api/blueprint.py:1176
+msgid "Failed to load Stripe events"
+msgstr ""
+
+#: app/activity/api/blueprint.py:1208
+msgid "Event not found"
+msgstr ""
+
+#: app/activity/api/blueprint.py:1283
+#, python-format
+msgid "%(failed)s could not be stored — check the log."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1292
+#, python-format
+msgid "Sync completed: %(new)s new events stored."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1300
+#, python-format
+msgid ""
+"Sync completed, but Stripe returned no events at all since %(window)s. "
+"The key works — this account simply has no event history in that window."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1317
+msgid "All of them are live-mode events."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1319
+msgid "All of them are test-mode events."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1322
+#, python-format
+msgid ""
+"Sync completed, but none of the %(seen)s events Stripe returned since "
+"%(window)s are types sauron monitors (%(types)s). That usually means this"
+" key belongs to a different account or sandbox than the one taking "
+"payments."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1328
+msgid "no recognisable types"
+msgstr ""
+
+#: app/activity/api/blueprint.py:1336
+#, python-format
+msgid ""
+"Sync completed: nothing new. All %(known)s monitored events since "
+"%(window)s were already stored."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1368
+#, python-format
+msgid "Stripe sync failed: %(err)s"
+msgstr ""
+
+#: app/activity/api/blueprint.py:1372
+msgid "Stripe sync skipped: no API key configured."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1381
+msgid "Stripe sync failed."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1470
+msgid "Settings saved. Add an API key to start syncing."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1475
+#, python-format
+msgid ""
+"New API key saved (%(mode)s mode). The sync position was reset, so the "
+"next \"Sync now\" reads Stripe's full 30-day history."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1480
+msgid "Settings saved. Click \"Sync now\" to pull events."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1487
+msgid "Failed to save Stripe settings."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1596 app/activity/api/blueprint.py:1647
+msgid "Failed to load email delivery log"
+msgstr ""
+
+#: app/activity/api/blueprint.py:1699
+msgid "Settings saved. Add an API key and a 'From' address to start sending."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1707
+msgid ""
+"Settings saved, but outbound email is turned off. Password reset emails "
+"will not be sent until you tick \"Enable outbound email\"."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1716
+msgid ""
+"Settings saved, but you are sending from Resend's shared onboarding "
+"domain. It only delivers to your own Resend account address — verify your"
+" own domain before real users depend on this."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1722
+msgid "Settings saved. Use \"Send test\" to verify your domain."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1730
+msgid "Failed to save Resend settings."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1744
+msgid "Enter an address to send the test to."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1755
+#, python-format
+msgid ""
+"Test email accepted by Resend (check %(inbox)s), but outbound email is "
+"still turned off, so password resets will not be sent."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1762
+#, python-format
+msgid "Test email accepted by Resend. Check %(inbox)s."
+msgstr ""
+
+#: app/activity/api/blueprint.py:1768
+#, python-format
+msgid "Test failed: %(hint)s"
+msgstr ""
+
+#: app/blueprints/admin/routes.py:338
 #: app/templates/admin/user_details_modal.html:56
 msgid "Unknown"
 msgstr ""
 
-#: app/blueprints/admin/routes.py:336
+#: app/blueprints/admin/routes.py:341
 #: app/templates/admin/user_details_modal.html:70
 #: app/templates/modals/invite.html:69
 #: app/templates/tables/invite_card.html:115
-#: app/templates/tables/user_card.html:104
-#: app/templates/tables/user_card.html:123
+#: app/templates/tables/user_card.html:121
+#: app/templates/tables/user_card.html:140
 msgid "Never"
 msgstr ""
 
-#: app/blueprints/admin/routes.py:409 app/templates/tables/invite_card.html:5
+#: app/blueprints/admin/routes.py:414 app/templates/admin/users.html:159
+#: app/templates/tables/invite_card.html:5
+#: app/templates/tables/user_card.html:90
 msgid "Expired"
 msgstr ""
 
-#: app/blueprints/admin/routes.py:417
+#: app/blueprints/admin/routes.py:422
 #, python-format
 msgid "in %(n)d d"
 msgstr ""
 
-#: app/blueprints/admin/routes.py:419
+#: app/blueprints/admin/routes.py:424
 msgid "in 1 d"
 msgstr ""
 
-#: app/blueprints/admin/routes.py:421
+#: app/blueprints/admin/routes.py:426
 #, python-format
 msgid "in %(n)d h"
 msgstr ""
 
-#: app/blueprints/admin/routes.py:423
+#: app/blueprints/admin/routes.py:428
 #, python-format
 msgid "in %(n)d m"
 msgstr ""
 
-#: app/blueprints/admin/routes.py:424
+#: app/blueprints/admin/routes.py:429
 msgid "soon"
 msgstr ""
 
@@ -214,44 +371,52 @@ msgstr ""
 msgid "API key deleted successfully"
 msgstr ""
 
-#: app/blueprints/auth/ldap_auth.py:15
+#: app/blueprints/auth/ldap_auth.py:24
 msgid "LDAP authentication is not enabled"
 msgstr ""
 
-#: app/blueprints/auth/ldap_auth.py:18
+#: app/blueprints/auth/ldap_auth.py:27
 msgid "LDAP admin authentication is not allowed"
 msgstr ""
 
-#: app/blueprints/auth/ldap_auth.py:30
+#: app/blueprints/auth/ldap_auth.py:37
+msgid "LDAP admin group is not configured"
+msgstr ""
+
+#: app/blueprints/auth/ldap_auth.py:49
 msgid "Invalid LDAP credentials"
 msgstr ""
 
-#: app/blueprints/auth/ldap_auth.py:36
+#: app/blueprints/auth/ldap_auth.py:55
 msgid "User DN not found in LDAP response"
 msgstr ""
 
-#: app/blueprints/auth/ldap_auth.py:52
+#: app/blueprints/auth/ldap_auth.py:71
 msgid "User is not authorized as an administrator"
 msgstr ""
 
-#: app/blueprints/auth/ldap_auth.py:98
+#: app/blueprints/auth/ldap_auth.py:120
 msgid "Login successful"
 msgstr ""
 
-#: app/blueprints/auth/ldap_auth.py:104
+#: app/blueprints/auth/ldap_auth.py:126
 msgid "LDAP authentication failed"
 msgstr ""
 
-#: app/blueprints/auth/routes.py:112
+#: app/blueprints/auth/routes.py:131
+msgid "Captcha verification failed. Please try again."
+msgstr ""
+
+#: app/blueprints/auth/routes.py:215
 msgid "Invalid username or password"
 msgstr ""
 
-#: app/blueprints/auth/routes.py:136
+#: app/blueprints/auth/routes.py:258
 msgid "No pending 2FA authentication"
 msgstr ""
 
-#: app/blueprints/auth/routes.py:150 app/templates/login.html:203
-#: app/templates/login.html:268 app/templates/login.html:272
+#: app/blueprints/auth/routes.py:272 app/templates/login.html:214
+#: app/templates/login.html:279 app/templates/login.html:283
 msgid "Authentication failed"
 msgstr ""
 
@@ -295,86 +460,86 @@ msgstr ""
 msgid "Invalid form data: %(errors)s"
 msgstr ""
 
-#: app/blueprints/public/routes.py:181 app/blueprints/public/routes.py:198
+#: app/blueprints/public/routes.py:190 app/blueprints/public/routes.py:207
 msgid ""
 "There was an issue setting up your access. Please contact your server "
 "admin."
 msgstr ""
 
-#: app/blueprints/settings/routes.py:166 app/blueprints/settings/routes.py:269
+#: app/blueprints/settings/routes.py:171 app/blueprints/settings/routes.py:279
 msgid "Settings saved successfully!"
 msgstr ""
 
-#: app/blueprints/settings/routes.py:217 app/forms/settings.py:24
+#: app/blueprints/settings/routes.py:222 app/forms/settings.py:24
 msgid "Server URL"
 msgstr ""
 
-#: app/blueprints/settings/routes.py:220 app/forms/settings.py:25
+#: app/blueprints/settings/routes.py:225 app/forms/settings.py:25
 msgid "API Key"
 msgstr ""
 
-#: app/blueprints/settings/routes.py:220
+#: app/blueprints/settings/routes.py:225
 msgid "Username/Password"
 msgstr ""
 
-#: app/blueprints/settings/routes.py:223
+#: app/blueprints/settings/routes.py:228
 #, python-brace-format
 msgid "Missing required fields: {fields}"
 msgstr ""
 
-#: app/blueprints/settings/routes.py:226 app/blueprints/settings/routes.py:236
+#: app/blueprints/settings/routes.py:231 app/blueprints/settings/routes.py:241
 #: app/templates/components/passkey_error.html:12
 msgid "Error"
 msgstr ""
 
-#: app/blueprints/settings/routes.py:235
+#: app/blueprints/settings/routes.py:240
 msgid "Library scan failed"
 msgstr ""
 
-#: app/blueprints/settings/routes.py:293
+#: app/blueprints/settings/routes.py:303
 #, python-brace-format
 msgid "Successfully cleaned {count} expired user(s)."
 msgstr ""
 
-#: app/blueprints/settings/routes.py:298
+#: app/blueprints/settings/routes.py:308
 msgid "No expired users found to clean."
 msgstr ""
 
-#: app/blueprints/settings/routes.py:321 app/blueprints/settings/routes.py:350
-#: app/templates/settings/general.html:178
+#: app/blueprints/settings/routes.py:331 app/blueprints/settings/routes.py:360
+#: app/templates/settings/general.html:229
 msgid ""
 "Are you sure you want to clean all expired users? This action cannot be "
 "undone."
 msgstr ""
 
-#: app/blueprints/settings/routes.py:323 app/blueprints/settings/routes.py:352
-#: app/templates/settings/general.html:167
-#: app/templates/settings/general.html:195
+#: app/blueprints/settings/routes.py:333 app/blueprints/settings/routes.py:362
+#: app/templates/settings/general.html:218
+#: app/templates/settings/general.html:246
 msgid "Clean Expired Users"
 msgstr ""
 
-#: app/blueprints/settings/routes.py:328
+#: app/blueprints/settings/routes.py:338
 #, python-brace-format
 msgid "Failed to clean expired users: {error}"
 msgstr ""
 
-#: app/blueprints/settings/routes.py:407
+#: app/blueprints/settings/routes.py:417
 msgid "LDAP configuration saved successfully"
 msgstr ""
 
-#: app/blueprints/settings/routes.py:481
+#: app/blueprints/settings/routes.py:491
 msgid "LDAP not configured or disabled"
 msgstr ""
 
-#: app/blueprints/settings/routes.py:491
+#: app/blueprints/settings/routes.py:501
 msgid "No groups found in LDAP"
 msgstr ""
 
-#: app/blueprints/settings/routes.py:547
+#: app/blueprints/settings/routes.py:557
 msgid "LDAP is not configured"
 msgstr ""
 
-#: app/blueprints/settings/routes.py:556
+#: app/blueprints/settings/routes.py:566
 #, python-format
 msgid "Failed to list LDAP users: %(error)s"
 msgstr ""
@@ -383,70 +548,70 @@ msgstr ""
 msgid "Admin account created – welcome!"
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:66
+#: app/blueprints/wizard/routes.py:69
 msgid ""
 "Your invitation has expired or is no longer valid. Please request a new "
 "invitation."
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:331 app/blueprints/wizard/routes.py:1250
-#: app/blueprints/wizard/routes.py:1413
+#: app/blueprints/wizard/routes.py:346 app/blueprints/wizard/routes.py:1351
+#: app/blueprints/wizard/routes.py:1514
 msgid "Error Loading Step"
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:334 app/blueprints/wizard/routes.py:1253
-#: app/blueprints/wizard/routes.py:1416
+#: app/blueprints/wizard/routes.py:349 app/blueprints/wizard/routes.py:1354
+#: app/blueprints/wizard/routes.py:1517
 msgid ""
 "This step could not be loaded. Please contact the administrator or skip "
 "to the next step."
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:549 app/blueprints/wizard/routes.py:556
-#: app/blueprints/wizard/routes.py:660 app/blueprints/wizard/routes.py:1151
-#: app/blueprints/wizard/routes.py:1159
+#: app/blueprints/wizard/routes.py:564 app/blueprints/wizard/routes.py:571
+#: app/blueprints/wizard/routes.py:675 app/blueprints/wizard/routes.py:1252
+#: app/blueprints/wizard/routes.py:1260
 msgid "Invalid or expired invitation"
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:609 app/blueprints/wizard/routes.py:775
+#: app/blueprints/wizard/routes.py:624 app/blueprints/wizard/routes.py:790
 msgid ""
 "No media servers are configured. Please contact the administrator to set "
 "up a media server."
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:626
+#: app/blueprints/wizard/routes.py:641
 msgid "Unable to load wizard steps. Proceeding to invitation acceptance."
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:650 app/blueprints/wizard/routes.py:987
-#: app/blueprints/wizard/routes.py:1272 app/templates/wizard/steps.html:21
+#: app/blueprints/wizard/routes.py:665 app/blueprints/wizard/routes.py:1088
+#: app/blueprints/wizard/routes.py:1373 app/templates/wizard/steps.html:21
 msgid "Continue to Invite"
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:703
+#: app/blueprints/wizard/routes.py:718
 msgid "Please log in to continue"
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:815
+#: app/blueprints/wizard/routes.py:830
 msgid "Unable to load wizard steps. Setup complete! Welcome to your media server."
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:863
+#: app/blueprints/wizard/routes.py:878
 msgid "Setup complete! Welcome to your media server."
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:972
+#: app/blueprints/wizard/routes.py:1073
 msgid "Unable to load wizard configuration. Please try again."
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:1129
+#: app/blueprints/wizard/routes.py:1230
 msgid "Unable to load wizard bundle. Please try again."
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:1180
+#: app/blueprints/wizard/routes.py:1281
 msgid "Unable to load wizard steps. Please try again."
 msgstr ""
 
-#: app/blueprints/wizard/routes.py:1373
+#: app/blueprints/wizard/routes.py:1474
 msgid "This bundle has no steps to preview."
 msgstr ""
 
@@ -538,11 +703,11 @@ msgstr ""
 msgid "Failed to reset steps: {}"
 msgstr ""
 
-#: app/forms/admin.py:29
+#: app/forms/admin.py:29 app/forms/join.py:51
 msgid "Password must be at least 8 characters."
 msgstr ""
 
-#: app/forms/admin.py:34
+#: app/forms/admin.py:34 app/forms/join.py:55
 msgid ""
 "Password must contain at least one uppercase letter, one lowercase "
 "letter, and one number."
@@ -550,17 +715,17 @@ msgstr ""
 
 #: app/forms/admin.py:43 app/forms/admin.py:57
 #: app/templates/admin/user_details_modal.html:66
-#: app/templates/hybrid-password-form.html:101 app/templates/login.html:75
+#: app/templates/hybrid-password-form.html:101 app/templates/login.html:81
 #: app/templates/modals/create-admin.html:22
 #: app/templates/modals/edit-admin.html:22
-#: app/templates/welcome-jellyfin.html:117
+#: app/templates/welcome-jellyfin.html:152
 msgid "Username"
 msgstr ""
 
-#: app/forms/admin.py:45 app/templates/choose-password.html:22
-#: app/templates/hybrid-password-form.html:133 app/templates/login.html:85
+#: app/forms/admin.py:45 app/templates/choose-password.html:23
+#: app/templates/hybrid-password-form.html:133 app/templates/login.html:91
 #: app/templates/modals/create-admin.html:28 app/templates/profile.html:32
-#: app/templates/welcome-jellyfin.html:149
+#: app/templates/welcome-jellyfin.html:190
 msgid "Password"
 msgstr ""
 
@@ -570,17 +735,26 @@ msgstr ""
 msgid "Confirm password"
 msgstr ""
 
-#: app/forms/admin.py:50 app/forms/admin.py:68
+#: app/forms/admin.py:50 app/forms/admin.py:68 app/forms/join.py:65
 msgid "Passwords must match."
 msgstr ""
 
-#: app/forms/admin.py:62 app/templates/password-reset-form.html:36
+#: app/forms/admin.py:62 app/templates/password-reset-form.html:37
 #: app/templates/profile.html:53
 msgid "New Password"
 msgstr ""
 
 #: app/forms/admin.py:79
 msgid "Please confirm the new password."
+msgstr ""
+
+#: app/forms/join.py:22 app/forms/join.py:42 app/forms/join.py:50
+#: app/forms/join.py:64 app/forms/join.py:72
+msgid "This field is required."
+msgstr ""
+
+#: app/forms/join.py:43 app/forms/validators.py:54
+msgid "Please enter a valid email address."
 msgstr ""
 
 #: app/forms/settings.py:10
@@ -606,12 +780,12 @@ msgstr ""
 
 #: app/forms/settings.py:30 app/forms/settings.py:46
 #: app/templates/admin/user_modal.html:87 app/templates/modals/invite.html:219
-#: app/templates/modals/invite.html:253 app/templates/modals/invite.html:296
-#: app/templates/modals/invite.html:330 app/templates/modals/invite.html:342
+#: app/templates/modals/invite.html:253 app/templates/modals/invite.html:317
+#: app/templates/modals/invite.html:351 app/templates/modals/invite.html:363
 msgid "Allow Downloads"
 msgstr ""
 
-#: app/forms/settings.py:33 app/templates/admin/user_modal.html:112
+#: app/forms/settings.py:33 app/templates/admin/user_modal.html:113
 msgid "Allow Live TV"
 msgstr ""
 
@@ -629,6 +803,32 @@ msgstr ""
 
 #: app/forms/settings.py:40
 msgid "External URL"
+msgstr ""
+
+#: app/forms/validators.py:23
+msgid "Username must be 3 to 15 characters."
+msgstr ""
+
+#: app/forms/validators.py:25
+msgid ""
+"Username can contain letters, numbers, dashes (-), underscores (_), "
+"apostrophes ('), and periods (.)."
+msgstr ""
+
+#: app/forms/validators.py:43
+msgid "Username must be 7 to 15 characters."
+msgstr ""
+
+#: app/forms/validators.py:45
+msgid ""
+"Username can only contain letters and numbers — no spaces or special "
+"characters."
+msgstr ""
+
+#: app/forms/validators.py:50
+msgid ""
+"At least 7 characters, letters and numbers only — no spaces or special "
+"characters."
 msgstr ""
 
 #: app/services/servers.py:18
@@ -697,37 +897,62 @@ msgstr ""
 msgid "Kavita"
 msgstr ""
 
-#: app/services/servers.py:279
+#: app/services/servers.py:280
 msgid "Navidrome"
 msgstr ""
 
-#: app/services/servers.py:301
+#: app/services/servers.py:302
 msgid "Invalid API token or insufficient permissions."
 msgstr ""
 
-#: app/services/servers.py:303
+#: app/services/servers.py:304
 msgid "API token lacks required permissions."
 msgstr ""
 
-#: app/services/servers.py:308
+#: app/services/servers.py:309
 msgid "Could not connect to Drop server."
 msgstr ""
 
-#: app/services/servers.py:310
+#: app/services/servers.py:311
 msgid "Connection to Drop server timed out."
 msgstr ""
 
-#: app/services/servers.py:313
+#: app/services/servers.py:314
 msgid "Drop API not found. Check the server URL."
 msgstr ""
 
-#: app/services/servers.py:316
+#: app/services/servers.py:317
 msgid "Drop"
 msgstr ""
 
 #: app/services/wizard_reset.py:99
 #, python-brace-format
 msgid "No default steps found for server type: {}"
+msgstr ""
+
+#: app/services/wizard_widgets.py:330
+msgid "Smart TV, Fire TV, Roku, projector"
+msgstr ""
+
+#: app/services/wizard_widgets.py:331
+msgid "Apple TV, Xbox"
+msgstr ""
+
+#: app/services/wizard_widgets.py:332
+msgid "Phone, tablet or computer"
+msgstr ""
+
+#: app/services/invitation_flow/workflows.py:334
+#: app/services/invitation_flow/workflows.py:611
+msgid "Please correct the highlighted fields."
+msgstr ""
+
+#: app/services/media/jellyfin.py:964
+msgid "Invalid e-mail address."
+msgstr ""
+
+#: app/services/media/jellyfin.py:980
+msgid "User or e-mail already exists."
 msgstr ""
 
 #: app/templates/admin.html:3 app/templates/admin/user_details_modal.html:104
@@ -750,18 +975,18 @@ msgstr ""
 msgid "Choose a password for the remaining servers"
 msgstr ""
 
-#: app/templates/choose-password.html:33
+#: app/templates/choose-password.html:34
 #: app/templates/hybrid-password-form.html:149
-#: app/templates/password-reset-form.html:50
-#: app/templates/welcome-jellyfin.html:165
+#: app/templates/password-reset-form.html:51
+#: app/templates/welcome-jellyfin.html:215
 msgid "Confirm Password"
 msgstr ""
 
-#: app/templates/choose-password.html:50
+#: app/templates/choose-password.html:51
 msgid "Generate a strong random password instead"
 msgstr ""
 
-#: app/templates/choose-password.html:55
+#: app/templates/choose-password.html:56
 msgid "Continue"
 msgstr ""
 
@@ -810,7 +1035,7 @@ msgid "Your password"
 msgstr ""
 
 #: app/templates/hybrid-password-form.html:155
-#: app/templates/welcome-jellyfin.html:168
+#: app/templates/welcome-jellyfin.html:219
 msgid "Confirm your password"
 msgstr ""
 
@@ -884,76 +1109,76 @@ msgstr ""
 msgid "This invitation link is no longer valid. Please request a new invitation."
 msgstr ""
 
-#: app/templates/login.html:14
+#: app/templates/login.html:19
 msgid "Two-Factor Authentication"
 msgstr ""
 
-#: app/templates/login.html:16
+#: app/templates/login.html:21
 msgid "Login"
 msgstr ""
 
-#: app/templates/login.html:21
+#: app/templates/login.html:26
 msgid "This is the administrator login page."
 msgstr ""
 
-#: app/templates/login.html:23
+#: app/templates/login.html:28
 msgid "Go to your media server instead"
 msgstr ""
 
-#: app/templates/login.html:43
+#: app/templates/login.html:48
 #, python-brace-format
 msgid "Welcome back, {}!"
 msgstr ""
 
-#: app/templates/login.html:45
+#: app/templates/login.html:50
 msgid "Please authenticate with your passkey to complete login."
 msgstr ""
 
-#: app/templates/login.html:60
+#: app/templates/login.html:66
 msgid "Authentication Method"
 msgstr ""
 
-#: app/templates/login.html:66
+#: app/templates/login.html:72
 msgid "Local Account"
 msgstr ""
 
-#: app/templates/login.html:67 app/templates/settings/index.html:125
+#: app/templates/login.html:73 app/templates/settings/index.html:125
 msgid "LDAP"
 msgstr ""
 
-#: app/templates/login.html:103
+#: app/templates/login.html:109
 msgid "Remember me"
 msgstr ""
 
-#: app/templates/login.html:110
+#: app/templates/login.html:121
 msgid "Sign in"
 msgstr ""
 
-#: app/templates/login.html:128
+#: app/templates/login.html:139
 msgid "Authenticate with Passkey"
 msgstr ""
 
-#: app/templates/login.html:140
+#: app/templates/login.html:151
 msgid "Back to Login"
 msgstr ""
 
-#: app/templates/login.html:149
+#: app/templates/login.html:160
 msgid "Or"
 msgstr ""
 
-#: app/templates/login.html:162 app/templates/login.html:284
+#: app/templates/login.html:173 app/templates/login.html:295
 msgid "Sign in with Passkey"
 msgstr ""
 
-#: app/templates/login.html:189
+#: app/templates/login.html:200
 msgid "Authenticating..."
 msgstr ""
 
-#: app/templates/login.html:262
+#: app/templates/login.html:273
 msgid "Failed to complete 2FA login"
 msgstr ""
 
-#: app/templates/login.html:277
+#: app/templates/login.html:288
 msgid "Passkey authentication failed. Please try again or use your password."
 msgstr ""
 
@@ -1028,27 +1253,27 @@ msgstr ""
 msgid "This link expires on"
 msgstr ""
 
-#: app/templates/password-reset-form.html:43
+#: app/templates/password-reset-form.html:44
 msgid "Enter new password (8-128 characters)"
 msgstr ""
 
-#: app/templates/password-reset-form.html:57
+#: app/templates/password-reset-form.html:58
 msgid "Confirm new password"
 msgstr ""
 
-#: app/templates/password-reset-form.html:62
+#: app/templates/password-reset-form.html:63
 msgid "Password must be:"
 msgstr ""
 
-#: app/templates/password-reset-form.html:64
+#: app/templates/password-reset-form.html:65
 msgid "Between 8 and 128 characters"
 msgstr ""
 
-#: app/templates/password-reset-form.html:65
+#: app/templates/password-reset-form.html:66
 msgid "Match the confirmation"
 msgstr ""
 
-#: app/templates/password-reset-form.html:70
+#: app/templates/password-reset-form.html:71
 msgid "Reset Password"
 msgstr ""
 
@@ -1101,15 +1326,15 @@ msgstr ""
 msgid "You've been invited to join the %(name)s server!"
 msgstr ""
 
-#: app/templates/user-plex-login.html:50 app/templates/welcome-jellyfin.html:43
+#: app/templates/user-plex-login.html:50 app/templates/welcome-jellyfin.html:77
 msgid "You've been invited!"
 msgstr ""
 
-#: app/templates/user-plex-login.html:54 app/templates/welcome-jellyfin.html:48
+#: app/templates/user-plex-login.html:54 app/templates/welcome-jellyfin.html:82
 msgid "To join"
 msgstr ""
 
-#: app/templates/user-plex-login.html:59 app/templates/welcome-jellyfin.html:54
+#: app/templates/user-plex-login.html:59 app/templates/welcome-jellyfin.html:88
 msgid "Join the ultimate media server experience."
 msgstr ""
 
@@ -1121,16 +1346,15 @@ msgstr ""
 msgid "Invitation Code"
 msgstr ""
 
-#: app/templates/user-plex-login.html:79 app/templates/user-plex-login.html:94
+#: app/templates/user-plex-login.html:80 app/templates/user-plex-login.html:95
 msgid "Enter your code"
 msgstr ""
 
-#: app/templates/user-plex-login.html:108
+#: app/templates/user-plex-login.html:109
 msgid "Join Server"
 msgstr ""
 
-#: app/templates/user-plex-login.html:115
-#: app/templates/welcome-jellyfin.html:213
+#: app/templates/user-plex-login.html:116
 msgid "Secure invitation system powered by Wizarr"
 msgstr ""
 
@@ -1138,50 +1362,65 @@ msgstr ""
 msgid "Invite User"
 msgstr ""
 
-#: app/templates/welcome-jellyfin.html:76
-#: app/templates/welcome-jellyfin.html:81
+#: app/templates/welcome-jellyfin.html:22
+#: app/templates/welcome-jellyfin.html:23
+msgid "Show password"
+msgstr ""
+
+#: app/templates/welcome-jellyfin.html:24
+msgid "Hide password"
+msgstr ""
+
+#: app/templates/welcome-jellyfin.html:110
+#: app/templates/welcome-jellyfin.html:115
 msgid "Accept Invitation"
 msgstr ""
 
-#: app/templates/welcome-jellyfin.html:77
+#: app/templates/welcome-jellyfin.html:111
 msgid "Get ready to join the magic"
 msgstr ""
 
-#: app/templates/welcome-jellyfin.html:94
-#: app/templates/welcome-jellyfin.html:193
+#: app/templates/welcome-jellyfin.html:128
+#: app/templates/welcome-jellyfin.html:248
 msgid "Create Account"
 msgstr ""
 
-#: app/templates/welcome-jellyfin.html:95
+#: app/templates/welcome-jellyfin.html:129
 msgid "Set up your magical account"
 msgstr ""
 
-#: app/templates/welcome-jellyfin.html:120
+#: app/templates/welcome-jellyfin.html:155
 msgid "Enter your username"
 msgstr ""
 
-#: app/templates/welcome-jellyfin.html:133
+#: app/templates/welcome-jellyfin.html:174
 msgid "Email"
 msgstr ""
 
-#: app/templates/welcome-jellyfin.html:136
+#: app/templates/welcome-jellyfin.html:177
 msgid "Enter your email"
 msgstr ""
 
-#: app/templates/welcome-jellyfin.html:152
+#: app/templates/welcome-jellyfin.html:196
 msgid "Create a password"
 msgstr ""
 
-#: app/templates/tables/user_card.html:150
-#: app/templates/welcome-jellyfin.html:181
+#: app/templates/welcome-jellyfin.html:202
+msgid ""
+"At least 8 characters, with one uppercase letter, one lowercase letter, "
+"and one number."
+msgstr ""
+
+#: app/templates/tables/user_card.html:167
+#: app/templates/welcome-jellyfin.html:234
 msgid "Invite Code"
 msgstr ""
 
-#: app/templates/welcome-jellyfin.html:184
+#: app/templates/welcome-jellyfin.html:239
 msgid "Enter invite code"
 msgstr ""
 
-#: app/templates/welcome-jellyfin.html:203
+#: app/templates/welcome-jellyfin.html:258
 msgid "Creating account..."
 msgstr ""
 
@@ -1320,8 +1559,10 @@ msgstr ""
 
 #: app/templates/admin/server_health_card.html:60
 #: app/templates/admin/server_stats_card.html:29
+#: app/templates/admin/users.html:161
 #: app/templates/settings/notifications.html:75
 #: app/templates/tables/invite_card.html:13
+#: app/templates/tables/user_card.html:98
 msgid "Active"
 msgstr ""
 
@@ -1399,9 +1640,9 @@ msgstr ""
 #: app/templates/admin/user_details_modal.html:69
 #: app/templates/tables/invite_card.html:113
 #: app/templates/tables/invite_card.html:115
-#: app/templates/tables/user_card.html:99
-#: app/templates/tables/user_card.html:121
-#: app/templates/tables/user_card.html:123
+#: app/templates/tables/user_card.html:116
+#: app/templates/tables/user_card.html:138
+#: app/templates/tables/user_card.html:140
 msgid "Expires"
 msgstr ""
 
@@ -1433,8 +1674,8 @@ msgstr ""
 #: app/templates/components/admin_passkeys.html:61
 #: app/templates/components/admin_passkeys.html:77
 #: app/templates/components/passkey_error.html:19
-#: app/templates/modals/invite.html:436
-#: app/templates/modals/password-reset-link.html:143
+#: app/templates/modals/invite.html:457
+#: app/templates/modals/password-reset-link.html:179
 msgid "Close"
 msgstr ""
 
@@ -1454,13 +1695,13 @@ msgid "Tabs"
 msgstr ""
 
 #: app/templates/admin/user_modal.html:42
-#: app/templates/tables/user_card.html:103
+#: app/templates/tables/user_card.html:120
 msgid "Local"
 msgstr ""
 
 #: app/templates/admin/user_modal.html:52
-#: app/templates/admin/user_modal.html:249
-#: app/templates/tables/user_card.html:164
+#: app/templates/admin/user_modal.html:252
+#: app/templates/tables/user_card.html:181
 msgid "Notes"
 msgstr ""
 
@@ -1472,75 +1713,93 @@ msgstr ""
 msgid "Toggle downloads permission"
 msgstr ""
 
-#: app/templates/admin/user_modal.html:118
+#: app/templates/admin/user_modal.html:119
 msgid "Toggle live TV permission"
 msgstr ""
 
-#: app/templates/admin/user_modal.html:138
+#: app/templates/admin/user_modal.html:140
 msgid "Allow Camera Upload"
 msgstr ""
 
-#: app/templates/admin/user_modal.html:144
+#: app/templates/admin/user_modal.html:146
 msgid "Toggle camera upload permission"
 msgstr ""
 
-#: app/templates/admin/user_modal.html:169
+#: app/templates/admin/user_modal.html:172
 msgid "Library Access"
 msgstr ""
 
-#: app/templates/admin/user_modal.html:172
+#: app/templates/admin/user_modal.html:175
 msgid "No libraries available"
 msgstr ""
 
-#: app/templates/admin/user_modal.html:173
+#: app/templates/admin/user_modal.html:176
 msgid "Scan libraries from the invitation page to enable library restrictions"
 msgstr ""
 
-#: app/templates/admin/user_modal.html:205
+#: app/templates/admin/user_modal.html:208
 msgid "Click to toggle library access. Updates save automatically."
 msgstr ""
 
-#: app/templates/admin/user_modal.html:211
+#: app/templates/admin/user_modal.html:214
 msgid "Expiry Management"
 msgstr ""
 
-#: app/templates/admin/user_modal.html:218
+#: app/templates/admin/user_modal.html:221
 msgid "Expiry date"
 msgstr ""
 
-#: app/templates/admin/user_modal.html:228
+#: app/templates/admin/user_modal.html:231
 msgid "Update"
 msgstr ""
 
-#: app/templates/admin/user_modal.html:233
+#: app/templates/admin/user_modal.html:236
 msgid "Current expiry"
 msgstr ""
 
-#: app/templates/admin/user_modal.html:235
+#: app/templates/admin/user_modal.html:238
 msgid "No expiry set"
 msgstr ""
 
-#: app/templates/admin/user_modal.html:253
+#: app/templates/admin/user_modal.html:256
 msgid "User notes"
 msgstr ""
 
-#: app/templates/admin/user_modal.html:257
+#: app/templates/admin/user_modal.html:260
 msgid "Add notes about this user..."
 msgstr ""
 
-#: app/templates/admin/user_modal.html:263
+#: app/templates/admin/user_modal.html:266
 msgid "Update Notes"
 msgstr ""
 
-#: app/templates/admin/users.html:192
+#: app/templates/admin/users.html:93
+msgid ""
+"Send an on-screen renewal notice to expiring users who are watching right"
+" now"
+msgstr ""
+
+#: app/templates/admin/users.html:97
+msgid "Notify users who are streaming"
+msgstr ""
+
+#: app/templates/admin/users.html:158
+msgid "All Statuses"
+msgstr ""
+
+#: app/templates/admin/users.html:160 app/templates/tables/user_card.html:94
+msgid "Expiring Soon"
+msgstr ""
+
+#: app/templates/admin/users.html:169
 msgid "Link"
 msgstr ""
 
-#: app/templates/admin/users.html:198
+#: app/templates/admin/users.html:175
 msgid "Unlink"
 msgstr ""
 
-#: app/templates/admin/users.html:204 app/templates/servers/index.html:31
+#: app/templates/admin/users.html:181 app/templates/servers/index.html:32
 #: app/templates/settings/connections.html:137
 msgid "Delete"
 msgstr ""
@@ -1619,23 +1878,23 @@ msgstr ""
 #: app/templates/modals/connection-form.html:162
 #: app/templates/modals/create-admin.html:48
 #: app/templates/modals/create-api-key.html:82
-#: app/templates/modals/create-notification-agent.html:163
+#: app/templates/modals/create-notification-agent.html:154
 #: app/templates/modals/create-server.html:168
 #: app/templates/modals/edit-admin.html:50
 #: app/templates/modals/edit-identity.html:49
-#: app/templates/modals/edit-notification-agent.html:168
+#: app/templates/modals/edit-notification-agent.html:159
 #: app/templates/modals/edit-server.html:178
-#: app/templates/modals/invite.html:387
+#: app/templates/modals/invite.html:408
 #: app/templates/modals/wizard-bundle-form.html:34
 #: app/templates/modals/wizard-import-form.html:102
 #: app/templates/modals/wizard-preset-form.html:59
 #: app/templates/modals/wizard-simple-step-form.html:48
 #: app/templates/modals/wizard-step-form.html:139
 #: app/templates/settings/connections/form.html:183
-#: app/templates/settings/wizard/bundle_form.html:18
-#: app/templates/settings/wizard/form.html:38
-#: app/templates/settings/wizard/preset_form.html:38
-#: app/templates/settings/wizard/simple_form.html:28
+#: app/templates/settings/wizard/bundle_form.html:19
+#: app/templates/settings/wizard/form.html:39
+#: app/templates/settings/wizard/preset_form.html:39
+#: app/templates/settings/wizard/simple_form.html:29
 msgid "Cancel"
 msgstr ""
 
@@ -1721,16 +1980,32 @@ msgstr ""
 msgid " Something has gone wrong. Please try again later."
 msgstr ""
 
+#: app/templates/error/csrf.html:4 app/templates/error/csrf.html:15
+msgid "Session expired"
+msgstr ""
+
+#: app/templates/error/csrf.html:18
+msgid "Your form was left open too long."
+msgstr ""
+
+#: app/templates/error/csrf.html:21
+msgid "Nothing was submitted. Go back, reload the page and try again."
+msgstr ""
+
+#: app/templates/modals/_operational-events-note.html:7
+msgid "Operational alerts are always delivered to every agent."
+msgstr ""
+
 #: app/templates/modals/bundle-add-steps.html:13
 msgid "Add steps to bundle"
 msgstr ""
 
 #: app/templates/modals/bundle-add-steps.html:26
-#: app/templates/settings/wizard/bundles.html:106
-#: app/templates/settings/wizard/bundles.html:188
-#: app/templates/settings/wizard/bundles.html:269
-#: app/templates/settings/wizard/steps.html:86
-#: app/templates/settings/wizard/steps.html:166
+#: app/templates/settings/wizard/bundles.html:107
+#: app/templates/settings/wizard/bundles.html:190
+#: app/templates/settings/wizard/bundles.html:272
+#: app/templates/settings/wizard/steps.html:87
+#: app/templates/settings/wizard/steps.html:168
 msgid "Untitled"
 msgstr ""
 
@@ -1808,7 +2083,7 @@ msgstr ""
 
 #: app/templates/modals/create-api-key.html:15
 #: app/templates/settings/api_keys.html:17
-#: app/templates/settings/general.html:244
+#: app/templates/settings/general.html:295
 msgid "Create API Key"
 msgstr ""
 
@@ -1881,19 +2156,7 @@ msgstr ""
 msgid "Notification Events"
 msgstr ""
 
-#: app/templates/modals/create-notification-agent.html:138
-#: app/templates/modals/edit-notification-agent.html:143
-#: app/templates/settings/notifications.html:84
-msgid "User Joined"
-msgstr ""
-
-#: app/templates/modals/create-notification-agent.html:150
-#: app/templates/modals/edit-notification-agent.html:155
-#: app/templates/settings/notifications.html:89
-msgid "Update Available"
-msgstr ""
-
-#: app/templates/modals/create-notification-agent.html:158
+#: app/templates/modals/create-notification-agent.html:149
 msgid "Test & Create Agent"
 msgstr ""
 
@@ -1920,9 +2183,9 @@ msgstr ""
 #: app/templates/modals/wizard-bundle-form.html:36
 #: app/templates/modals/wizard-simple-step-form.html:50
 #: app/templates/modals/wizard-step-form.html:141
-#: app/templates/settings/wizard/bundle_form.html:16
-#: app/templates/settings/wizard/form.html:30
-#: app/templates/settings/wizard/simple_form.html:26
+#: app/templates/settings/wizard/bundle_form.html:17
+#: app/templates/settings/wizard/form.html:31
+#: app/templates/settings/wizard/simple_form.html:27
 msgid "Save"
 msgstr ""
 
@@ -1947,7 +2210,7 @@ msgstr ""
 msgid "Notification Service"
 msgstr ""
 
-#: app/templates/modals/edit-notification-agent.html:163
+#: app/templates/modals/edit-notification-agent.html:154
 msgid "Test & Save Changes"
 msgstr ""
 
@@ -1955,7 +2218,7 @@ msgstr ""
 msgid "Edit Server"
 msgstr ""
 
-#: app/templates/modals/invite.html:14 app/templates/modals/invite.html:382
+#: app/templates/modals/invite.html:14 app/templates/modals/invite.html:403
 msgid "Create Invitation"
 msgstr ""
 
@@ -1995,7 +2258,8 @@ msgstr ""
 msgid "Wizard bundle"
 msgstr ""
 
-#: app/templates/modals/invite.html:82
+#: app/templates/modals/invite.html:82 wizard_steps/emby/99_tips.md:9
+#: wizard_steps/jellyfin/99_tips.md:9 wizard_steps/plex/99_tips.md:10
 msgid "Automatic"
 msgstr ""
 
@@ -2051,56 +2315,65 @@ msgid "Invite to Plex Home"
 msgstr ""
 
 #: app/templates/modals/invite.html:230 app/templates/modals/invite.html:264
-#: app/templates/modals/invite.html:307
+#: app/templates/modals/invite.html:328
 msgid "Allow Live TV Access"
 msgstr ""
 
-#: app/templates/modals/invite.html:241 app/templates/modals/invite.html:318
+#: app/templates/modals/invite.html:241 app/templates/modals/invite.html:339
 msgid "Allow Mobile Uploads"
 msgstr ""
 
-#: app/templates/modals/invite.html:272
+#: app/templates/modals/invite.html:275
+msgid "Allow audio playback that requires transcoding"
+msgstr ""
+
+#: app/templates/modals/invite.html:285
+msgid "Allow video playback that requires transcoding"
+msgstr ""
+
+#: app/templates/modals/invite.html:293
 msgid "Max Active Sessions"
 msgstr ""
 
-#: app/templates/modals/invite.html:273
+#: app/templates/modals/invite.html:294
 msgid "simultaneous devices"
 msgstr ""
 
-#: app/templates/modals/invite.html:283
+#: app/templates/modals/invite.html:304
 msgid "Number of devices that can stream simultaneously. Set to 0 for unlimited."
 msgstr ""
 
-#: app/templates/modals/invite.html:358
+#: app/templates/modals/invite.html:379
 msgid "Select Libraries"
 msgstr ""
 
-#: app/templates/modals/invite.html:371 app/templates/modals/invite.html:476
+#: app/templates/modals/invite.html:392 app/templates/modals/invite.html:497
 msgid "Loading…"
 msgstr ""
 
-#: app/templates/modals/invite.html:402
+#: app/templates/modals/invite.html:423
 msgid "Successfully generated an Invitation!"
 msgstr ""
 
-#: app/templates/modals/invite.html:408
+#: app/templates/modals/invite.html:429
 msgid "Invitation Link"
 msgstr ""
 
-#: app/templates/modals/invite.html:420
+#: app/templates/modals/invite.html:441
 #: app/templates/modals/password-reset-link.html:81
+#: app/templates/wizard/widgets/quick_connect.html:54
 msgid "Copy"
 msgstr ""
 
-#: app/templates/modals/invite.html:425
+#: app/templates/modals/invite.html:446
 msgid "Link has been copied to clipboard!"
 msgstr ""
 
-#: app/templates/modals/invite.html:431
+#: app/templates/modals/invite.html:452
 msgid "Create Another"
 msgstr ""
 
-#: app/templates/modals/invite.html:492
+#: app/templates/modals/invite.html:513
 msgid "Please select at least one server for the invitation."
 msgstr ""
 
@@ -2132,47 +2405,66 @@ msgstr ""
 msgid "Reset Code"
 msgstr ""
 
-#: app/templates/modals/password-reset-link.html:97
-msgid "Security Notes:"
+#: app/templates/modals/password-reset-link.html:102
+#, python-format
+msgid "Sent to %(address)s"
 msgstr ""
 
-#: app/templates/modals/password-reset-link.html:99
-msgid "This link can only be used once"
-msgstr ""
-
-#: app/templates/modals/password-reset-link.html:100
-msgid "It expires in 24 hours"
-msgstr ""
-
-#: app/templates/modals/password-reset-link.html:101
-msgid "Send it securely (email, message, etc.)"
-msgstr ""
-
-#: app/templates/modals/password-reset-link.html:108
-msgid "Generate a secure password reset link for"
+#: app/templates/modals/password-reset-link.html:111
+msgid "Email this link"
 msgstr ""
 
 #: app/templates/modals/password-reset-link.html:122
-msgid "Generate Reset Link"
+msgid "Send"
 msgstr ""
 
-#: app/templates/modals/password-reset-link.html:125
-msgid "The link will be valid for 24 hours and can only be used once."
+#: app/templates/modals/password-reset-link.html:127
+msgid ""
+"This account has no email address, so the link has to be delivered by "
+"hand."
+msgstr ""
+
+#: app/templates/modals/password-reset-link.html:133
+msgid "Security Notes:"
+msgstr ""
+
+#: app/templates/modals/password-reset-link.html:135
+msgid "This link can only be used once"
+msgstr ""
+
+#: app/templates/modals/password-reset-link.html:136
+msgid "It expires in 24 hours"
 msgstr ""
 
 #: app/templates/modals/password-reset-link.html:137
+msgid "Send it securely (email, message, etc.)"
+msgstr ""
+
+#: app/templates/modals/password-reset-link.html:144
+msgid "Generate a secure password reset link for"
+msgstr ""
+
+#: app/templates/modals/password-reset-link.html:158
+msgid "Generate Reset Link"
+msgstr ""
+
+#: app/templates/modals/password-reset-link.html:161
+msgid "The link will be valid for 24 hours and can only be used once."
+msgstr ""
+
+#: app/templates/modals/password-reset-link.html:173
 msgid "Copy Link"
 msgstr ""
 
-#: app/templates/modals/password-reset-link.html:165
+#: app/templates/modals/password-reset-link.html:201
 msgid "Copied!"
 msgstr ""
 
-#: app/templates/modals/password-reset-link.html:185
+#: app/templates/modals/password-reset-link.html:221
 msgid "Reset link copied to clipboard!"
 msgstr ""
 
-#: app/templates/modals/password-reset-link.html:187
+#: app/templates/modals/password-reset-link.html:223
 msgid "Please manually copy the link"
 msgstr ""
 
@@ -2231,18 +2523,18 @@ msgid "Choose when this step should be shown to users"
 msgstr ""
 
 #: app/templates/modals/wizard-preset-form.html:39
-#: app/templates/settings/wizard/preset_form.html:17
+#: app/templates/settings/wizard/preset_form.html:18
 msgid "Your Discord server ID"
 msgstr ""
 
 #: app/templates/modals/wizard-preset-form.html:44
-#: app/templates/settings/wizard/preset_form.html:22
+#: app/templates/settings/wizard/preset_form.html:23
 msgid "URL to your Overseerr/Ombi instance"
 msgstr ""
 
 #: app/templates/modals/wizard-preset-form.html:61
 #: app/templates/settings/wizard/_sub_nav.html:125
-#: app/templates/settings/wizard/preset_form.html:36
+#: app/templates/settings/wizard/preset_form.html:37
 msgid "Create Step"
 msgstr ""
 
@@ -2326,7 +2618,7 @@ msgstr ""
 msgid "Delete this server?"
 msgstr ""
 
-#: app/templates/servers/index.html:37
+#: app/templates/servers/index.html:38
 msgid "No servers configured yet."
 msgstr ""
 
@@ -2439,61 +2731,89 @@ msgstr ""
 msgid "Control access to the wizard setup process"
 msgstr ""
 
-#: app/templates/settings/general.html:96
-msgid "User Management"
+#: app/templates/settings/general.html:95
+msgid "Login Security"
 msgstr ""
 
-#: app/templates/settings/general.html:98
-msgid "Configure how users are managed when invitations expire"
+#: app/templates/settings/general.html:97
+msgid "Protect the admin login page with a Cloudflare Turnstile challenge"
+msgstr ""
+
+#: app/templates/settings/general.html:108
+msgid "Require visitors to pass a Cloudflare Turnstile check before signing in"
+msgstr ""
+
+#: app/templates/settings/general.html:123
+msgid "Leave blank to keep the current secret"
 msgstr ""
 
 #: app/templates/settings/general.html:125
+msgid ""
+"Stored securely and never displayed again. Get your keys from the "
+"Cloudflare Turnstile dashboard."
+msgstr ""
+
+#: app/templates/settings/general.html:130
+msgid ""
+"Locked out? Set the environment variable TURNSTILE_ENABLED=false and "
+"restart to bypass the challenge."
+msgstr ""
+
+#: app/templates/settings/general.html:147
+msgid "User Management"
+msgstr ""
+
+#: app/templates/settings/general.html:149
+msgid "Configure how users are managed when invitations expire"
+msgstr ""
+
+#: app/templates/settings/general.html:176
 msgid "Server Capabilities"
 msgstr ""
 
-#: app/templates/settings/general.html:129
+#: app/templates/settings/general.html:180
 msgid "Supports Disable:"
 msgstr ""
 
-#: app/templates/settings/general.html:140
+#: app/templates/settings/general.html:191
 msgid "Delete Only:"
 msgstr ""
 
-#: app/templates/settings/general.html:150
+#: app/templates/settings/general.html:201
 msgid ""
 "If 'Disable User' is selected but the server does not support it, the "
 "user will be deleted instead."
 msgstr ""
 
-#: app/templates/settings/general.html:159
+#: app/templates/settings/general.html:210
 msgid "Choose what happens to users when their invitation expires"
 msgstr ""
 
-#: app/templates/settings/general.html:169
+#: app/templates/settings/general.html:220
 msgid "Immediately process all expired users based on the expiry action above"
 msgstr ""
 
-#: app/templates/settings/general.html:220
+#: app/templates/settings/general.html:271
 msgid "API Key Management"
 msgstr ""
 
-#: app/templates/settings/general.html:222
+#: app/templates/settings/general.html:273
 msgid "Manage API keys for accessing Wizarr programmatically"
 msgstr ""
 
-#: app/templates/settings/general.html:230
+#: app/templates/settings/general.html:281
 msgid "Your API Keys"
 msgstr ""
 
-#: app/templates/settings/general.html:231
+#: app/templates/settings/general.html:282
 msgid "Create and manage API keys for external applications"
 msgstr ""
 
-#: app/templates/settings/general.html:255
+#: app/templates/settings/general.html:306
 msgid "Loading API keys..."
 msgstr ""
 
-#: app/templates/settings/general.html:271 app/templates/settings/ldap.html:260
+#: app/templates/settings/general.html:322 app/templates/settings/ldap.html:260
 msgid "Save Settings"
 msgstr ""
 
@@ -2651,7 +2971,7 @@ msgid "Configure notification services to alert you about important events"
 msgstr ""
 
 #: app/templates/settings/notifications.html:21
-#: app/templates/settings/notifications.html:125
+#: app/templates/settings/notifications.html:123
 msgid "Add Agent"
 msgstr ""
 
@@ -2675,11 +2995,15 @@ msgstr ""
 msgid "Events"
 msgstr ""
 
-#: app/templates/settings/notifications.html:112
+#: app/templates/settings/notifications.html:85
+msgid "Always on — operational alert"
+msgstr ""
+
+#: app/templates/settings/notifications.html:110
 msgid "No notification agents"
 msgstr ""
 
-#: app/templates/settings/notifications.html:114
+#: app/templates/settings/notifications.html:112
 msgid "Get started by creating your first notification agent"
 msgstr ""
 
@@ -2795,7 +3119,7 @@ msgstr ""
 
 #: app/templates/settings/wizard/bundles.html:27
 #: app/templates/settings/wizard/index.html:60
-#: app/templates/settings/wizard/steps.html:50
+#: app/templates/settings/wizard/steps.html:51
 msgid "Preview Wizard"
 msgstr ""
 
@@ -2808,76 +3132,76 @@ msgstr ""
 msgid "Are you sure you want to delete this bundle?"
 msgstr ""
 
-#: app/templates/settings/wizard/bundles.html:82
-#: app/templates/settings/wizard/steps.html:65
+#: app/templates/settings/wizard/bundles.html:83
+#: app/templates/settings/wizard/steps.html:66
 msgid "Before Invite Acceptance"
 msgstr ""
 
-#: app/templates/settings/wizard/bundles.html:84
-#: app/templates/settings/wizard/steps.html:67
+#: app/templates/settings/wizard/bundles.html:85
+#: app/templates/settings/wizard/steps.html:68
 msgid "Steps shown to users before they accept the invitation"
 msgstr ""
 
-#: app/templates/settings/wizard/bundles.html:127
-#: app/templates/settings/wizard/bundles.html:209
-#: app/templates/settings/wizard/bundles.html:290
+#: app/templates/settings/wizard/bundles.html:128
+#: app/templates/settings/wizard/bundles.html:211
+#: app/templates/settings/wizard/bundles.html:293
 #: app/templates/settings/wizard/index.html:104
-#: app/templates/settings/wizard/steps.html:106
-#: app/templates/settings/wizard/steps.html:186
+#: app/templates/settings/wizard/steps.html:107
+#: app/templates/settings/wizard/steps.html:188
 msgid "Are you sure you want to delete this step?"
 msgstr ""
 
-#: app/templates/settings/wizard/bundles.html:158
-#: app/templates/settings/wizard/steps.html:138
+#: app/templates/settings/wizard/bundles.html:160
+#: app/templates/settings/wizard/steps.html:140
 msgid "No pre-invite steps configured"
-msgstr ""
-
-#: app/templates/settings/wizard/bundles.html:164
-#: app/templates/settings/wizard/steps.html:145
-msgid "After Invite Acceptance"
 msgstr ""
 
 #: app/templates/settings/wizard/bundles.html:166
 #: app/templates/settings/wizard/steps.html:147
+msgid "After Invite Acceptance"
+msgstr ""
+
+#: app/templates/settings/wizard/bundles.html:168
+#: app/templates/settings/wizard/steps.html:149
 msgid "Steps shown to users after they accept the invitation"
 msgstr ""
 
-#: app/templates/settings/wizard/bundles.html:240
-#: app/templates/settings/wizard/steps.html:218
+#: app/templates/settings/wizard/bundles.html:243
+#: app/templates/settings/wizard/steps.html:221
 msgid "No post-invite steps configured"
 msgstr ""
 
-#: app/templates/settings/wizard/bundles.html:247
+#: app/templates/settings/wizard/bundles.html:250
 msgid "Additional Categories"
 msgstr ""
 
-#: app/templates/settings/wizard/bundles.html:249
+#: app/templates/settings/wizard/bundles.html:252
 msgid "Steps that use custom categories keep their order here."
 msgstr ""
 
-#: app/templates/settings/wizard/bundles.html:317
+#: app/templates/settings/wizard/bundles.html:321
 msgid "Orphaned Steps"
 msgstr ""
 
-#: app/templates/settings/wizard/bundles.html:319
+#: app/templates/settings/wizard/bundles.html:323
 msgid ""
 "These entries no longer have an associated step. Remove them to keep the "
 "bundle tidy."
 msgstr ""
 
-#: app/templates/settings/wizard/bundles.html:324
+#: app/templates/settings/wizard/bundles.html:328
 msgid "Step deleted (orphaned)"
 msgstr ""
 
-#: app/templates/settings/wizard/bundles.html:331
+#: app/templates/settings/wizard/bundles.html:335
 msgid "Are you sure you want to remove this orphaned step?"
 msgstr ""
 
-#: app/templates/settings/wizard/bundles.html:334
+#: app/templates/settings/wizard/bundles.html:339
 msgid "Remove orphaned step"
 msgstr ""
 
-#: app/templates/settings/wizard/form.html:36
+#: app/templates/settings/wizard/form.html:37
 #: app/templates/settings/wizard/index.html:65
 msgid "Preview"
 msgstr ""
@@ -3023,12 +3347,12 @@ msgid ""
 " will delete all custom steps and reimport the default ones."
 msgstr ""
 
-#: app/templates/settings/wizard/steps.html:26
+#: app/templates/settings/wizard/steps.html:27
 #, python-format
 msgid "Reset %(server)s Steps to Defaults"
 msgstr ""
 
-#: app/templates/settings/wizard/steps.html:38
+#: app/templates/settings/wizard/steps.html:39
 #, python-format
 msgid "Export %(server)s Steps"
 msgstr ""
@@ -3039,6 +3363,14 @@ msgstr ""
 
 #: app/templates/setup/admin_account.html:43
 msgid "Create an account"
+msgstr ""
+
+#: app/templates/tables/expired_user_card.html:14
+msgid "Delete ALL expired user history? This cannot be undone."
+msgstr ""
+
+#: app/templates/tables/expired_user_card.html:16
+msgid "Delete All"
 msgstr ""
 
 #: app/templates/tables/invite_card.html:9
@@ -3073,12 +3405,64 @@ msgstr ""
 msgid "Default"
 msgstr ""
 
-#: app/templates/tables/invite_card.html:168
+#: app/templates/tables/invite_card.html:172
+msgid "Account"
+msgstr ""
+
+#: app/templates/tables/invite_card.html:172
+msgid "Accounts"
+msgstr ""
+
+#: app/templates/tables/invite_card.html:177
+msgid "No email"
+msgstr ""
+
+#: app/templates/tables/invite_card.html:194
 msgid "Copy invite link"
 msgstr ""
 
-#: app/templates/tables/invite_card.html:188
+#: app/templates/tables/invite_card.html:214
 msgid "Delete invite"
+msgstr ""
+
+#: app/templates/tables/recently_expired_user_card.html:6
+msgid "Error loading expired users:"
+msgstr ""
+
+#: app/templates/tables/recently_expired_user_card.html:16
+msgid "Recently Expired Users"
+msgstr ""
+
+#: app/templates/tables/recently_expired_user_card.html:18
+msgid "Users whose access has expired and been deleted in the last 30 days"
+msgstr ""
+
+#: app/templates/tables/recently_expired_user_card.html:24
+msgid "users"
+msgstr ""
+
+#: app/templates/tables/recently_expired_user_card.html:34
+msgid "Select all"
+msgstr ""
+
+#: app/templates/tables/recently_expired_user_card.html:42
+msgid "Delete the selected expired user records?"
+msgstr ""
+
+#: app/templates/tables/recently_expired_user_card.html:44
+msgid "Delete Selected"
+msgstr ""
+
+#: app/templates/tables/recently_expired_user_card.html:51
+msgid "Clear ALL expired user history? This cannot be undone."
+msgstr ""
+
+#: app/templates/tables/recently_expired_user_card.html:53
+msgid "Clear All"
+msgstr ""
+
+#: app/templates/tables/recently_expired_user_card.html:106
+msgid "No users have expired in the last 30 days"
 msgstr ""
 
 #: app/templates/tables/user_card.html:4
@@ -3093,35 +3477,35 @@ msgstr ""
 msgid "Home User"
 msgstr ""
 
-#: app/templates/tables/user_card.html:138
+#: app/templates/tables/user_card.html:155
 msgid "Invited"
 msgstr ""
 
-#: app/templates/tables/user_card.html:177
+#: app/templates/tables/user_card.html:194
 msgid "Disabled"
 msgstr ""
 
-#: app/templates/tables/user_card.html:183
+#: app/templates/tables/user_card.html:200
 msgid "Downloads enabled"
 msgstr ""
 
-#: app/templates/tables/user_card.html:197
+#: app/templates/tables/user_card.html:214
 msgid "Live TV enabled"
 msgstr ""
 
-#: app/templates/tables/user_card.html:216
+#: app/templates/tables/user_card.html:233
 msgid "View details"
 msgstr ""
 
-#: app/templates/tables/user_card.html:234
+#: app/templates/tables/user_card.html:251
 msgid "Edit user"
 msgstr ""
 
-#: app/templates/tables/user_card.html:255
+#: app/templates/tables/user_card.html:272
 msgid "Reset password"
 msgstr ""
 
-#: app/templates/tables/user_card.html:275
+#: app/templates/tables/user_card.html:292
 msgid "Remove user"
 msgstr ""
 
@@ -3141,5 +3525,888 @@ msgstr ""
 
 #: app/templates/wizard/steps.html:182 app/templates/wizard/steps.html:248
 msgid "Click the link in this step to be able to continue"
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect.html:20
+#, python-format
+msgid "Where are you setting up %(server)s?"
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect.html:46
+msgid ""
+"Install Jellyfin on your device and, when it asks for a server, enter "
+"this address:"
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect.html:55
+msgid "Copied"
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect.html:59
+msgid "You only type this once, the app remembers it."
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect.html:66
+msgid "On the sign-in screen choose"
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect.html:67
+msgid "Quick Connect"
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect.html:68
+msgid "Your device will show a code."
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect.html:75
+msgid ""
+"Type that code here and you are in — no username, no password to type on "
+"that device."
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect.html:95
+msgid "Connect"
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect.html:109
+msgid ""
+"Quick Connect is unavailable right now. Sign in on your device with the "
+"server address below plus the username and password you just created."
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect_result.html:11
+msgid "Connected!"
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect_result.html:13
+msgid ""
+"Look at your device — it is signing in on its own. You will not need to "
+"do this again on it."
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect_result.html:22
+msgid "That code did not work"
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect_result.html:24
+msgid ""
+"Codes expire after a few minutes. Go back to the app, ask for a new Quick"
+" Connect code, and type it here."
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect_result.html:33
+msgid "Check the code"
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect_result.html:35
+msgid "Enter only the digits shown on your device."
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect_result.html:44
+msgid "Your membership is not active"
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect_result.html:46
+msgid "Renew it and you can connect your devices again right away."
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect_result.html:55
+msgid "Your session expired"
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect_result.html:57
+msgid ""
+"Sign in on your device with your username and password instead, or reopen"
+" the link you were sent."
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect_result.html:66
+msgid "We could not connect your device"
+msgstr ""
+
+#: app/templates/wizard/widgets/quick_connect_result.html:68
+msgid ""
+"Try once more. If it keeps failing, sign in with your username and "
+"password."
+msgstr ""
+
+#: app/templates/wizard/widgets/video.html:22
+msgid "Your browser cannot play this video."
+msgstr ""
+
+#: app/templates/wizard/widgets/video.html:23
+msgid "Download it here"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/01_intro.md:2
+#: wizard_steps/audiobookshelf/01_intro.md:11
+msgid "What is Audiobookshelf?"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/01_intro.md:5
+msgid "Welcome to Our Audiobookshelf Server"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/01_intro.md:7
+msgid ""
+"Great news — you now have access to our **audiobook & podcast library** "
+"through Audiobookshelf!"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/01_intro.md:13
+msgid ""
+"Audiobookshelf is a self-hosted audiobook and podcast server that lets "
+"people share their audio collections with friends and family. If you're "
+"here, it means you've been invited to join ours — welcome!"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/01_intro.md:17
+#: wizard_steps/emby/01_what_is.md:17 wizard_steps/komga/01_intro.md:17
+#: wizard_steps/plex/01_what_is.md:17
+msgid "What You'll Get"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/01_intro.md:18
+msgid "Access to our constantly updated audiobooks and podcasts"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/01_intro.md:19
+msgid "Listen on-demand or download for offline listening"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/01_intro.md:20
+msgid "Track your progress across all devices"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/02_download.md:2
+#: wizard_steps/audiobookshelf/02_download.md:5
+msgid "Download Audiobookshelf Clients"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/02_download.md:7
+msgid ""
+"Audiobookshelf has many clients from which you can listen to our "
+"audiobooks!"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/02_download.md:10
+msgid "Listen Anywhere"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/02_download.md:11
+msgid ""
+"Audiobookshelf works almost everywhere — install the app on your "
+"favourite devices:"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/02_download.md:18
+#: wizard_steps/emby/02_download.md:18 wizard_steps/komga/02_access.md:17
+#: wizard_steps/plex/02_download.md:18
+msgid "Web App"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/99_tips.md:2 wizard_steps/emby/99_tips.md:2
+#: wizard_steps/jellyfin/99_tips.md:2 wizard_steps/komga/99_tips.md:2
+#: wizard_steps/plex/99_tips.md:2
+msgid "Tips for the best experience"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/99_tips.md:5
+msgid "Get the best listening experience"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/99_tips.md:7
+msgid ""
+"Audiobookshelf offers great features, but here's how to make sure you get"
+" the best experience:"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/99_tips.md:9
+msgid "Download for offline listening"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/99_tips.md:9
+msgid "Tap any audiobook → Download to enjoy without internet"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/99_tips.md:10
+msgid "Adjust playback speed"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/99_tips.md:10
+msgid "Player controls → set speed from 0.5x to 3x"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/99_tips.md:11
+msgid "Enable sleep timer"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/99_tips.md:11
+msgid "Perfect for bedtime listening — auto-stops playback"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/99_tips.md:13
+msgid "Happy listening!"
+msgstr ""
+
+#: wizard_steps/audiobookshelf/99_tips.md:17
+msgid "Go to Audiobookshelf"
+msgstr ""
+
+#: wizard_steps/emby/01_what_is.md:2 wizard_steps/emby/01_what_is.md:11
+msgid "What is Emby?"
+msgstr ""
+
+#: wizard_steps/emby/01_what_is.md:5
+msgid "Welcome to Our Emby Server"
+msgstr ""
+
+#: wizard_steps/emby/01_what_is.md:7
+msgid "Great news — you now have access to our **media library** through Emby!"
+msgstr ""
+
+#: wizard_steps/emby/01_what_is.md:13
+msgid ""
+"Emby is a powerful media server that lets people share their film and TV "
+"libraries with friends and family. If you're here, it means you've been "
+"invited to join ours — welcome!"
+msgstr ""
+
+#: wizard_steps/emby/01_what_is.md:18 wizard_steps/plex/01_what_is.md:18
+msgid "Access to our constantly updated list of movies and shows"
+msgstr ""
+
+#: wizard_steps/emby/01_what_is.md:19 wizard_steps/plex/01_what_is.md:19
+msgid "Watch on-demand or download for offline viewing"
+msgstr ""
+
+#: wizard_steps/emby/01_what_is.md:20 wizard_steps/plex/01_what_is.md:20
+msgid "Personalised watchlists & recommendations"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:2 wizard_steps/emby/02_download.md:5
+msgid "Download Emby Clients"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:7
+msgid "Emby has many clients from which you can view our media!"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:10 wizard_steps/plex/02_download.md:10
+msgid "Watch Anywhere"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:12
+msgid "Emby works almost everywhere — install the app on your favourite devices:"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:14 wizard_steps/komga/02_access.md:14
+#: wizard_steps/plex/02_download.md:14
+msgid "Mobile"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:14 wizard_steps/plex/02_download.md:14
+msgid "iOS & Android phones/tablets"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:15 wizard_steps/komga/02_access.md:15
+#: wizard_steps/plex/02_download.md:15
+msgid "Desktop"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:15 wizard_steps/plex/02_download.md:15
+msgid "Windows, macOS, Linux"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:16 wizard_steps/plex/02_download.md:16
+msgid "Smart TVs & Streaming Devices"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:16
+msgid "Apple TV, Fire TV, Roku, Chromecast, Android TV"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:17 wizard_steps/plex/02_download.md:17
+msgid "Consoles"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:17 wizard_steps/plex/02_download.md:17
+msgid "PlayStation & Xbox"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:18 wizard_steps/plex/02_download.md:18
+msgid "Watch instantly in your browser"
+msgstr ""
+
+#: wizard_steps/emby/02_download.md:21
+msgid "⬇️ Download Emby Clients"
+msgstr ""
+
+#: wizard_steps/emby/99_tips.md:5 wizard_steps/jellyfin/99_tips.md:5
+#: wizard_steps/plex/99_tips.md:5
+msgid "Get the best quality"
+msgstr ""
+
+#: wizard_steps/emby/99_tips.md:7
+msgid ""
+"Emby offers great quality, but here's how to make sure you get the best "
+"experience:"
+msgstr ""
+
+#: wizard_steps/emby/99_tips.md:9 wizard_steps/jellyfin/99_tips.md:9
+#: wizard_steps/plex/99_tips.md:10
+msgid "Force original quality"
+msgstr ""
+
+#: wizard_steps/emby/99_tips.md:9 wizard_steps/jellyfin/99_tips.md:9
+#: wizard_steps/plex/99_tips.md:10
+msgid "Settings → Playback → set"
+msgstr ""
+
+#: wizard_steps/emby/99_tips.md:9 wizard_steps/jellyfin/99_tips.md:9
+#: wizard_steps/plex/99_tips.md:10
+msgid "to"
+msgstr ""
+
+#: wizard_steps/emby/99_tips.md:9 wizard_steps/jellyfin/99_tips.md:9
+msgid "Maximum"
+msgstr ""
+
+#: wizard_steps/emby/99_tips.md:10 wizard_steps/jellyfin/99_tips.md:10
+msgid "Enable hardware decoding"
+msgstr ""
+
+#: wizard_steps/emby/99_tips.md:10 wizard_steps/jellyfin/99_tips.md:10
+msgid "Settings → Playback → enable for smoother 4K"
+msgstr ""
+
+#: wizard_steps/emby/99_tips.md:11 wizard_steps/jellyfin/99_tips.md:11
+#: wizard_steps/plex/99_tips.md:11
+msgid "Use a wired connection"
+msgstr ""
+
+#: wizard_steps/emby/99_tips.md:11 wizard_steps/jellyfin/99_tips.md:11
+#: wizard_steps/plex/99_tips.md:11
+msgid "if you're on a smart-TV for stutter-free 4K."
+msgstr ""
+
+#: wizard_steps/emby/99_tips.md:13 wizard_steps/jellyfin/99_tips.md:13
+#: wizard_steps/plex/99_tips.md:13
+msgid "Happy viewing!"
+msgstr ""
+
+#: wizard_steps/emby/99_tips.md:17
+msgid "Go to Emby"
+msgstr ""
+
+#: wizard_steps/jellyfin/00_video.md:2
+msgid "Watch this first"
+msgstr ""
+
+#: wizard_steps/jellyfin/00_video.md:5
+msgid "Everything in 90 seconds"
+msgstr ""
+
+#: wizard_steps/jellyfin/00_video.md:7
+msgid ""
+"This short video walks you through the whole thing: which app to install "
+"on your TV, phone or computer, and how to sign in without typing a "
+"password. The next step has the buttons to do it."
+msgstr ""
+
+#: wizard_steps/jellyfin/03_setup_device.md:2
+msgid "Connect your device"
+msgstr ""
+
+#: wizard_steps/jellyfin/03_setup_device.md:5
+msgid "Set up your first device"
+msgstr ""
+
+#: wizard_steps/jellyfin/03_setup_device.md:7
+msgid ""
+"Pick where you want to watch and we will walk you through it. You will "
+"not have to type your password on that device — we handle the sign-in for"
+" you."
+msgstr ""
+
+#: wizard_steps/jellyfin/99_tips.md:7
+msgid ""
+"Jellyfin offers great quality, but here's how to make sure you get the "
+"best experience:"
+msgstr ""
+
+#: wizard_steps/jellyfin/99_tips.md:17
+msgid "Go to Jellyfin"
+msgstr ""
+
+#: wizard_steps/kavita/01_intro.md:5
+msgid "Welcome to your digital library"
+msgstr ""
+
+#: wizard_steps/kavita/01_intro.md:7
+msgid "Great news! You now have access to our comic and manga collection."
+msgstr ""
+
+#: wizard_steps/kavita/01_intro.md:9
+msgid ""
+"Kavita lets people share their digital libraries with friends. Read "
+"comics, manga, and books directly in your browser or mobile app."
+msgstr ""
+
+#: wizard_steps/kavita/01_intro.md:12
+msgid "How do I read stuff?"
+msgstr ""
+
+#: wizard_steps/kavita/01_intro.md:14
+msgid ""
+"Open Kavita in your browser, sign in with your new account, and start "
+"reading. You can also use mobile apps for a better experience."
+msgstr ""
+
+#: wizard_steps/kavita/01_intro.md:17
+msgid "Open Kavita"
+msgstr ""
+
+#: wizard_steps/kavita/02_access.md:5
+msgid "Want to read on your phone?"
+msgstr ""
+
+#: wizard_steps/kavita/02_access.md:7
+msgid "Download a comic reader app for the best mobile experience."
+msgstr ""
+
+#: wizard_steps/kavita/02_access.md:9
+msgid "Android"
+msgstr ""
+
+#: wizard_steps/kavita/02_access.md:10
+msgid "Popular manga reader with Kavita support"
+msgstr ""
+
+#: wizard_steps/kavita/02_access.md:11
+msgid "Great for comics and books"
+msgstr ""
+
+#: wizard_steps/kavita/02_access.md:13
+msgid "iOS"
+msgstr ""
+
+#: wizard_steps/kavita/02_access.md:14
+msgid "Premium comic reader with Kavita integration"
+msgstr ""
+
+#: wizard_steps/kavita/02_access.md:15
+msgid "Full-featured comic reader"
+msgstr ""
+
+#: wizard_steps/kavita/02_access.md:17
+msgid "Connect your app"
+msgstr ""
+
+#: wizard_steps/kavita/02_access.md:19
+msgid "Use this OPDS URL in your reader app:"
+msgstr ""
+
+#: wizard_steps/kavita/02_access.md:23
+msgid "Login with your Kavita username and password."
+msgstr ""
+
+#: wizard_steps/kavita/03_features.md:5
+msgid "Your library includes"
+msgstr ""
+
+#: wizard_steps/kavita/03_features.md:7
+msgid ""
+"Browse collections of comics, manga, light novels, and digital books. "
+"Everything is organized by series and automatically tracks your reading "
+"progress."
+msgstr ""
+
+#: wizard_steps/kavita/03_features.md:10
+msgid "Cool features"
+msgstr ""
+
+#: wizard_steps/kavita/03_features.md:12 wizard_steps/komga/03_features.md:31
+msgid "Pick up exactly where you left off"
+msgstr ""
+
+#: wizard_steps/kavita/03_features.md:13
+msgid "Create custom reading lists"
+msgstr ""
+
+#: wizard_steps/kavita/03_features.md:14
+msgid "Find content by title, author, or genre"
+msgstr ""
+
+#: wizard_steps/kavita/03_features.md:15
+msgid "Easy on the eyes for night reading"
+msgstr ""
+
+#: wizard_steps/kavita/04_tips.md:5 wizard_steps/komga/99_tips.md:5
+msgid "Get the best reading experience"
+msgstr ""
+
+#: wizard_steps/kavita/04_tips.md:7
+msgid "Kavita has some handy settings to make reading more comfortable:"
+msgstr ""
+
+#: wizard_steps/kavita/04_tips.md:9
+msgid "Set reading direction"
+msgstr ""
+
+#: wizard_steps/kavita/04_tips.md:9
+msgid "Settings → Reader → set manga to right-to-left"
+msgstr ""
+
+#: wizard_steps/kavita/04_tips.md:10 wizard_steps/komga/99_tips.md:11
+msgid "Enable dark mode"
+msgstr ""
+
+#: wizard_steps/kavita/04_tips.md:10
+msgid "Perfect for night reading"
+msgstr ""
+
+#: wizard_steps/kavita/04_tips.md:11
+msgid "Use keyboard shortcuts"
+msgstr ""
+
+#: wizard_steps/kavita/04_tips.md:11
+msgid "Space for next page, arrows to navigate"
+msgstr ""
+
+#: wizard_steps/komga/01_intro.md:2 wizard_steps/komga/01_intro.md:11
+msgid "What is Komga?"
+msgstr ""
+
+#: wizard_steps/komga/01_intro.md:5
+msgid "Welcome to Our Komga Server"
+msgstr ""
+
+#: wizard_steps/komga/01_intro.md:7
+msgid ""
+"Great news — you now have access to our **digital comic and manga "
+"library** through Komga!"
+msgstr ""
+
+#: wizard_steps/komga/01_intro.md:13
+msgid ""
+"Komga is a free, open-source media server designed specifically for "
+"comics, manga, and digital books. If you're here, it means you've been "
+"invited to join our library — welcome!"
+msgstr ""
+
+#: wizard_steps/komga/01_intro.md:18
+msgid "Access to our constantly updated collection of comics and manga"
+msgstr ""
+
+#: wizard_steps/komga/01_intro.md:19
+msgid "Read online directly in your browser"
+msgstr ""
+
+#: wizard_steps/komga/01_intro.md:20
+msgid "Download for offline reading on your favorite devices"
+msgstr ""
+
+#: wizard_steps/komga/01_intro.md:21
+msgid "Track your reading progress automatically"
+msgstr ""
+
+#: wizard_steps/komga/01_intro.md:22
+msgid "Support for multiple formats (CBZ, CBR, PDF, EPUB)"
+msgstr ""
+
+#: wizard_steps/komga/02_access.md:2 wizard_steps/komga/02_access.md:5
+msgid "Download Komga Clients"
+msgstr ""
+
+#: wizard_steps/komga/02_access.md:7
+msgid ""
+"Komga has many compatible readers from which you can enjoy your comics "
+"and manga!"
+msgstr ""
+
+#: wizard_steps/komga/02_access.md:10
+msgid "Read Anywhere"
+msgstr ""
+
+#: wizard_steps/komga/02_access.md:12
+msgid ""
+"Komga works with many popular comic readers — install apps on your "
+"favorite devices:"
+msgstr ""
+
+#: wizard_steps/komga/02_access.md:14
+msgid "iOS (Panels, Chunky) & Android (Mihon/Tachiyomi, Komga Client)"
+msgstr ""
+
+#: wizard_steps/komga/02_access.md:15
+msgid "Windows (CDisplayEx, YACReader), macOS & Linux (YACReader)"
+msgstr ""
+
+#: wizard_steps/komga/02_access.md:16
+msgid "Tablets"
+msgstr ""
+
+#: wizard_steps/komga/02_access.md:16
+msgid "iPad & Android tablets with comic reader apps"
+msgstr ""
+
+#: wizard_steps/komga/02_access.md:17
+msgid "Read instantly in your browser at"
+msgstr ""
+
+#: wizard_steps/komga/02_access.md:18
+msgid "E-Readers"
+msgstr ""
+
+#: wizard_steps/komga/02_access.md:18
+msgid "KOReader and other OPDS-compatible readers"
+msgstr ""
+
+#: wizard_steps/komga/02_access.md:21
+msgid "📚 View Compatible Readers"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:2
+msgid "Library Features"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:5
+msgid "Komga Features"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:7
+msgid "Discover all the features available to enhance your reading experience!"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:10
+msgid "Reading Experience"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:12
+msgid "Webtoon Mode"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:12
+msgid "Perfect for manga and webtoons with continuous scrolling"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:13
+msgid "Page-by-Page"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:13
+msgid "Traditional comic book reading experience"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:14
+msgid "Zoom & Pan"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:14
+msgid "Get detailed views of artwork"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:15
+msgid "Auto Bookmarks"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:15
+msgid "Your progress is saved automatically"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:19
+msgid "Organization"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:21
+msgid "Series Collections"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:21
+msgid "Browse comics organized by series"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:22
+msgid "Custom Collections"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:22
+msgid "Curated collections by themes and genres"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:23
+msgid "Smart Tags"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:23
+msgid "Filter by genres, authors, publishers, and more"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:24
+msgid "Advanced Search"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:24
+msgid "Find specific titles instantly"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:28
+msgid "Personal Features"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:30
+msgid "Reading Progress"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:30
+msgid "Track which issues you've completed"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:31
+msgid "Continue Reading"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:32
+msgid "Reading Lists"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:32
+msgid "Create and manage custom reading lists"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:33
+msgid "On Deck"
+msgstr ""
+
+#: wizard_steps/komga/03_features.md:33
+msgid "See your next suggested reads"
+msgstr ""
+
+#: wizard_steps/komga/99_tips.md:7
+msgid ""
+"Komga offers a great reading experience, but here's how to make it even "
+"better:"
+msgstr ""
+
+#: wizard_steps/komga/99_tips.md:9
+msgid "Choose the right reader mode"
+msgstr ""
+
+#: wizard_steps/komga/99_tips.md:9
+msgid "Use webtoon mode for manga, page-by-page for traditional comics"
+msgstr ""
+
+#: wizard_steps/komga/99_tips.md:10
+msgid "Adjust reading direction"
+msgstr ""
+
+#: wizard_steps/komga/99_tips.md:10
+msgid "Settings → Reader → set right-to-left for manga"
+msgstr ""
+
+#: wizard_steps/komga/99_tips.md:11
+msgid "Easier on your eyes during night reading sessions"
+msgstr ""
+
+#: wizard_steps/komga/99_tips.md:12
+msgid "Use full-screen mode"
+msgstr ""
+
+#: wizard_steps/komga/99_tips.md:12
+msgid "Press F11 in browser for distraction-free reading"
+msgstr ""
+
+#: wizard_steps/komga/99_tips.md:13
+msgid "Download for offline"
+msgstr ""
+
+#: wizard_steps/komga/99_tips.md:13
+msgid "Download comics to mobile apps for reading without internet"
+msgstr ""
+
+#: wizard_steps/komga/99_tips.md:15
+msgid "Happy reading!"
+msgstr ""
+
+#: wizard_steps/komga/99_tips.md:17
+msgid "Go to Komga"
+msgstr ""
+
+#: wizard_steps/plex/01_what_is.md:2 wizard_steps/plex/01_what_is.md:11
+msgid "What is Plex?"
+msgstr ""
+
+#: wizard_steps/plex/01_what_is.md:5
+msgid "Welcome to Our Plex Server"
+msgstr ""
+
+#: wizard_steps/plex/01_what_is.md:7
+msgid "Great news — you now have access to our **media library** through Plex!"
+msgstr ""
+
+#: wizard_steps/plex/01_what_is.md:13
+msgid ""
+"Plex lets people share their film and TV libraries with friends and "
+"family. If you're here, it means you've been invited to join ours — "
+"welcome!"
+msgstr ""
+
+#: wizard_steps/plex/02_download.md:2 wizard_steps/plex/02_download.md:5
+msgid "Download Plex Clients"
+msgstr ""
+
+#: wizard_steps/plex/02_download.md:7
+msgid "Plex has many clients from which you can view our media!"
+msgstr ""
+
+#: wizard_steps/plex/02_download.md:12
+msgid "Plex works almost everywhere — install the app on your favourite devices:"
+msgstr ""
+
+#: wizard_steps/plex/02_download.md:16
+msgid "Apple TV, Fire TV, Roku, Chromecast"
+msgstr ""
+
+#: wizard_steps/plex/02_download.md:21
+msgid "⬇️ Download Plex Clients"
+msgstr ""
+
+#: wizard_steps/plex/99_tips.md:7
+msgid ""
+"Plex sometimes defaults to low quality or shows its own adverts first. "
+"Here's how to fix that:"
+msgstr ""
+
+#: wizard_steps/plex/99_tips.md:9
+msgid "Disable trailers & extras"
+msgstr ""
+
+#: wizard_steps/plex/99_tips.md:9
+msgid "Settings → Experience → untick"
+msgstr ""
+
+#: wizard_steps/plex/99_tips.md:9
+msgid "Show cinematic trailers"
+msgstr ""
+
+#: wizard_steps/plex/99_tips.md:10
+msgid "Original"
+msgstr ""
+
+#: wizard_steps/plex/99_tips.md:17
+msgid "Go to Plex"
+msgstr ""
+
+#: wizard_steps/romm/01_intro.md:5
+msgid "Welcome to RomM"
+msgstr ""
+
+#: wizard_steps/romm/01_intro.md:7
+msgid "Great news! You now have access to our game collection."
+msgstr ""
+
+#: wizard_steps/romm/01_intro.md:9
+msgid "Open RomM"
 msgstr ""
 

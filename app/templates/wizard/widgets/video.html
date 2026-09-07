@@ -1,0 +1,33 @@
+{# Wizard video player.
+
+   Lives here rather than as an inline string in wizard_widgets.py on purpose:
+   Tailwind v4 only scans the globs declared in app/static/src/style.css, and
+   `app/services/**` is not one of them. Classes written inside that Python
+   module are silently never generated — `dark:` variants included, since each
+   variant is generated separately from its base. #}
+
+<figure class="wizard-video my-6">
+  <div class="relative overflow-hidden rounded-xl border border-gray-200 bg-black shadow-lg dark:border-gray-700">
+    {# preload="metadata": the file is ~11 MB, so only the header is fetched
+       until the buyer actually presses play. The poster carries the first
+       impression in the meantime. #}
+    <video class="aspect-video w-full"
+           controls
+           playsinline
+           preload="metadata"
+           poster="{{ poster_url }}"
+           {% if title %}aria-label="{{ title }}"{% endif %}>
+      <source src="{{ video_url }}" type="video/mp4">
+      <p class="p-4 text-sm text-gray-300">
+        {{ _('Your browser cannot play this video.') }}
+        <a class="font-semibold underline" href="{{ video_url }}">{{ _('Download it here') }}</a>.
+      </p>
+    </video>
+  </div>
+
+  {% if caption %}
+  <figcaption class="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+    {{ caption }}
+  </figcaption>
+  {% endif %}
+</figure>

@@ -292,10 +292,10 @@ class TestGracefulDegradation:
 
         response = client.get("/wizard/post-wizard", follow_redirects=True)
         assert response.status_code == 200
-        # Should show completion message
-        assert (
-            b"complete" in response.data.lower() or b"welcome" in response.data.lower()
-        )
+        # Should show the completion message, which the guest wizard renders in
+        # Spanish ("¡Todo listo! Bienvenido a tu servidor multimedia.").
+        body = response.data.decode()
+        assert "Todo listo" in body or "Bienvenido" in body
 
 
 class TestStepRenderingErrors:

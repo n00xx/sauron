@@ -163,6 +163,10 @@ def import_default_wizard_steps() -> None:
 QUICK_CONNECT_MARKER = "widget:quick_connect"
 QUICK_CONNECT_SOURCE = BASE_DIR / "jellyfin" / "03_setup_device.md"
 
+# Same idea for the onboarding video step.
+VIDEO_MARKER = "widget:video"
+VIDEO_SOURCE = BASE_DIR / "jellyfin" / "00_video.md"
+
 
 def ensure_quick_connect_step() -> None:
     """Add the Jellyfin device-setup step to installations that predate it.
@@ -214,3 +218,90 @@ def ensure_quick_connect_step() -> None:
     db.session.add(step)
     db.session.commit()
     current_app.logger.info("Added the Jellyfin Quick Connect wizard step")
+
+
+def ensure_video_step() -> None:
+    """Open the Jellyfin wizard with the video, then the device setup.
+
+    Same narrow exception as ``ensure_quick_connect_step``: the seeder only
+    bootstraps server types that are missing entirely, so a live Jellyfin install
+    would never receive this.
+
+    Two things happen here, both once, both guarded by the video marker:
+
+    1. The video goes in at position 0. It is the introduction — it narrates what
+       the remaining steps then let you do, so it cannot sit anywhere else.
+    2. The Quick Connect step is pulled up right behind it. ``ensure_quick_connect
+       _step`` *appends*, so on installs that already had wizard steps it landed
+       after the tips page, leaving the video followed by reading material and the
+       actual "connect your device" instructions at the very end.
+
+    Everything else keeps its relative order. This reorders; it never deletes or
+    rewrites content. The two text steps the video supersedes ("What is
+    Jellyfin?" and "Download Jellyfin Clients") are gone from the bundled files
+    for fresh installs, but on an existing install they stay put until an admin
+    removes them in the UI — they may have been edited, and that is not a call
+    this function gets to make.
+    """
+    inspector = inspect(db.engine)
+    if not inspector.has_table(WizardStep.__tablename__):
+        return
+
+    if not VIDEO_SOURCE.exists():
+        return
+
+    existing = (
+        db.session.query(WizardStep).filter(WizardStep.server_type == "jellyfin").all()
+    )
+
+    # Nothing seeded for Jellyfin yet: this is a fresh install and
+    # import_default_wizard_steps already picks the file up from disk, where its
+    # 00_ filename prefix sorts it into position 0 on its own.
+    if not existing:
+        return
+
+    # Marker check spans every category: an admin may have moved the step.
+    if any(VIDEO_MARKER in (row.markdown or "") for row in existing):
+        return
+
+    meta = _parse_markdown(VIDEO_SOURCE)
+    video = WizardStep(
+        server_type="jellyfin",
+        category="post_invite",
+        position=_PARKING_OFFSET,
+        title=meta["title"],
+        markdown=meta["markdown"],
+        requires=meta["requires"],
+    )
+    db.session.add(video)
+
+    post_invite = sorted(
+        (row for row in existing if row.category == "post_invite"),
+        key=lambda row: row.position,
+    )
+    quick_connect = [
+        row for row in post_invite if QUICK_CONNECT_MARKER in (row.markdown or "")
+    ]
+    rest = [row for row in post_invite if row not in quick_connect]
+
+    _renumber([video, *quick_connect, *rest])
+    db.session.commit()
+    current_app.logger.info("Added the Jellyfin onboarding video wizard step")
+
+
+# Positions are moved out to this range before being written back in their final
+# order. (server_type, category, position) is unique and SQLite checks it per
+# statement, so without the detour a reorder collides with the rows it has not
+# moved yet.
+_PARKING_OFFSET = 1000
+
+
+def _renumber(rows: list[WizardStep]) -> None:
+    """Give *rows* positions 0..n-1 in the order supplied."""
+    for index, row in enumerate(rows):
+        row.position = _PARKING_OFFSET + index
+    db.session.flush()
+
+    for index, row in enumerate(rows):
+        row.position = index
+    db.session.flush()

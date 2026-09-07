@@ -159,10 +159,10 @@ def test_malformed_codes_are_rejected_without_calling_jellyfin(
 
     assert response.status_code == 200
     assert sent == []
-    assert b"Check the code" in response.data
+    assert "Revisa el c\u00f3digo".encode() in response.data
 
 
-def test_successful_authorisation_tells_the_buyer_to_look_at_the_tv(
+def test_successful_authorisation_tells_the_buyer_to_look_at_the_device(
     client, provisioned_user, jellyfin_server, monkeypatch
 ):
     _client_stub(monkeypatch, [], response=_Response(200, "true"))
@@ -174,7 +174,7 @@ def test_successful_authorisation_tells_the_buyer_to_look_at_the_tv(
     response = client.post("/wizard/quick-connect", data={"code": "734108"})
 
     assert response.status_code == 200
-    assert b"Connected!" in response.data
+    assert "\u00a1Conectado!".encode() in response.data
 
 
 def test_unknown_code_is_reported_as_expired(
@@ -190,7 +190,7 @@ def test_unknown_code_is_reported_as_expired(
     response = client.post("/wizard/quick-connect", data={"code": "000000"})
 
     assert response.status_code == 200
-    assert b"did not work" in response.data
+    assert "no funcion\u00f3".encode() in response.data
 
 
 def test_transport_failure_does_not_leak_a_traceback(
@@ -205,7 +205,7 @@ def test_transport_failure_does_not_leak_a_traceback(
     response = client.post("/wizard/quick-connect", data={"code": "734108"})
 
     assert response.status_code == 200
-    assert b"could not connect your device" in response.data
+    assert b"No pudimos conectar tu dispositivo" in response.data
     assert b"connection refused" not in response.data
 
 
@@ -384,13 +384,46 @@ def test_widget_falls_back_to_credentials_when_quick_connect_is_off(
 
 
 def test_widget_offers_every_device_path(app, jellyfin_server, monkeypatch):
-    """Samsung is listed separately: Jellyfin's support table has no Tizen row
-    for Quick Connect log-in, so those owners must be routed to credentials."""
+    """Three options, and every one of them reaches Quick Connect.
+
+    The code box is not a TV-only feature — the phone, tablet and desktop apps
+    all support it — so the picker no longer branches into a credentials path.
+    The separate Samsung option was dropped along with that branch.
+    """
     with app.test_request_context():
         html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
 
-    for key in ("'tv'", "'console'", "'samsung'", "'other'"):
+    for key in ("'tv'", "'console'", "'other'"):
         assert f"device = {key}" in html
+
+    assert "'samsung'" not in html
+    # No option falls through to "sign in the classic way" any more.
+    assert "isManual" not in html
+
+
+def test_widget_shows_the_public_address_not_the_lan_one(
+    app, jellyfin_server, monkeypatch
+):
+    """A buyer on mobile data cannot reach 192.168.x.x.
+
+    When an admin has not filled in External URL the widget used to print
+    MediaServer.url — the address the container dials. It now falls back to the
+    public hostname the onboarding video teaches instead.
+    """
+    from app.services.wizard_widgets import PUBLIC_SERVER_ADDRESS, QuickConnectWidget
+
+    monkeypatch.setattr(
+        QuickConnectWidget, "_quick_connect_available", lambda *a, **k: True
+    )
+
+    with app.test_request_context():
+        html = QuickConnectWidget().render(
+            "jellyfin",
+            _context={"server_url": "http://192.168.8.207:30013", "server_id": 1},
+        )
+
+    assert PUBLIC_SERVER_ADDRESS in html
+    assert "192.168.8.207" not in html
 
 
 # ── Backfill onto existing installs ─────────────────────────────────────────
@@ -615,8 +648,8 @@ def test_an_expired_membership_cannot_connect_a_new_device(
 
     assert response.status_code == 403
     assert sent == [], "must not spend the admin key on a lapsed membership"
-    assert b"membership is not active" in response.data
-    assert b"Connected!" not in response.data
+    assert "Tu membres\u00eda no est\u00e1 activa".encode() in response.data
+    assert "\u00a1Conectado!".encode() not in response.data
 
 
 def test_a_disabled_account_cannot_connect_a_new_device(
@@ -636,7 +669,7 @@ def test_a_disabled_account_cannot_connect_a_new_device(
 
     assert response.status_code == 403
     assert sent == []
-    assert b"membership is not active" in response.data
+    assert "Tu membres\u00eda no est\u00e1 activa".encode() in response.data
 
 
 def test_a_renewed_membership_can_connect_again(
@@ -667,7 +700,7 @@ def test_a_renewed_membership_can_connect_again(
     response = client.post("/wizard/quick-connect", data={"code": "734108"})
 
     assert response.status_code == 200
-    assert b"Connected!" in response.data
+    assert "\u00a1Conectado!".encode() in response.data
 
 
 def test_a_membership_without_an_expiry_date_still_connects(
@@ -685,4 +718,4 @@ def test_a_membership_without_an_expiry_date_still_connects(
     response = client.post("/wizard/quick-connect", data={"code": "734108"})
 
     assert response.status_code == 200
-    assert b"Connected!" in response.data
+    assert "\u00a1Conectado!".encode() in response.data

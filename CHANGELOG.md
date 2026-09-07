@@ -6,6 +6,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.5] (2026-09-07)
+
+### Added
+
+- **El wizard ahora abre con un video de 90 segundos.** Es lo primero que ve el
+  socio despues de crear su cuenta, y el paso siguiente es "Conecta tu
+  dispositivo": el video explica que app instalar en cada aparato y como entrar
+  sin escribir contrasena, y el paso de atras trae los botones para hacerlo.
+
+  El video se renderiza con el proyecto de Remotion que vive en `promo/` y viaja
+  dentro de la imagen (`app/static/video/`, 11 MB, con una imagen de portada para
+  que no se vea un rectangulo negro antes del play). No arranca solo y no obliga
+  a nadie: quien ya sabe usarlo le da a Siguiente.
+
+  En instalaciones nuevas los dos pasos de texto que el video reemplaza ("Que es
+  Jellyfin?" y "Descarga las apps") ya no se instalan. En una instalacion que ya
+  existia siguen ahi hasta que un administrador los borre a mano desde la UI:
+  pudo haberlos editado, y esa no es una decision que le toque tomar al arranque.
+
+### Fixed
+
+- **Todo lo que ve el socio ahora sale en espanol.** Las pantallas de invitacion
+  ya estaban forzadas a es_MX, pero el wizard no: se pasaba de una pagina en
+  espanol a un wizard entero en ingles.
+
+  Habia dos causas encadenadas. Los endpoints del wizard no estaban en la lista
+  de forzado, y `babel.cfg` no escaneaba `wizard_steps/**.md`, asi que el texto
+  de los pasos nunca tuvo msgid que traducir. Eso ultimo se debia a que los
+  `{{ widget:... }}` no son Jinja valido: el extractor estandar reventaba con el
+  primero y Babel se saltaba el archivo completo en silencio. Ahora hay un
+  extractor propio (`app/services/wizard_step_babel.py`) que los neutraliza y que
+  ademas rescata los `_()` que viven dentro de los parametros de un widget.
+
+- **El boton "Crear cuenta" salia cortado a la mitad.** Al aceptar la invitacion,
+  la animacion de escritorio fijaba la tarjeta en 520px con `overflow: hidden`.
+  El formulario mide 556px a 1440px de ancho, asi que el boton siempre quedaba
+  21px por debajo del recorte. Ahora la altura se mide en lugar de suponerse, y
+  al terminar la animacion la tarjeta se ajusta a su contenido. Verificado a 375,
+  768, 1024 y 1440.
+
+### Changed
+
+- **El selector de dispositivo del Quick Connect pasa de cuatro opciones a tres.**
+  Se elimino "Samsung TV" y "Telefono o computadora" ahora dice "Celular, tablet
+  o computadora". Las tres llevan al mismo Quick Connect: el codigo de seis
+  digitos no es cosa solo de televisores, las apps de celular, tablet y
+  escritorio tambien lo soportan, y teclear seis digitos gana a teclear una
+  contrasena en cualquiera de ellos. Se elimino la rama de usuario y contrasena
+  que solo existia para Samsung; sigue siendo el respaldo cuando el servidor
+  tiene Quick Connect apagado.
+
+  Nota: Samsung estaba separado a proposito, porque la tabla de clientes de
+  Jellyfin no lista Tizen para iniciar sesion con Quick Connect. Un dueno de
+  Samsung ahora llega a los mismos pasos que los demas.
+
+- **El wizard ya no muestra la direccion LAN del servidor.** Imprimia
+  `MediaServer.url` (`http://192.168.8.207:30013`), que no sirve fuera de la
+  casa. Cuando el campo "External URL" esta vacio ahora muestra `tv.neexy.net`,
+  escrito igual que en el video para que las dos cosas no se contradigan. Si un
+  administrador llena "External URL", ese valor sigue ganando.
+
 ## [2026.10.4] (2026-09-03)
 
 ### Fixed

@@ -24,6 +24,17 @@ from flask_babel import lazy_gettext as _l
 
 from app.services.media.service import get_media_client
 
+# The address the buyer is told to type into the Jellyfin app. Hardcoded on
+# purpose: `MediaServer.url` holds the LAN address the container talks to
+# (http://192.168.x.x:30013), which is useless — and confusing — to someone
+# setting up a TV from their couch. Written exactly as the onboarding video
+# spells it out on screen (promo/src/scenes/SceneConectar.tsx), so the two never
+# disagree.
+#
+# An admin who fills in "External URL" on the server still wins; this is only
+# what shows when that field is empty.
+PUBLIC_SERVER_ADDRESS = "tv.neexy.net"
+
 
 class WizardWidget:
     """Base class for wizard widgets."""
@@ -301,18 +312,24 @@ class QuickConnectWidget(WizardWidget):
     doubly so, because each variant is its own candidate.
     """
 
-    # (key, emoji, label). `tv` and `console` get Quick Connect; `samsung` and
-    # `other` fall through to username and password.
+    # (key, emoji, label). Every option now takes the same Quick Connect path:
+    # the code box is not a TV-only feature, it works just as well from the
+    # phone, tablet and desktop apps, and typing a six-digit code beats typing a
+    # password on any of them.
     #
-    # Samsung is split out deliberately. Jellyfin's own client support table
-    # lists Android TV, Roku, WebOS, Swiftfin/tvOS and Xbox for Quick Connect
-    # log-in but has no row for Tizen, so offering a Samsung owner the code box
-    # would be a dead end.
+    # The picker survives the merge because the *instructions* still differ by
+    # device in the buyer's head ("where do I install this?"), and because the
+    # earlier version trained people to pick before reading.
+    #
+    # A Samsung option used to sit here, routed to username and password:
+    # Jellyfin's client support table lists Android TV, Roku, WebOS,
+    # Swiftfin/tvOS and Xbox for Quick Connect but has no row for Tizen. It was
+    # removed on request; a Tizen owner now lands on the Quick Connect steps
+    # like everyone else.
     DEVICE_OPTIONS: ClassVar[list[tuple[str, str, Any]]] = [
         ("tv", "📺", _l("Smart TV, Fire TV, Roku, projector")),
         ("console", "🎮", _l("Apple TV, Xbox")),
-        ("samsung", "🖥️", _l("Samsung TV")),
-        ("other", "📱", _l("Phone or computer")),
+        ("other", "📱", _l("Phone, tablet or computer")),
     ]
 
     def __init__(self):
@@ -324,9 +341,10 @@ class QuickConnectWidget(WizardWidget):
         try:
             html_content = render_template(
                 "wizard/widgets/quick_connect.html",
-                server_address=context.get("external_url")
-                or context.get("server_url")
-                or "",
+                # Never fall back to context["server_url"]: that is the LAN
+                # address, and handing it to a buyer sends them somewhere they
+                # cannot reach from outside the house.
+                server_address=context.get("external_url") or PUBLIC_SERVER_ADDRESS,
                 server_name=context.get("server_name") or "Jellyfin",
                 quick_connect_available=self._quick_connect_available(
                     server_type, context.get("server_id")
@@ -372,11 +390,66 @@ class QuickConnectWidget(WizardWidget):
             return False
 
 
+class VideoWidget(WizardWidget):
+    """Inline player for a video bundled with the app.
+
+    Renders from a real Jinja file for the same Tailwind reason spelled out on
+    QuickConnectWidget: classes written inside this module are never generated.
+
+    Defaults to the Spanish onboarding video rendered by the Remotion project in
+    promo/, so `{{ widget:video }}` on its own does the right thing. `src`,
+    `poster`, `title` and `caption` override it for any other clip dropped into
+    app/static/video/.
+    """
+
+    DEFAULT_SRC = "video/neexy-wizard.mp4"
+    DEFAULT_POSTER = "video/neexy-wizard-poster.jpg"
+
+    def __init__(self):
+        super().__init__("video", "")
+
+    def render(self, server_type: str, _context: dict | None = None, **kwargs) -> str:  # noqa: ARG002
+        try:
+            from flask import url_for
+
+            src = kwargs.get("src") or self.DEFAULT_SRC
+            poster = kwargs.get("poster") or self.DEFAULT_POSTER
+
+            html_content = render_template(
+                "wizard/widgets/video.html",
+                video_url=self._asset_url(url_for, src),
+                poster_url=self._asset_url(url_for, poster),
+                title=kwargs.get("title") or "",
+                caption=kwargs.get("caption") or "",
+            )
+        except Exception as exc:
+            logging.warning("Video widget failed to render: %s", exc)
+            return (
+                '\n\n<div class="text-sm text-gray-500 italic">'
+                "Video temporarily unavailable</div>\n\n"
+            )
+
+        # Collapsed to single lines so Python-Markdown treats the whole thing as
+        # one raw HTML block instead of wrapping stray fragments in <p> tags.
+        collapsed = "\n".join(
+            line for line in html_content.splitlines() if line.strip()
+        )
+        return f'\n\n<div class="widget-container">\n{collapsed}\n</div>\n\n'
+
+    @staticmethod
+    def _asset_url(url_for, path: str) -> str:
+        """Absolute URLs pass through; bare paths resolve against /static."""
+        if path.startswith(("http://", "https://", "//", "/")):
+            return path
+        return url_for("static", filename=path)
+
+
 # Widget registry
 WIDGET_REGISTRY = {
     "recently_added_media": RecentlyAddedMediaWidget(),
     "button": ButtonWidget(),
     "quick_connect": QuickConnectWidget(),
+    "video": VideoWidget(),
 }
 
 
