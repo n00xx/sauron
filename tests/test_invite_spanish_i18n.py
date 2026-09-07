@@ -166,3 +166,110 @@ def test_short_username_error_renders_in_spanish(client, session, monkeypatch):
     assert response.status_code == 200
     assert "El usuario debe tener entre 7 y 15 caracteres." in body
     assert "Username must be" not in body
+
+
+# ── The wizard the buyer lands on after signing up ──────────────────────────
+#
+# The invite page was already forced to es_MX; the wizard was not, so a buyer
+# went from a Spanish create-account screen straight into an English wizard.
+# These pin the whole path, not just the landing page.
+
+
+def _wizard_steps(session, markdowns):
+    from app.models import WizardStep
+
+    for position, markdown in enumerate(markdowns):
+        session.add(
+            WizardStep(
+                server_type="jellyfin",
+                category="post_invite",
+                position=position,
+                title="{{ _('Watch this first') }}",
+                markdown=markdown,
+                requires=[],
+            )
+        )
+    session.commit()
+
+
+def test_wizard_renders_in_spanish_for_the_buyer(client, session):
+    """The real post-signup route, not the admin preview."""
+    _create_jellyfin_invitation(session)
+    _wizard_steps(
+        session,
+        [
+            "## {{ _('Everything in 90 seconds') }}",
+            "## {{ _('Get the best quality') }}",
+        ],
+    )
+
+    with client.session_transaction() as sess:
+        sess["wizard_access"] = "ESMX01"
+
+    body = client.get("/wizard/post-wizard/0").data.decode("utf-8")
+
+    assert "Todo en 90 segundos" in body
+    assert "Everything in 90 seconds" not in body
+    # Chrome around the step, not just the step body.
+    assert "Siguiente" in body
+    assert "Paso 1 de" in body
+
+
+def test_wizard_entry_redirect_keeps_the_buyer_in_spanish(client, session):
+    """Both join paths redirect to /wizard/, so it must not drop the locale."""
+    _create_jellyfin_invitation(session)
+    _wizard_steps(session, ["## {{ _('Everything in 90 seconds') }}"])
+
+    with client.session_transaction() as sess:
+        sess["wizard_access"] = "ESMX01"
+
+    body = client.get("/wizard/", follow_redirects=True).data.decode("utf-8")
+
+    assert "Todo en 90 segundos" in body
+
+
+def test_quick_connect_result_is_spanish_over_htmx(client, session):
+    """The code box answers over HTMX, which returns a bare partial.
+
+    _select_locale keys off request.endpoint, which is the same either way, but
+    this is the one response that never passes through a full page render — worth
+    pinning rather than assuming.
+    """
+    _create_jellyfin_invitation(session)
+
+    with client.session_transaction() as sess:
+        sess["wizard_access"] = "ESMX01"
+
+    response = client.post(
+        "/wizard/quick-connect",
+        data={"code": "123456"},
+        headers={"HX-Request": "true"},
+    )
+    body = response.data.decode("utf-8")
+
+    # No wizard identity in the session, so this is the "session expired" branch.
+    assert "Tu sesión expiró" in body
+    assert "Your session expired" not in body
+
+
+def test_admin_step_preview_is_left_in_english(client, session):
+    """The preview renders every server type, and only Jellyfin is translated.
+
+    Forcing es_MX here would handstand an admin a half-Spanish Plex page, so the
+    preview routes are deliberately outside the forced-locale set.
+    """
+    _create_jellyfin_invitation(session)
+    _wizard_steps(
+        session,
+        [
+            "## {{ _('Everything in 90 seconds') }}",
+            "## {{ _('Get the best quality') }}",
+        ],
+    )
+
+    with client.session_transaction() as sess:
+        sess["wizard_access"] = "ESMX01"
+
+    body = client.get("/wizard/jellyfin/0").data.decode("utf-8")
+
+    assert "Step 1 of" in body

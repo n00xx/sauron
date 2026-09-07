@@ -407,18 +407,27 @@ _SPANISH_GUEST_ENDPOINTS = frozenset(
         "public.invite",
         "public.process_invitation",
         "public.join",
+        # Reached only by a multi-server invite, which asks for one more password
+        # before handing over to the wizard.
+        "public.password_prompt",
         # The onboarding wizard. Without these the buyer went from a Spanish
         # invite page straight into an English wizard.
+        #
+        # Every one of these is somewhere a buyer actually lands: `start` is what
+        # both join paths redirect to, `bundle_view` is where a bundled invite
+        # goes instead, and `combo` serves multi-server invites.
         "wizard.start",
         "wizard.pre_wizard",
         "wizard.pre_wizard_complete",
         "wizard.post_wizard",
         "wizard.complete",
         "wizard.quick_connect",
-        # Multi-server invites, and the preview route an admin uses to check a
-        # step — included so the preview shows what the buyer will actually get.
+        "wizard.bundle_view",
         "wizard.combo",
-        "wizard.step",
+        # Deliberately absent: wizard.step and wizard.bundle_preview. Those are
+        # the admin's preview routes, and they render steps for every server
+        # type — forcing es_MX there would hand an admin previewing a Plex step a
+        # half-translated page instead of the English it was written in.
     }
 )
 

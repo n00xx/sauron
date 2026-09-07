@@ -478,3 +478,16 @@ msgstr "Ve al instante desde tu navegador"
 
 msgid "⬇️ Download Jellyfin Clients"
 msgstr "⬇️ Descargar las apps de Jellyfin"
+
+# ─── Multi-server invite: one more password before the wizard ───────────────
+msgid "Complete your access"
+msgstr "Completa tu acceso"
+
+msgid "Choose a password for the remaining servers"
+msgstr "Elige una contraseña para los demás servidores"
+
+msgid "Generate a strong random password instead"
+msgstr "Mejor genera una contraseña segura al azar"
+
+msgid "Continue"
+msgstr "Continuar"
