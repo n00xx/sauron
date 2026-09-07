@@ -401,6 +401,26 @@ def test_widget_offers_every_device_path(app, jellyfin_server, monkeypatch):
     assert "isManual" not in html
 
 
+def test_widget_opts_out_of_prose_typography(app, jellyfin_server, monkeypatch):
+    """`not-prose` is not decoration — dropping it puts two bugs back on screen.
+
+    Wizard content renders inside `prose prose-slate` (wizard/_content.html), and
+    @tailwindcss/typography then applies:
+
+      :where(code)::before/::after { content: "`" }  → literal backticks around
+        the server address, which read as characters you are meant to type
+      :where(ol) { list-style-type: decimal }        → a second column of numbers
+        beside the numbered badges the list already draws
+
+    Neither is visible in this template's own markup, so a future edit that drops
+    the class would look harmless in review and only show up in a screenshot.
+    """
+    with app.test_request_context():
+        html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
+
+    assert "not-prose" in html
+
+
 def test_widget_shows_the_public_address_not_the_lan_one(
     app, jellyfin_server, monkeypatch
 ):

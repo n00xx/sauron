@@ -81,7 +81,8 @@ def test_preview_renders_pre_then_post_steps(
 
     assert f"{server_type} pre step" in body
     assert f"{server_type} post step" not in body
-    assert "Step 1 of 2" in body
+    # Preview is force-rendered in es_MX like the rest of the wizard.
+    assert "Paso 1 de 2" in body
 
 
 def test_preview_navigation_crosses_pre_and_post_categories(
@@ -98,7 +99,7 @@ def test_preview_navigation_crosses_pre_and_post_categories(
     assert initial.status_code == 200
     initial_body = initial.data.decode()
     assert "first pre" in initial_body
-    assert "Step 1 of 4" in initial_body
+    assert "Paso 1 de 4" in initial_body
 
     # HTMX request to the second step should still be pre-invite content
     second = client.get(

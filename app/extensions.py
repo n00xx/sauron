@@ -424,10 +424,16 @@ _SPANISH_GUEST_ENDPOINTS = frozenset(
         "wizard.quick_connect",
         "wizard.bundle_view",
         "wizard.combo",
-        # Deliberately absent: wizard.step and wizard.bundle_preview. Those are
-        # the admin's preview routes, and they render steps for every server
-        # type — forcing es_MX there would hand an admin previewing a Plex step a
-        # half-translated page instead of the English it was written in.
+        # The preview routes. They are how an admin actually checks a step, so
+        # showing English there defeats the point of translating the step at all.
+        #
+        # The catch: preview renders any server type, and only the Jellyfin steps
+        # are translated — the other six still have ~146 untranslated strings
+        # between them. Previewing a Plex or Komga step therefore comes out part
+        # Spanish, part English. That is deliberate: this fork runs Jellyfin
+        # only, so those steps are never seen; translate them if that changes.
+        "wizard.step",
+        "wizard.bundle_preview",
     }
 )
 

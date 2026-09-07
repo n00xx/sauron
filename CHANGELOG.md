@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.6] (2026-09-07)
+
+### Fixed
+
+- **La direccion del servidor salia entre comillas invertidas** (`` `tv.neexy.net` ``)
+  y la lista de pasos mostraba los numeros dos veces: la insignia roja y, al
+  lado, un "1." "2." "3." del navegador.
+
+  Ninguna de las dos cosas estaba escrita en la plantilla. El contenido del
+  wizard se renderiza dentro de `prose prose-slate`, y el plugin de tipografia
+  de Tailwind aplica `code::before/::after { content: "\`" }` y
+  `ol { list-style-type: decimal }`. Son reglas correctas para prosa y erroneas
+  para un componente con estilos propios, asi que el widget ahora se sale de
+  `prose` con `not-prose`. Hay un test que lo sujeta, porque quitar esa clase se
+  ve inofensivo en una revision y solo se nota en una captura.
+
+- **La vista previa del administrador salia en ingles.** Es justo donde se
+  revisa un paso antes de que lo vea el socio, asi que mostrarla en ingles
+  anulaba el sentido de haberlo traducido. Se agregaron `wizard.step` y
+  `wizard.bundle_preview` al forzado a es_MX.
+
+  Con una salvedad: la vista previa renderiza cualquier tipo de servidor y solo
+  los pasos de Jellyfin estan traducidos, asi que previsualizar un paso de Plex
+  o Komga sale mitad y mitad. Este fork corre solo Jellyfin, de modo que esos
+  pasos no se ven nunca.
+
 ## [2026.10.5] (2026-09-07)
 
 ### Added

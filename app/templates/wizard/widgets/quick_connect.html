@@ -9,7 +9,21 @@
 {# Every device key takes the Quick Connect path — phones, tablets and laptops
    included. The picker is kept because the buyer still thinks in terms of
    "where am I installing this", not because the branches differ. #}
-<div class="qc-widget my-6"
+
+{# `not-prose` is load-bearing. Wizard content renders inside
+   `prose prose-slate` (wizard/_content.html), and @tailwindcss/typography then
+   applies two rules that are right for prose and wrong for a hand-styled
+   component:
+
+     :where(code)::before/::after { content: "`" }   → literal backticks around
+       the server address, which read as part of the address you must type
+     :where(ol) { list-style-type: decimal }         → a second set of numbers
+       next to the numbered badges this list already draws itself
+
+   Every element below carries its own classes, so opting the subtree out of
+   prose entirely costs nothing. It covers descendants too, including the
+   Quick Connect result swapped into #qc-result over HTMX. #}
+<div class="qc-widget not-prose my-6"
      x-data="{
         device: null,
         get isQuickConnect() { return this.device !== null }

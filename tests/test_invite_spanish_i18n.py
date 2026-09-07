@@ -252,11 +252,11 @@ def test_quick_connect_result_is_spanish_over_htmx(client, session):
     assert "Your session expired" not in body
 
 
-def test_admin_step_preview_is_left_in_english(client, session):
-    """The preview renders every server type, and only Jellyfin is translated.
+def test_admin_step_preview_is_also_spanish(client, session):
+    """The preview is how an admin checks a step before a buyer sees it.
 
-    Forcing es_MX here would handstand an admin a half-Spanish Plex page, so the
-    preview routes are deliberately outside the forced-locale set.
+    Rendering it in English defeats the point of translating the step: the admin
+    cannot review what the buyer will actually read.
     """
     _create_jellyfin_invitation(session)
     _wizard_steps(
@@ -272,4 +272,5 @@ def test_admin_step_preview_is_left_in_english(client, session):
 
     body = client.get("/wizard/jellyfin/0").data.decode("utf-8")
 
-    assert "Step 1 of" in body
+    assert "Todo en 90 segundos" in body
+    assert "Paso 1 de" in body
