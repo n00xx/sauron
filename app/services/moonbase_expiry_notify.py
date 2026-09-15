@@ -50,9 +50,12 @@ NOTICE_BODY = (
 # A button under the message; on a TV the app shows the link as a QR code.
 NOTICE_ACTION_LABEL = "Renovar mi membresía"
 NOTICE_ACTION_URL = "https://neexy.net/pay?renovar=1"
-# "popup" opens the message by itself once and sends a phone push; "inbox" would
-# only bump the unread count on the menu button.
-NOTICE_DELIVERY = "popup"
+# "inbox": the message does not open by itself, and the Messages button carries
+# an unread badge until the member reads it. "popup" was tried first and lost on
+# the TV: Moonfin 2.5.1 marks a popup read as soon as it tries to open it, and at
+# app start the startup-to-home navigation can close that window straight away,
+# leaving neither the window nor the badge. Inbox sends no phone push.
+NOTICE_DELIVERY = "inbox"
 NOTICE_COLOR = "white"
 
 

@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.8] (2026-09-14)
+
+### Changed
+
+- **El aviso de vencimiento en Moonfin ya no se abre solo: queda como no leido,
+  con un punto rojo en el boton Messages, hasta que el socio lo lea.**
+
+  En la TV de prueba el aviso con `popup` no se abrio solo y hubo que buscarlo en
+  Messages, ya sin punto rojo. El codigo de Moonfin 2.5.1 lo explica: marca un
+  popup como leido en cuanto intenta abrirlo, y al arrancar la app descarga los
+  mensajes en segundo plano mientras pasa de la pantalla de inicio a Home, un
+  cambio de pantalla que puede cerrar esa ventana al instante. Con `inbox` nada
+  lo marca como leido hasta que el socio abre Messages. A cambio, Moonbase ya no
+  manda push al telefono con este aviso.
+
 ## [2026.10.7] (2026-09-14)
 
 ### Added

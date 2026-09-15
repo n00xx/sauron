@@ -226,7 +226,7 @@ def test_the_notice_is_the_approved_copy():
     )
     assert notices.NOTICE_ACTION_LABEL == "Renovar mi membresía"
     assert notices.NOTICE_ACTION_URL == "https://neexy.net/pay?renovar=1"
-    assert notices.NOTICE_DELIVERY == "popup"
+    assert notices.NOTICE_DELIVERY == "inbox"
     assert notices.NOTICE_COLOR == "white"
 
 
@@ -316,7 +316,7 @@ def test_sends_the_notice_to_a_member_with_less_than_a_day_left(
     assert kwargs["body"] == notices.NOTICE_BODY
     assert kwargs["action_label"] == notices.NOTICE_ACTION_LABEL
     assert kwargs["action_url"] == notices.NOTICE_ACTION_URL
-    assert kwargs["delivery"] == "popup"
+    assert kwargs["delivery"] == "inbox"
     assert kwargs["color"] == "white"
     seven_days = datetime.datetime.now(UTC) + timedelta(days=7)
     assert abs(kwargs["end_utc"] - seven_days) < timedelta(minutes=1)
