@@ -1,3 +1,4 @@
+import datetime
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -127,6 +128,31 @@ QC_TIMEOUT_SECONDS = 15
 # button the buyer chose to press and can afford to wait on; this is not. On a
 # timeout the step degrades to username and password, which still works.
 QC_PROBE_TIMEOUT_SECONDS = 3
+
+# ── Moonbase server messages ─────────────────────────────────────────────────
+# Moonbase (github.com/Moonfin-Client/Plugin), the Moonfin companion plugin,
+# stores admin messages inside its XML plugin configuration. Up to 2.2.0 it
+# saves whatever text it is given: a character XML 1.0 cannot carry is written
+# without complaint but fails the strict read on the next load, and Jellyfin
+# answers an unreadable plugin config by silently replacing EVERY Moonbase
+# setting with defaults. Fixed upstream after 2.2.0 (commit 2c378e60), so the
+# text is cleaned here until the server runs a release that has it.
+MOONBASE_MESSAGES_PATH = "/Moonfin/Admin/Messages"
+_XML_ILLEGAL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff￾￿]")
+# Moonbase's caps, counted as .NET counts string length — UTF-16 code units, so
+# an emoji is 2. Past them it cuts with Substring, which can split an emoji into
+# the lone surrogate that corrupts the config; callers get a ValueError instead.
+MOONBASE_TITLE_MAX = 120
+MOONBASE_BODY_MAX = 2000
+_MOONBASE_MESSAGE_ID = re.compile(r"[A-Za-z0-9-]+")
+
+
+def _xml_safe(text: str) -> str:
+    return _XML_ILLEGAL_CHARS.sub("", text)
+
+
+def _utf16_len(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
 
 
 @register_media_client("jellyfin")
@@ -1336,6 +1362,84 @@ class JellyfinClient(RestApiMixin):
                 f"Failed to send message to Jellyfin session {session_id}: {e}"
             )
             return False
+
+    def create_moonbase_message(
+        self,
+        *,
+        title: str,
+        body: str,
+        target_user_id: str,
+        end_utc: datetime.datetime,
+        delivery: str,
+        color: str,
+        action_label: str | None = None,
+        action_url: str | None = None,
+    ) -> str:
+        """Post a Moonbase server message that only ``target_user_id`` can see.
+
+        Always ``Audience: "users"`` with a single target — this never sends a
+        message to everyone. ``StartUtc`` stays empty, which Moonbase reads as
+        "show right away". No ``Id`` is sent: Moonbase treats an Id it already
+        has as an edit, and an edit sends no push.
+
+        Args:
+            end_utc: Timezone-aware; Moonbase stops showing the message then and
+                prunes it on a later save.
+
+        Returns:
+            str: The Id Moonbase assigned, needed to delete the message later.
+
+        Raises:
+            ValueError: No target, text over Moonbase's caps, or no Id back.
+            requests.HTTPError: Moonbase refused the message.
+        """
+        if not target_user_id:
+            raise ValueError("A Moonbase message needs a target user")
+
+        title = _xml_safe(title)
+        body = _xml_safe(body)
+        if (
+            _utf16_len(title) > MOONBASE_TITLE_MAX
+            or _utf16_len(body) > MOONBASE_BODY_MAX
+        ):
+            raise ValueError("Moonbase message text is over the plugin's length caps")
+
+        payload = {
+            "Title": title,
+            "Body": body,
+            "Color": color,
+            "Delivery": delivery,
+            "ActionLabel": _xml_safe(action_label) if action_label else None,
+            "ActionUrl": _xml_safe(action_url) if action_url else None,
+            "StartUtc": None,
+            "EndUtc": end_utc.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "Audience": "users",
+            "TargetUserIds": [target_user_id],
+        }
+        response = self.post(MOONBASE_MESSAGES_PATH, json=payload)
+        item = response.json().get("item") or {}
+        message_id = item.get("Id") or item.get("id")
+        if not message_id:
+            raise ValueError("Moonbase saved the message but returned no Id")
+        return message_id
+
+    def delete_moonbase_message(self, message_id: str) -> None:
+        """Delete a Moonbase server message.
+
+        A message that is already gone counts as deleted: Moonbase prunes
+        messages past their end date by itself.
+
+        Raises:
+            ValueError: ``message_id`` is not a single path segment.
+            requests.HTTPError: Moonbase refused for any reason other than 404.
+        """
+        if not message_id or not _MOONBASE_MESSAGE_ID.fullmatch(message_id):
+            raise ValueError(f"Not a Moonbase message id: {message_id!r}")
+        try:
+            self.delete(f"{MOONBASE_MESSAGES_PATH}/{message_id}")
+        except requests.HTTPError as exc:
+            if exc.response is None or exc.response.status_code != 404:
+                raise
 
     def get_recent_items(
         self, library_id: str | None = None, limit: int = 10

@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.7] (2026-09-14)
+
+### Added
+
+- **Aviso de vencimiento dentro de la app Moonfin.** Cuando a un socio le quedan
+  24 horas o menos, sauron le deja un mensaje en Moonbase (el plugin companero de
+  Moonfin): "🔔 AVISO DE VENCIMIENTO", con un boton "Renovar mi membresía" que
+  abre `https://neexy.net/pay?renovar=1` (en la TV sale como QR). Se abre solo
+  una vez, manda push al telefono y dura 7 dias.
+
+  Va dirigido unicamente a ese socio: audiencia "Only the users I pick" con su id
+  de Jellyfin como unico destinatario, nunca "Everyone". Moonbase filtra del lado
+  del servidor, asi que ni un admin ve el aviso de otro.
+
+  El aviso que ya existia solo llega a quien esta reproduciendo algo en ese
+  momento; este queda guardado y lo ve aunque abra la app horas despues. Los dos
+  conviven y cada uno lleva su propio registro, porque compartir
+  `expiry_notified_at` los habria bloqueado entre si.
+
+- **Al renovar, el aviso desaparece.** `POST /extend` y `PUT /update-expiry` con
+  una fecha posterior lo borran en el momento. La tarea de cada 15 minutos lo
+  borra en cualquier otro caso (por ejemplo, al editar la fecha desde el admin) y
+  reintenta si Moonbase estaba caido: una renovacion nunca falla por esto. Si la
+  fecha nueva vuelve a quedar a menos de un dia, sale un aviso nuevo.
+
+  Moonbase 2.2.0, la version instalada, guarda los mensajes en su XML sin
+  filtrarlos: un caracter de control o un emoji partido deja el archivo ilegible
+  y Jellyfin responde reemplazando **todos** los ajustes de Moonbase por los de
+  fabrica. Esta corregido en el repo del plugin (commit `2c378e60`) pero no
+  publicado, asi que sauron quita esos caracteres y rechaza cualquier texto que
+  Moonbase tendria que recortar. Guardar un mensaje, ademas, hace que Moonbase
+  borre los que ya vencieron, y conserva como maximo 50.
+
+  Migracion `20260914_moonbase_notice`: agrega `user.moonbase_notice_id` y
+  `user.moonbase_notice_expires`.
+
 ## [2026.10.6] (2026-09-07)
 
 ### Fixed

@@ -240,6 +240,12 @@ class User(db.Model, UserMixin):
     # every scheduler cycle for the same expiry window.
     expiry_notified_at = db.Column(db.DateTime, nullable=True)
 
+    # The Moonbase in-app expiry notice currently shown to this user, and the
+    # expiry it was about. `expires` moving past the latter means they renewed
+    # and the message is deleted. See app/services/moonbase_expiry_notify.py.
+    moonbase_notice_id = db.Column(db.String(64), nullable=True)
+    moonbase_notice_expires = db.Column(db.DateTime, nullable=True)
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 

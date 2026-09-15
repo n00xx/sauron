@@ -232,6 +232,7 @@ def init_extensions(app):
             check_expiring,
             check_locked_out,
             notify_streaming_expirers,
+            sync_moonbase_notices,
         )
         from app.tasks.update_check import fetch_and_cache_manifest
 
@@ -260,6 +261,16 @@ def init_extensions(app):
         scheduler.add_job(
             id="notify_streaming_expirers",
             func=lambda: notify_streaming_expirers(app),
+            trigger="interval",
+            minutes=_get_expiry_check_interval(),
+            replace_existing=True,
+        )
+
+        # In-app expiry notice through Moonbase for members in their last day,
+        # deleted again when they renew
+        scheduler.add_job(
+            id="sync_moonbase_notices",
+            func=lambda: sync_moonbase_notices(app),
             trigger="interval",
             minutes=_get_expiry_check_interval(),
             replace_existing=True,

@@ -660,6 +660,12 @@ class UserExtendResource(Resource):
             except Exception as exc:
                 logger.warning("Failed to send renewal notification: %s", exc)
 
+            # A member who renewed must stop seeing "vence dentro de 1 día".
+            # Never raises; the scheduled sync retries a removal that fails.
+            from app.services.moonbase_expiry_notify import retract_notice_if_renewed
+
+            retract_notice_if_renewed(user)
+
             return {
                 "message": f"User {user.username} expiry extended by {days} days",
                 "new_expiry": new_expiry.isoformat(),
@@ -724,6 +730,12 @@ class UserUpdateExpiryResource(Resource):
             # Update the user's expiry
             user.expires = new_expiry
             db.session.commit()
+
+            # A later date is a renewal too, so the Moonbase expiry notice goes.
+            # Never raises; the scheduled sync retries a removal that fails.
+            from app.services.moonbase_expiry_notify import retract_notice_if_renewed
+
+            retract_notice_if_renewed(user)
 
             # Prepare response message
             if new_expiry is None:

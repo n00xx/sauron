@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import datetime
 import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
@@ -420,10 +421,35 @@ class MediaClient(ABC):
             bool: True if the message was delivered, False if unsupported
             or delivery failed.
         """
-        logging.debug(
-            "send_message not supported for %s", self.__class__.__name__
-        )
+        logging.debug("send_message not supported for %s", self.__class__.__name__)
         return False
+
+    def create_moonbase_message(
+        self,
+        *,
+        title: str,
+        body: str,
+        target_user_id: str,
+        end_utc: datetime.datetime,
+        delivery: str,
+        color: str,
+        action_label: str | None = None,
+        action_url: str | None = None,
+    ) -> str:
+        """Post a Moonbase server message to a single user.
+
+        Moonbase is a Jellyfin plugin, so only the Jellyfin client implements
+        this; see ``JellyfinClient.create_moonbase_message``.
+        """
+        raise NotImplementedError(
+            f"Moonbase messages are not available on {self.__class__.__name__}"
+        )
+
+    def delete_moonbase_message(self, message_id: str) -> None:
+        """Delete a Moonbase server message. Jellyfin only, like the above."""
+        raise NotImplementedError(
+            f"Moonbase messages are not available on {self.__class__.__name__}"
+        )
 
     def get_recent_items(
         self,

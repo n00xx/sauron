@@ -115,6 +115,47 @@ def notify_streaming_expirers(app=None):
         logging.info("📩 Expiry notices: no streaming expirers to notify.")
 
 
+def sync_moonbase_notices(app=None):
+    """Keep the Moonbase in-app expiry notices in step with memberships.
+
+    Posts the notice to members in their last day and deletes it for members
+    who renewed. See app/services/moonbase_expiry_notify.py.
+
+    Args:
+        app: Flask application instance. If None, will try to get from current context.
+    """
+    if app is None:
+        from flask import current_app
+
+        try:
+            app = current_app._get_current_object()  # type: ignore
+        except RuntimeError:
+            logging.error(
+                "sync_moonbase_notices called outside application context and no app provided"
+            )
+            return
+
+    with app.app_context():
+        try:
+            from app.services.moonbase_expiry_notify import (
+                sync_moonbase_expiry_notices,
+            )
+
+            summary = sync_moonbase_expiry_notices()
+        except Exception:
+            logging.exception("Moonbase expiry notice sync failed")
+            return
+
+    if summary["notified"] or summary["retracted"]:
+        logging.info(
+            "📩 Moonbase expiry notices: sent %s, removed %s.",
+            summary["notified"],
+            summary["retracted"],
+        )
+    elif os.getenv("WIZARR_ENABLE_SCHEDULER") == "true":
+        logging.info("📩 Moonbase expiry notices: nothing to send or remove.")
+
+
 def check_locked_out(app=None):
     """Alert on members who are paid up but whose account is switched off.
 
