@@ -7,7 +7,7 @@ import { fadeUp, popIn } from "../anim";
 interface SceneInstalarProps {
   eyebrow: string;
   title: string;
-  /** Nombre de la app en la tienda. Cambia entre Fire TV y Roku. */
+  /** Nombre de la app en la tienda. Hoy es Moonfin en las tres. */
   appName: string;
   image: string;
   steps: string[];
@@ -17,8 +17,8 @@ interface SceneInstalarProps {
 }
 
 /**
- * Marco compartido por Fire TV/Google TV y Roku. Solo cambian el nombre de la
- * app y la captura, asi que se lee como una seccion con variante y no como dos
+ * Marco compartido por Fire TV, Google TV y Roku. Solo cambian la tienda y la
+ * captura, asi que se lee como una seccion con variante y no como tres
  * lecciones distintas.
  *
  * Las capturas de origen son pequeñas (605x421 y 552x403), asi que aqui se

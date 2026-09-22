@@ -21,19 +21,22 @@ export const T = 15;
  * Duraciones medidas con ffprobe sobre public/voiceover/*.mp3, mas ~1.2s de aire.
  * Si se regenera la voz hay que volver a medir: npm run durations
  *
- *   01-gracias       7.92s      05-roku          6.16s
+ *   01-gracias       7.92s      05-roku          6.00s
  *   02-dispositivos  8.00s      06-descargas    11.12s
- *   03-firetv        6.16s      07-conectar     20.88s
- *   04-googletv      7.28s      08-cierre       14.16s
+ *   03-firetv        6.96s      07-conectar     28.56s
+ *   04-googletv      5.04s      08-cierre       14.16s
+ *
+ * Conectar lleva algo mas de aire para que se alcance a leer el aviso de no
+ * cerrar la pagina, que aparece hacia el final de la locucion.
  */
 export const SCENES = [
   9.5 * FPS, // gracias
   9.5 * FPS, // dispositivos
-  8 * FPS, // fire tv
-  9 * FPS, // google tv
-  8 * FPS, // roku
+  8.5 * FPS, // fire tv
+  7 * FPS, // google tv
+  7.5 * FPS, // roku
   13 * FPS, // descargas
-  22.5 * FPS, // conectar
+  30.5 * FPS, // conectar
   16 * FPS, // cierre
 ];
 
@@ -82,19 +85,19 @@ export const WizardVideo: React.FC = () => (
         <SceneInstalar
           eyebrow="Fire TV"
           title="Instala la app desde la tienda"
-          appName="Wholphin"
+          appName="Moonfin"
           image="img/firetv-steps.png"
           cta="Selecciona e instala"
           glowX="38%"
           steps={[
             "Abre la tienda de aplicaciones",
-            'Selecciona búsqueda y escribe "Wholphin"',
+            'Selecciona búsqueda y escribe "Moonfin"',
             "Elige la app en los resultados",
           ]}
         />
       </TransitionSeries.Sequence>
 
-      {/* Deslizar entre las tres tiendas: misma leccion, otra variante */}
+      {/* Deslizar entre las tres tiendas: misma app, otra tienda */}
       <TransitionSeries.Transition
         presentation={slide({ direction: "from-right" })}
         timing={cut(T)}
@@ -103,7 +106,7 @@ export const WizardVideo: React.FC = () => (
       <TransitionSeries.Sequence durationInFrames={SCENES[3]}>
         <SceneInstalar
           eyebrow="Google TV"
-          title="Mismo proceso, pero otra aplicación"
+          title="Mismo proceso, misma aplicación"
           appName="Moonfin"
           image="img/googletv-steps.png"
           cta="Selecciona e instala"
@@ -124,14 +127,14 @@ export const WizardVideo: React.FC = () => (
       <TransitionSeries.Sequence durationInFrames={SCENES[4]}>
         <SceneInstalar
           eyebrow="Roku"
-          title="Aquí la aplicación es Jellyfin"
-          appName="Jellyfin"
+          title="En Roku también es Moonfin"
+          appName="Moonfin"
           image="img/roku-steps.png"
           cta="Añadir canal"
           glowX="62%"
           steps={[
             "Abre Canales de streaming",
-            'Selecciona buscar y escribe "Jellyfin"',
+            'Selecciona buscar y escribe "Moonfin"',
             "Elige la app en los resultados",
           ]}
         />

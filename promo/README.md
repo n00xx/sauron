@@ -3,7 +3,7 @@
 Video tutorial que reemplaza el texto de los pasos del wizard de onboarding
 (el que ve el usuario después de crear su usuario y contraseña).
 
-- **Salida**: `out/neexy-wizard.mp4` — 1920x1080, 30 fps, 92 s, H.264 + AAC
+- **Salida**: `out/neexy-wizard.mp4` — 1920x1080, 30 fps, 98 s, H.264 + AAC
 - **Hecho con**: [Remotion](https://remotion.dev) 4.x + React 19 + TypeScript
 - **Voz**: ElevenLabs (`eleven_v3`, voz Bella `hpp4J3VqNfWAUOO0d1Us`), español
 
@@ -46,16 +46,22 @@ src/
 |---|--------|----------|-----------|
 | 1 | Gracias | 9.5 s | Bienvenida y acceso al catálogo |
 | 2 | Dispositivos | 9.5 s | "Mira donde quieras" — 4 categorías |
-| 3 | Fire TV | 8 s | App **Wholphin** |
-| 4 | Google TV | 9 s | App **Moonfin** |
-| 5 | Roku | 8 s | App **Jellyfin** |
+| 3 | Fire TV | 8.5 s | App **Moonfin** (Amazon Appstore) |
+| 4 | Google TV | 7 s | App **Moonfin** |
+| 5 | Roku | 7.5 s | App **Moonfin** (tienda de canales) |
 | 6 | Descargas | 13 s | Celulares, tablets, Windows y Mac → `neexy.net/descargar` |
-| 7 | Conectar | 22.5 s | Servidor `tv.neexy.net` + Quick Connect |
+| 7 | Conectar | 30.5 s | Servidor `tv.neexy.net` + Quick Connect + aviso de no cerrar la página |
 | 8 | Cierre | 16 s | `neexy.net/blog` + "prepara las palomitas" |
 
-Cada plataforma de TV usa una app distinta: Fire TV → Wholphin,
-Google TV → Moonfin, Roku → Jellyfin. Las tres escenas comparten el
-componente `SceneInstalar`, parametrizado por props.
+Las tres plataformas de TV usan Moonfin (hasta septiembre de 2026 eran
+Wholphin en Fire TV y Jellyfin en Roku). Las tres escenas comparten el
+componente `SceneInstalar`, parametrizado por props: solo cambian la tienda y
+la captura.
+
+El aviso de la escena 7 no es decorativo: Quick Connect autoriza la tele contra
+la cuenta que guardó la sesión del navegador al crearla
+(`app/services/wizard_identity.py`). Si el comprador cierra la página, el
+código de la tele ya no tiene a quién conectarse y ve "Your session expired".
 
 El navegador no se menciona en ninguna escena: la vía de entrada que se enseña
 es siempre la app instalada.
@@ -71,33 +77,41 @@ El orden importa: **la voz define las duraciones**, no al revés.
 4. `npm run durations`
 5. Actualiza el array `SCENES` en `src/WizardVideo.tsx` con
    `duración del audio + ~1.2 s` de aire por escena
-6. `npm run render`
+6. Si cambió `07-conectar`, vuelve a medir las pausas con el comando
+   `silencedetect` del comentario de `SceneConectar.tsx` y recalcula
+   `PASO2_DELAY`, `PASO3_DELAY` y `AVISO_DELAY`: si no, los pasos aparecen
+   desfasados de la voz
+7. `npm run render`
 
 Cada escena debe durar al menos `audio + delay + 0.5 s`, o la locución se corta
 en la transición.
 
 ## Capturas de origen
 
-Las capturas viven en `public/img/`. Las de Fire TV y Roku venían de capturas
-de pantalla y se les recortaron 25 px al pie para quitar la barra de estado del
-sistema operativo que traían horneada:
+Las capturas viven en `public/img/`:
 
-| Archivo | Tamaño |
-|---------|--------|
-| `firetv-steps.png` | 991x674 |
-| `googletv-steps.png` | 857x554 |
-| `roku-steps.png` | 847x573 |
+| Archivo | Tamaño | Origen |
+|---------|--------|--------|
+| `firetv-steps.png` | 1536x1024 | `neexy.net/tutorials/firetv/fire.webp` |
+| `googletv-steps.png` | 857x554 | `neexy.net/tutorials/firetv/google2.webp` |
+| `roku-steps.png` | 847x573 | captura de pantalla, con 25 px recortados al pie (barra de estado del sistema) |
 
 Se escalan ~1.5x para 1080p. Si se recapturan más grandes, basta con
 reemplazar el archivo: el layout no cambia.
 
-`googletv-steps.png` se derivó de `neexy.net/tutorials/firetv/google2.webp`
-(capturas reales de Google TV) reemplazando las seis apariciones de "Jellyfin"
-por "Moonfin". El script que hace el reemplazo mide la mancha de tinta de cada
-instancia, la borra muestreando el fondo fila por fila y redibuja el texto en
-Roboto ajustado al mismo cuerpo y color. Se conserva en
-`scripts/moonfin-replace.py` por si hay que rehacerlo.
+Las tres se derivaron de su original reemplazando cada "Jellyfin" por
+"Moonfin" con `scripts/moonfin-replace.py`. El script mide la mancha de tinta
+de cada instancia, la borra muestreando el fondo fila por fila y redibuja el
+texto en Roboto ajustado al mismo cuerpo y color. Los rects de cada imagen
+están en su `TARGETS`:
 
-> **Nota:** en esa imagen el logotipo de la app sigue siendo el de Jellyfin
-> (solo se cambió el texto). Si Moonfin tiene un logo propio, hay que
-> regenerar la captura.
+```bash
+python3 scripts/moonfin-replace.py firetv fire.png firetv-steps.png --fonts fonts/
+```
+
+`--fonts` apunta a una carpeta con `Roboto-400/500/700` (.ttf o .woff; Google
+Fonts sirve .woff).
+
+> **Nota:** en las tres el logotipo de la app sigue siendo el triángulo de
+> Jellyfin (solo se cambió el texto). Si Moonfin tiene un logo propio, hay que
+> regenerar las capturas.

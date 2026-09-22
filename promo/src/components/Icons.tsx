@@ -76,3 +76,11 @@ export const IconBook = svg(
     <path d="M4 18.5V21h15" />
   </>
 );
+
+export const IconAlert = svg(
+  <>
+    <path d="M10.3 4.2 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z" />
+    <path d="M12 9.5v4.5" />
+    <path d="M12 17.2h.01" />
+  </>
+);

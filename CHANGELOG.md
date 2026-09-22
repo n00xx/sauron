@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.9] (2026-09-21)
+
+### Changed
+
+- **El video del wizard manda a Moonfin en Fire TV y en Roku, y avisa que no
+  hay que cerrar la pagina antes de conectar la tele.**
+
+  Moonfin ya esta en la Amazon Appstore y en la tienda de canales de Roku, asi
+  que las tres escenas de TV piden la misma app. Antes eran Wholphin en Fire TV,
+  Moonfin en Google TV y Jellyfin en Roku. La escena de Google TV tambien cambio
+  de texto: decia "pero la aplicacion cambia", y eso ya no es cierto.
+
+  La escena de Quick Connect ahora dice que el codigo se escribe en el siguiente
+  paso de esa misma pagina, la que se abrio al comprar, y muestra el aviso "No
+  cierres esta pagina". Quick Connect autoriza la tele contra la cuenta que
+  guardo la sesion del navegador al crearla (`current_wizard_user`), asi que
+  quien cerrara la pagina e instalara la app despues se toparia con "Your
+  session expired" sin entender por que.
+
+  El video pasa de 92 s a 98 s. El poster no cambia.
+
 ## [2026.10.8] (2026-09-14)
 
 ### Changed

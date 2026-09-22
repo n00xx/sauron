@@ -4,7 +4,7 @@ import { Stage } from "../components/Stage";
 import { COLORS, GRADIENTS, RADIUS, SHADOW, TEXT } from "../styles";
 import { monoFont } from "../fonts";
 import { fadeUp, pulse } from "../anim";
-import { IconTv, IconGamepad, IconLaptop, IconPhone } from "../components/Icons";
+import { IconTv, IconGamepad, IconLaptop, IconPhone, IconAlert } from "../components/Icons";
 
 const TARGETS = [
   { Icon: IconTv, label: "Smart TV, Fire TV,\nRoku, proyector", active: true },
@@ -19,15 +19,17 @@ const TARGETS = [
  *
  * El audio arranca en el frame 12 (delay de 0.4s), asi que cada paso se revela
  * ~0.4s antes de que la voz lo mencione:
- *   "Luego elige Quick Connect"  -> audio 11.19s -> frame 348
- *   "Escribelo en la pagina"     -> audio 15.70s -> frame 483
+ *   "Luego elige Quick Connect"       -> audio 11.25s -> frame 350
+ *   "Escribelo en el siguiente paso"  -> audio 15.69s -> frame 483
+ *   "Por eso, no la cierres"          -> audio 21.56s -> frame 659
  */
-const PASO2_DELAY = 336;
+const PASO2_DELAY = 338;
 const PASO3_DELAY = 471;
+const AVISO_DELAY = 647;
 
 /** El codigo se va escribiendo solo, para que se entienda que ahi va lo que sale en la tele. */
 const CODE = "482913";
-const CODE_START = 500;
+const CODE_START = PASO3_DELAY + 29;
 
 export const SceneConectar: React.FC = () => {
   const frame = useCurrentFrame();
@@ -114,6 +116,8 @@ export const SceneConectar: React.FC = () => {
           >
             En la tele no tendrás que escribir tu contraseña con el control.
           </p>
+
+          <Aviso frame={frame} delay={AVISO_DELAY} />
         </div>
 
         {/* Los tres pasos */}
@@ -160,7 +164,7 @@ export const SceneConectar: React.FC = () => {
 
           <Paso n={3} frame={frame} delay={PASO3_DELAY}>
             <div style={{ marginBottom: 18 }}>
-              Escribe ese código aquí y listo — sin usuario ni contraseña.
+              Escribe ese código en el siguiente paso y listo.
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
               <div
@@ -252,3 +256,55 @@ const Paso: React.FC<PasoProps> = ({ n, frame, delay, accent = false, children }
     <div style={{ fontSize: TEXT.body, lineHeight: 1.4, flex: 1 }}>{children}</div>
   </div>
 );
+
+interface AvisoProps {
+  frame: number;
+  delay: number;
+}
+
+/**
+ * Quick Connect autoriza la tele contra la cuenta que guardo la sesion del
+ * navegador al crearla (wizard_identity.current_wizard_user). Si el comprador
+ * cierra esta pagina, el codigo de la tele ya no tiene a quien conectarse.
+ */
+const Aviso: React.FC<AvisoProps> = ({ frame, delay }) => {
+  // Destello al aparecer y luego un brillo tenue: se tiene que notar sin
+  // competir con los pasos de la derecha.
+  const glow = interpolate(frame, [delay, delay + 12, delay + 45], [0, 1, 0.3], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+
+  return (
+    <div
+      style={{
+        ...fadeUp(frame, delay, 26),
+        marginTop: 28,
+        padding: "22px 24px",
+        borderRadius: RADIUS.card,
+        background: COLORS.warningSoft,
+        border: `1.5px solid rgba(245,181,68,${0.35 + glow * 0.4})`,
+        boxShadow: `0 0 ${glow * 40}px rgba(245,181,68,${glow * 0.25})`,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          fontSize: 27,
+          fontWeight: 800,
+          color: COLORS.text,
+        }}
+      >
+        <IconAlert size={32} color={COLORS.warning} />
+        No cierres esta página
+      </div>
+      <div style={{ marginTop: 10, fontSize: 22, lineHeight: 1.45, color: COLORS.textMuted }}>
+        Es la que se abrió al comprar tu membresía.
+        <br />
+        El código de tu tele solo funciona aquí.
+      </div>
+    </div>
+  );
+};

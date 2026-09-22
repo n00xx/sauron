@@ -20,6 +20,9 @@ export const COLORS = {
   textDim: "#63748a",
 
   success: "#3ecf8e",
+  /** Advertencias: ambar para que no se confunda con el rojo de los pasos. */
+  warning: "#f5b544",
+  warningSoft: "rgba(245, 181, 68, 0.1)",
 } as const;
 
 export const GRADIENTS = {

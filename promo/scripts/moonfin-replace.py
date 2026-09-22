@@ -1,5 +1,11 @@
 """
-Reemplaza 'Jellyfin' por 'Moonfin' en google2.png (guia de Google TV de Neexy).
+Reemplaza 'Jellyfin' por 'Moonfin' en las capturas de pasos de las tiendas de TV.
+
+    python3 moonfin-replace.py <googletv|firetv|roku> SRC DST [--fonts DIR]
+
+Las tres ilustraciones comparten plantilla (seis paneles, la app en los paneles
+4-6) pero no coordenadas, asi que cada una lleva sus propios rects en TARGETS.
+DIR debe tener Roboto-400/500/700 en .ttf o .woff (Google Fonts sirve .woff).
 
 Metodo por instancia:
   1. Medir: dentro de un rect ajustado a mano (ver grid.png) se aisla la mancha
@@ -15,28 +21,86 @@ fuente. 'Moonfin' sale mas ancho que 'Jellyfin' al mismo cuerpo -- es correcto,
 la M y las dos o ocupan mas que J-e-l-l-y.
 """
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from pathlib import Path
+import argparse
 import statistics
 
-# Fuente: https://neexy.net/tutorials/firetv/google2.webp (convertida a PNG)
-SRC, DST = "google2.png", "googletv-moonfin.png"
-FONT = {400: "Roboto-400.ttf", 500: "Roboto-500.ttf"}
+Q_OLD, Q_NEW = '"Jellyfin"', '"Moonfin"'
+CQ_OLD, CQ_NEW = "\u201cJellyfin\u201d", "\u201cMoonfin\u201d"  # Fire TV usa comillas tipograficas
 
-# Rects verificados sobre grid.png. Cada uno encierra SOLO la palabra objetivo
-# (en el panel 4 tambien las comillas, que son moradas y deben moverse con ella).
-INSTANCES = [
-    dict(name="4-titulo",    rect=(121, 292, 200, 318), old='"Jellyfin"', new='"Moonfin"',
-         weight=500, kind="purple", bbox_mode="ink"),
-    dict(name="4-buscador",  rect=( 58, 340, 112, 364), old="Jellyfin", new="Moonfin",
-         weight=400, kind="white", cursor=True),
-    dict(name="5-titulo",    rect=(404, 285, 478, 310), old="Jellyfin", new="Moonfin",
-         weight=500, kind="purple", bbox_mode="kind"),
-    dict(name="5-buscador",  rect=(334, 341, 392, 362), old="Jellyfin", new="Moonfin",
-         weight=400, kind="white"),
-    dict(name="5-resultado", rect=(377, 395, 440, 416), old="Jellyfin", new="Moonfin",
-         weight=400, kind="white"),
-    dict(name="6-titulo",    rect=(692, 364, 775, 393), old="Jellyfin", new="Moonfin",
-         weight=400, kind="white"),
-]
+# Rects verificados sobre recortes ampliados con cuadricula. Cada uno encierra
+# SOLO la palabra objetivo (en el panel 4 tambien las comillas, que son moradas
+# y deben moverse con ella).
+TARGETS = {
+    # Fuente: https://neexy.net/tutorials/firetv/google2.webp (convertida a PNG)
+    "googletv": [
+        dict(name="4-titulo",    rect=(121, 292, 200, 318), old=Q_OLD, new=Q_NEW,
+             weight=500, kind="purple", bbox_mode="ink"),
+        dict(name="4-buscador",  rect=( 58, 340, 112, 364), old="Jellyfin", new="Moonfin",
+             weight=400, kind="white", cursor=True),
+        dict(name="5-titulo",    rect=(404, 285, 478, 310), old="Jellyfin", new="Moonfin",
+             weight=500, kind="purple", bbox_mode="kind"),
+        dict(name="5-buscador",  rect=(334, 341, 392, 362), old="Jellyfin", new="Moonfin",
+             weight=400, kind="white"),
+        dict(name="5-resultado", rect=(377, 395, 440, 416), old="Jellyfin", new="Moonfin",
+             weight=400, kind="white"),
+        dict(name="6-titulo",    rect=(692, 364, 775, 393), old="Jellyfin", new="Moonfin",
+             weight=400, kind="white"),
+    ],
+    # Fuente: https://neexy.net/tutorials/firetv/fire.webp (1536x1024). Es la
+    # misma ilustracion que tenia Wholphin, pero con el logo de triangulo.
+    "firetv": [
+        dict(name="4-titulo",    rect=(218, 540, 356, 582), old=CQ_OLD, new=CQ_NEW,
+             weight=700, kind="purple", bbox_mode="ink"),
+        dict(name="4-buscador",  rect=(104, 630, 186, 666), old="Jellyfin", new="Moonfin",
+             weight=400, kind="white", cursor=True),
+        dict(name="5-titulo",    rect=(734, 528, 848, 566), old="Jellyfin", new="Moonfin",
+             weight=700, kind="purple", bbox_mode="kind"),
+        dict(name="5-buscador",  rect=(600, 628, 680, 662), old="Jellyfin", new="Moonfin",
+             weight=400, kind="white"),
+        dict(name="5-resultado", rect=(676, 724, 766, 760), old="Jellyfin", new="Moonfin",
+             weight=700, kind="white"),
+        dict(name="6-titulo",    rect=(1240, 664, 1372, 718), old="Jellyfin", new="Moonfin",
+             weight=700, kind="white"),
+    ],
+    # Fuente: public/img/roku-steps.png ya recortada (847x573). Trae un septimo
+    # "Jellyfin" diminuto en el buscador del panel 3.
+    "roku": [
+        dict(name="3-buscador",  rect=(769, 93, 799, 106), old="Jellyfin", new="Moonfin",
+             weight=400, kind="white"),
+        dict(name="4-titulo",    rect=(119, 292, 196, 318), old=Q_OLD, new=Q_NEW,
+             weight=700, kind="purple", bbox_mode="ink", fg=(115, 91, 166)),
+        dict(name="4-buscador",  rect=( 55, 343, 101, 365), old="Jellyfin", new="Moonfin",
+             weight=400, kind="white", cursor=True),
+        dict(name="5-titulo",    rect=(405, 287, 472, 309), old="Jellyfin", new="Moonfin",
+             weight=700, kind="purple", bbox_mode="kind", fg=(110, 93, 148)),
+        dict(name="5-buscador",  rect=(330, 342, 378, 363), old="Jellyfin", new="Moonfin",
+             weight=400, kind="white"),
+        dict(name="5-resultado", rect=(374, 395, 426, 416), old="Jellyfin", new="Moonfin",
+             weight=400, kind="white"),
+        dict(name="6-titulo",    rect=(689, 364, 764, 394), old="Jellyfin", new="Moonfin",
+             weight=400, kind="white"),
+    ],
+}
+
+args = argparse.ArgumentParser()
+args.add_argument("target", choices=TARGETS)
+args.add_argument("src")
+args.add_argument("dst")
+args.add_argument("--fonts", default=".")
+args = args.parse_args()
+
+
+def font_file(weight):
+    for ext in ("ttf", "woff"):
+        path = Path(args.fonts) / f"Roboto-{weight}.{ext}"
+        if path.exists():
+            return str(path)
+    raise SystemExit(f"falta Roboto-{weight} en {args.fonts}")
+
+
+FONT = {w: font_file(w) for w in (400, 500, 700)}
+SRC, DST, INSTANCES = args.src, args.dst, TARGETS[args.target]
 
 img = Image.open(SRC).convert("RGB")
 px = img.load()
@@ -86,7 +150,7 @@ def fit_size(text, weight, target_w, target_h):
     """Cuerpo cuya mancha reproduce mejor la original. El alto pesa mas: fija
     la escala optica, mientras el ancho solo desempata."""
     best, best_err = None, None
-    for size in range(6, 64):
+    for size in range(6, 96):
         f = ImageFont.truetype(FONT[weight], size)
         b = ink_bbox(text, f)
         if not b:
@@ -102,6 +166,9 @@ draw = ImageDraw.Draw(img)
 
 for inst in INSTANCES:
     bbox, fg, bg = measure(inst["rect"], inst["kind"], inst.get("bbox_mode", "kind"))
+    # En capturas chicas y borrosas el morado medido sale de los bordes
+    # antialiasados y queda apagado; ahi se fija a mano (percentil 90 del original).
+    fg = inst.get("fg", fg)
     bx0, by0, bx1, by1 = bbox
     ow, oh = bx1 - bx0 + 1, by1 - by0 + 1
     size, font = fit_size(inst["old"], inst["weight"], ow, oh)

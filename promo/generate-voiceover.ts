@@ -25,15 +25,15 @@ const scenes = [
   },
   {
     id: "03-firetv",
-    text: "Si vas a ver en Fire TV: abre la tienda de aplicaciones, busca Wholphin, e instálala.",
+    text: "Si vas a ver en Fire TV: abre la tienda de aplicaciones, busca Moonfin, e instálala.",
   },
   {
     id: "04-googletv",
-    text: "En Google TV el proceso es el mismo, pero la aplicación cambia: ahí busca Moonfin, e instálala.",
+    text: "En Google TV es igual: busca Moonfin en la tienda, e instálala.",
   },
   {
     id: "05-roku",
-    text: "Y si tienes Roku, la aplicación es Jellyfin: búscala, y añade el canal.",
+    text: "Y si tienes Roku, también es Moonfin: búscala en la tienda de canales, y añade el canal.",
   },
   {
     id: "06-descargas",
@@ -41,7 +41,7 @@ const scenes = [
   },
   {
     id: "07-conectar",
-    text: "Ya con la aplicación instalada, ábrela. Cuando te pida la dirección del servidor, escribe: te ve punto neexy punto net. Solo se escribe una vez. Luego elige Quick Connect: tu pantalla mostrará un código. Escríbelo en la página, y listo. Sin usuario ni contraseña en el control remoto.",
+    text: "Ya con la aplicación instalada, ábrela. Cuando te pida la dirección del servidor, escribe: te ve punto neexy punto net. Solo se escribe una vez. Luego elige Quick Connect: tu pantalla mostrará un código. Escríbelo en el siguiente paso de esta misma página, la que se abrió cuando compraste tu membresía. Por eso, no la cierres hasta conectar tu tele. Y listo: sin usuario ni contraseña en el control remoto.",
   },
   {
     id: "08-cierre",
