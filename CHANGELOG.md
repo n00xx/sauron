@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.10] (2026-09-28)
+
+### Fixed
+
+- **Los ids de invitacion y de usuario ya no se reutilizan.**
+
+  Sin AUTOINCREMENT, SQLite asigna `max(id) + 1`: si se borra la invitacion
+  mas nueva, la siguiente recibe su mismo id. Pasaba en produccion: la
+  invitacion 35 se borro y una compra nueva volvio a recibir la 35. La tienda
+  guarda esos ids en sus ordenes y los usa mucho despues: un reembolso
+  deshabilita a todos los usuarios de la invitacion `id` y la borra, y el
+  reembolso de una renovacion reescribe el vencimiento del usuario `id`. Con
+  ids reutilizados, reembolsar una orden VIEJA le quitaba el acceso a OTRO
+  cliente que si pago.
+
+  La migracion `20260928_no_id_reuse` reconstruye `invitation` y `user` con
+  AUTOINCREMENT siguiendo el procedimiento oficial de SQLite. Lo delicado es
+  que son tablas PADRE: un `DROP TABLE` con las llaves foraneas activas
+  ejecuta un DELETE implicito que dispara los CASCADE y SET NULL de las tablas
+  hijas (invitation_user, invitation_server, invite_library, used_by_id,
+  stripe_event...). `PRAGMA foreign_keys = OFF` no hace nada dentro de una
+  transaccion, asi que se aplica sobre la conexion cruda en modo autocommit y
+  se vuelve a leer: si no quedo apagado, la migracion no toca nada. Todo corre
+  en una sola transaccion que se revierte si cambia el conteo de filas de
+  cualquier tabla o si `foreign_key_check` encuentra algo. El DDL nuevo es el
+  DDL vivo con solo la llave primaria cambiada.
+
+  La secuencia arranca 1000 por encima del id maximo actual, porque los ids
+  que ya se borraron desde arriba no quedaron registrados en ningun lado.
+
+  **Antes de desplegar, respalda `/data/database/database.db`.**
+
 ## [2026.10.9] (2026-09-21)
 
 ### Changed
