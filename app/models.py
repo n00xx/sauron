@@ -79,6 +79,9 @@ invitation_users = db.Table(
 
 class Invitation(db.Model):
     __tablename__ = "invitation"
+    # Ids are never reused: the storefront acts on them long after the fact
+    # (refunds, renewal reverts). See migration 20260928_no_id_reuse.
+    __table_args__ = {"sqlite_autoincrement": True}
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String, nullable=False)
     used = db.Column(db.Boolean, default=False, nullable=False)
@@ -196,6 +199,9 @@ class Settings(db.Model):
 
 class User(db.Model, UserMixin):
     __tablename__ = "user"
+    # Ids are never reused: the storefront acts on them long after the fact
+    # (refunds, renewal reverts). See migration 20260928_no_id_reuse.
+    __table_args__ = {"sqlite_autoincrement": True}
     id = db.Column(db.Integer, primary_key=True)
     token = db.Column(db.String, nullable=False)
     username = db.Column(db.String, nullable=False)
