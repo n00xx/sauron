@@ -7,6 +7,7 @@ import string
 
 from app.extensions import db
 from app.models import PasswordResetToken, User
+from app.services.lockout import lift_lockout
 
 logger = logging.getLogger("wizarr.password_reset")
 
@@ -198,6 +199,19 @@ def use_reset_token(code: str, new_password: str) -> tuple[bool, str]:
             token.used = True
             token.used_at = datetime.datetime.now(datetime.UTC)
             db.session.commit()
+
+            # Jellyfin's failed-login lockout never expires on its own, and a
+            # new password alone does not get a locked-out account back in.
+            # Holding this token proves ownership, so this is where it lifts.
+            # Best effort: the password has changed either way, and reporting
+            # a failure here would only send them to reset it again.
+            try:
+                lift_lockout(token.user)
+            except Exception:
+                logger.exception(
+                    "Could not check the lockout of user_id=%s after a password reset",
+                    token.user_id,
+                )
 
             logger.info(
                 "[info     ] Password reset successful for user_id=%s using token %s [app.services.password_reset]",

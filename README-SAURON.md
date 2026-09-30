@@ -92,6 +92,15 @@ Two Jellyfin behaviours this has to work around, both read from
 
 Jellyfin and Emby only. Anything else answers `valid: false`.
 
+**Lockouts outside this endpoint.** Accounts created through the join get
+`LoginAttemptsBeforeLockout = 5`. Jellyfin's lockout has no duration: the
+account stays disabled until something re-enables it. A completed password
+reset does (`app/services/lockout.py`) when Jellyfin has the account disabled
+while sauron's own record says active and unexpired. Disables sauron made itself
+(expiry, the admin's button) are left alone. An account an admin disabled
+straight from Jellyfin's dashboard looks the same as a lockout, so disable
+through sauron.
+
 ### `POST /api/users/<id>/max-sessions`
 
 ```bash
