@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.14] (2026-09-30)
+
+### Fixed
+
+- **"Olvide mi contrasena": peticiones basura ya no apagan el reseteo.**
+
+  Mismo hueco que se cerro en el recordatorio de usuario (2026.10.13): los
+  topes de `password-reset-request` corrian antes de revisar la API key y el
+  cuerpo, asi que cualquiera que llegara a sauron podia gastar los 30 por hora
+  globales con peticiones sin key y dejar el reseteo sin cupo para todos.
+  Ahora solo descuenta una peticion aceptada (200). Primera vez que estos
+  topes tienen tests con el limitador encendido.
+
+- **El reseteo ya no puede escribir el usuario escrito en el log.** Un error
+  de base registra solo el nombre de la excepcion (su texto traia el usuario
+  como parametro, exista o no) y un envio fallido solo el codigo y el id.
+
 ## [2026.10.13] (2026-09-29)
 
 ### Fixed
