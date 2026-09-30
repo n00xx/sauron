@@ -998,8 +998,15 @@ class JellyfinClient(RestApiMixin):
             return False, msg
 
         server_id = getattr(self, "server_id", None)
+        # Username compared without case, as Jellyfin does: with "juan" taken
+        # it refuses "Juan" too, and an exact match here let that through to
+        # create_user, whose failure reached the person as "An unexpected
+        # error occurred." instead of the real reason.
         existing = User.query.filter(
-            or_(User.username == username, User.email == email),
+            or_(
+                db.func.lower(User.username) == username.lower(),
+                User.email == email,
+            ),
             User.server_id == server_id,
         ).first()
         if existing:

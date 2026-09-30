@@ -263,6 +263,9 @@ def create_invite(form: Any) -> Invitation:
         # field (False). Video defaults unchecked (opt-in).
         allow_transcode_audio=bool(form.get("allow_transcode_audio")),
         allow_transcode_video=bool(form.get("allow_transcode_video")),
+        # Only the API sets this (already normalised there); the admin modal
+        # never sends it, so its invitations keep the free email field.
+        bound_email=form.get("bound_email") or None,
     )
     db.session.add(invite)
     db.session.flush()  # so invite.id exists, but not yet committed

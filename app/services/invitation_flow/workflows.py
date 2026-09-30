@@ -63,6 +63,16 @@ def _get_server_colors(server_type: str | None) -> dict[str, str]:
     )
 
 
+def _bound_email(invitation: Invitation | None) -> str | None:
+    """The address a storefront trial bound this invitation to, if any.
+
+    Only a non-empty string counts, so anything else (a missing column on an
+    old row, a test double) reads as "not bound" rather than as an email.
+    """
+    value = getattr(invitation, "bound_email", None)
+    return value if isinstance(value, str) and value else None
+
+
 def _create_join_form_template_data(
     invitation: Invitation,
     servers: list[MediaServer],
@@ -77,6 +87,13 @@ def _create_join_form_template_data(
     if form is None:
         form = JoinForm()
     form.code.data = invitation.code
+    # A storefront trial arrives already bound to the inbox it verified: show
+    # that address, read-only, instead of asking for it again. Set on every
+    # render (including an error re-render) so the box can never show
+    # something other than what the server will actually use.
+    bound_email = _bound_email(invitation)
+    if bound_email:
+        form.email.data = bound_email
 
     primary_server = servers[0] if servers else None
     server_type = primary_server.server_type if primary_server else "jellyfin"
@@ -93,6 +110,8 @@ def _create_join_form_template_data(
         "gradient_end": colors["gradient_end"],
         "shadow_color": colors["shadow_color"],
         "show_form": bool(error) or bool(getattr(form, "errors", None)),
+        "email_locked": bool(bound_email),
+        "invite_code": invitation.code,
     }
     if error:
         context["error"] = error
@@ -240,12 +259,21 @@ class InvitationWorkflow(ABC):
         return successful, failed
 
     def _validate_join_form(
-        self, form_data: dict[str, Any]
+        self, form_data: dict[str, Any], invitation: Invitation | None = None
     ) -> tuple[bool, dict[str, Any], Any]:
-        """Validate submitted account data using the public join form rules."""
+        """Validate submitted account data using the public join form rules.
+
+        When the invitation is bound to an email, that email REPLACES whatever
+        was submitted before validation: the read-only box is a courtesy, and
+        this is the enforcement — editing the field in devtools changes nothing.
+        """
         from werkzeug.datastructures import MultiDict
 
         from app.forms.join import JoinForm
+
+        bound_email = _bound_email(invitation)
+        if bound_email:
+            form_data = {**form_data, "email": bound_email}
 
         form = JoinForm(formdata=MultiDict(form_data))
         if not form.validate():
@@ -326,7 +354,9 @@ class FormBasedWorkflow(InvitationWorkflow):
         form_data: dict[str, Any],
     ) -> InvitationResult:
         """Process form submission."""
-        form_valid, validated_data, form = self._validate_join_form(form_data)
+        form_valid, validated_data, form = self._validate_join_form(
+            form_data, invitation
+        )
         if not form_valid:
             return self._create_auth_error_result(
                 invitation,
@@ -603,7 +633,9 @@ class MixedWorkflow(InvitationWorkflow):
             return self.show_initial_form(invitation, servers)
 
         if other_servers:
-            form_valid, validated_data, form = self._validate_join_form(form_data)
+            form_valid, validated_data, form = self._validate_join_form(
+                form_data, invitation
+            )
             if not form_valid:
                 return self._create_local_form_error_result(
                     invitation,

@@ -104,6 +104,49 @@ def invite(code):
     return result.to_flask_response()
 
 
+# ─── Username availability  /j/<code>/username-available ────────────────────
+def _username_check_key() -> str:
+    # The real client, not the proxy: behind the reverse proxy remote_addr is
+    # the same for everyone, and a shared bucket would let one visitor spend
+    # every other visitor's allowance.
+    from app.blueprints.auth.routes import _client_ip
+
+    return f"username-check:{_client_ip()}"
+
+
+@public_bp.route("/j/<code>/username-available")
+@limiter.limit(scaled_limit("30 per minute"), key_func=_username_check_key)
+def username_available(code):
+    """Tell the join form whether a username is free, before it is submitted.
+
+    Answers ONLY for a valid, unused invitation. The join form already says
+    "User or e-mail already exists." to anyone holding an invite; this says the
+    same thing a field earlier. Without an invite it answers nothing, so it is
+    not a username directory for strangers.
+    """
+    from app.services.username_availability import check_username
+
+    valid, _msg = is_invite_valid(code)
+    invitation = (
+        Invitation.query.filter(db.func.lower(Invitation.code) == code.lower()).first()
+        if valid
+        else None
+    )
+    if not invitation:
+        response = jsonify({"error": "invalid_invite"})
+        response.status_code = 404
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    servers = list(invitation.servers) or (
+        [invitation.server] if invitation.server else []
+    )
+    verdict = check_username(request.args.get("username", ""), servers)
+    response = jsonify({"available": verdict is None, "reason": verdict})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 # ─── Unified invitation processing ─────────────────────────────────────────
 @public_bp.route("/invitation/process", methods=["POST"])
 @limiter.limit(scaled_limit("20 per minute"))

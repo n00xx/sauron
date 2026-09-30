@@ -491,3 +491,15 @@ msgstr "Mejor genera una contraseña segura al azar"
 
 msgid "Continue"
 msgstr "Continuar"
+
+msgid "Checking availability…"
+msgstr "Comprobando disponibilidad…"
+
+msgid "Username available."
+msgstr "Usuario disponible."
+
+msgid "That username is already taken. Please choose another one."
+msgstr "Ese usuario ya existe. Elige otro."
+
+msgid "This is the email you verified for your free trial."
+msgstr "Es el correo que verificaste para tu prueba gratis."

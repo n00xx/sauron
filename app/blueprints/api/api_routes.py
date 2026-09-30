@@ -13,6 +13,7 @@ from flask_restx import Resource, abort
 from sqlalchemy import func
 
 from app.extensions import api, db, limiter, scaled_limit
+from app.forms.validators import normalize_bound_email
 from app.models import (
     AdminAccount,
     ApiKey,
@@ -1238,6 +1239,19 @@ class InvitationsListResource(Resource):
                         else []
                     )
 
+            # The storefront's free trial binds the invitation to the inbox it
+            # already verified. Refused outright when malformed — an invitation
+            # silently created WITHOUT the binding would let the trial be
+            # redeemed under any address.
+            bound_email = None
+            if data.get("email") is not None:
+                try:
+                    bound_email = normalize_bound_email(data.get("email"))
+                except ValueError as exc:
+                    from flask import jsonify, make_response
+
+                    return make_response(jsonify({"error": str(exc)}), 400)
+
             # Map expires_in_days to the format expected by create_invite
             expires_mapping = {1: "day", 7: "week", 30: "month"}
             expires_key = expires_mapping.get(data.get("expires_in_days"), "never")  # type: ignore
@@ -1267,6 +1281,7 @@ class InvitationsListResource(Resource):
                         if data.get("max_active_sessions") is not None
                         else None
                     ),
+                    "bound_email": bound_email,
                 }
             )
 
@@ -1291,6 +1306,9 @@ class InvitationsListResource(Resource):
                         "server_names": [server.name] if server else [],
                         "uses_global_setting": False,
                         "max_active_sessions": invitation.max_active_sessions,
+                        # Echoed so the caller can tell this sauron honours the
+                        # binding (an older one ignores `email` and omits this).
+                        "bound_email": invitation.bound_email,
                     },
                 }, 201
             from flask import jsonify, make_response

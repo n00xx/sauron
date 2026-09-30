@@ -254,6 +254,10 @@ invitation_create_request = api.model(
             required=False,
             description="Jellyfin max simultaneous streams for invited users; 0 = unlimited (Jellyfin servers only)",
         ),
+        "email": fields.String(
+            required=False,
+            description="Bind the invitation to this (already verified) email: the join form shows it read-only and no other can be used",
+        ),
     },
 )
 

@@ -165,6 +165,14 @@ class Invitation(db.Model):
     # LDAP integration (2025-12)
     create_ldap_user = db.Column(db.Boolean, default=False, nullable=True)
 
+    # The one email this invitation may create an account with. Set by the
+    # storefront's free trial, which has already proven the visitor owns that
+    # inbox: the join form shows it prefilled and read-only, and the server
+    # uses it whatever the browser submits, so the trial cannot be redeemed
+    # under a different (or throwaway) address. NULL = the person types their
+    # own, as before.
+    bound_email = db.Column(db.String, nullable=True)
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 

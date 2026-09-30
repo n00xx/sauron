@@ -3,6 +3,7 @@ Shared form validation constants and filters.
 """
 
 import logging
+import re
 from functools import lru_cache
 from typing import Any
 
@@ -115,6 +116,28 @@ def validate_email_domain_exists(_form, field) -> None:
         return
     if not _domain_has_dns_records(domain):
         raise ValidationError(EMAIL_DOMAIN_INVALID_MESSAGE)
+
+
+# ─── Email bound to an invitation by the storefront ─────────────────────────
+# Deliberately plain: the storefront has already validated (and proven) this
+# address; this only refuses shapes that could not be an address at all, or
+# that smuggle header/SQL syntax into a column that later reaches templates.
+_BOUND_EMAIL_PATTERN = re.compile(
+    r"^[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}$"
+)
+_BOUND_EMAIL_MAX_LENGTH = 254
+
+
+def normalize_bound_email(raw: Any) -> str:
+    """Trim + lowercase a storefront-supplied email, or raise ValueError."""
+    if not isinstance(raw, str):
+        raise ValueError("email must be a string")
+    email = raw.strip().lower()
+    if len(email) > _BOUND_EMAIL_MAX_LENGTH or not _BOUND_EMAIL_PATTERN.fullmatch(
+        email
+    ):
+        raise ValueError("email is not a valid address")
+    return email
 
 
 def strip_filter(value: Any):
