@@ -109,7 +109,6 @@ def _create_join_form_template_data(
         "gradient_start": colors["gradient_start"],
         "gradient_end": colors["gradient_end"],
         "shadow_color": colors["shadow_color"],
-        "show_form": bool(error) or bool(getattr(form, "errors", None)),
         "email_locked": bool(bound_email),
         "invite_code": invitation.code,
     }

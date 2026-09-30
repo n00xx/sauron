@@ -104,14 +104,45 @@ def invite(code):
     return result.to_flask_response()
 
 
-# ─── Username availability  /j/<code>/username-available ────────────────────
-def _username_check_key() -> str:
+# ─── Availability hints  /j/<code>/username-available, /email-available ─────
+def _availability_key(kind: str) -> str:
     # The real client, not the proxy: behind the reverse proxy remote_addr is
     # the same for everyone, and a shared bucket would let one visitor spend
     # every other visitor's allowance.
     from app.blueprints.auth.routes import _client_ip
 
-    return f"username-check:{_client_ip()}"
+    return f"{kind}-check:{_client_ip()}"
+
+
+def _username_check_key() -> str:
+    return _availability_key("username")
+
+
+def _email_check_key() -> str:
+    return _availability_key("email")
+
+
+def _no_store_json(payload: dict, status: int = 200) -> Response:
+    response = jsonify(payload)
+    response.status_code = status
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _open_invitation(code: str) -> Invitation | None:
+    """The invitation behind *code* if it can still be redeemed, else None."""
+    valid, _msg = is_invite_valid(code)
+    if not valid:
+        return None
+    return Invitation.query.filter(
+        db.func.lower(Invitation.code) == code.lower()
+    ).first()
+
+
+def _invitation_servers(invitation: Invitation) -> list[MediaServer]:
+    return list(invitation.servers) or (
+        [invitation.server] if invitation.server else []
+    )
 
 
 @public_bp.route("/j/<code>/username-available")
@@ -126,25 +157,44 @@ def username_available(code):
     """
     from app.services.username_availability import check_username
 
-    valid, _msg = is_invite_valid(code)
-    invitation = (
-        Invitation.query.filter(db.func.lower(Invitation.code) == code.lower()).first()
-        if valid
-        else None
-    )
+    invitation = _open_invitation(code)
     if not invitation:
-        response = jsonify({"error": "invalid_invite"})
-        response.status_code = 404
-        response.headers["Cache-Control"] = "no-store"
-        return response
+        return _no_store_json({"error": "invalid_invite"}, 404)
 
-    servers = list(invitation.servers) or (
-        [invitation.server] if invitation.server else []
+    verdict = check_username(
+        request.args.get("username", ""), _invitation_servers(invitation)
     )
-    verdict = check_username(request.args.get("username", ""), servers)
-    response = jsonify({"available": verdict is None, "reason": verdict})
-    response.headers["Cache-Control"] = "no-store"
-    return response
+    return _no_store_json({"available": verdict is None, "reason": verdict})
+
+
+@public_bp.route("/j/<code>/email-available", methods=["POST"])
+@limiter.limit(scaled_limit("30 per minute"), key_func=_email_check_key)
+def email_available(code):
+    """Tell the join form whether an email already has an account.
+
+    Same terms as the username check above: a valid, unused invitation or no
+    answer at all, so it reveals nothing the join form's own error does not.
+
+    It also refuses an invitation bound to an email. That is the storefront's
+    free trial, which verified the inbox itself and shows it read-only; the
+    form does not ask there, and the endpoint has no business answering.
+
+    POST with the address in the body, unlike the username check: a query
+    string ends up in the reverse proxy's access log, and an email is not
+    something to leave there.
+    """
+    from app.services.email_availability import check_email
+
+    invitation = _open_invitation(code)
+    if not invitation:
+        return _no_store_json({"error": "invalid_invite"}, 404)
+    if invitation.bound_email:
+        return _no_store_json({"error": "email_bound"}, 404)
+
+    payload = request.get_json(silent=True)
+    email = payload.get("email") if isinstance(payload, dict) else None
+    verdict = check_email(email, _invitation_servers(invitation))
+    return _no_store_json({"available": verdict is None, "reason": verdict})
 
 
 # ─── Unified invitation processing ─────────────────────────────────────────

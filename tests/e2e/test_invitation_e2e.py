@@ -132,16 +132,13 @@ class TestInvitationUserJourney:
         # Verify invitation page loads
         expect(page.locator("h1").first).to_contain_text("invitado")
 
-        # Click "Accept Invitation" button to show the form
-        page.click("#accept-invite-btn")
-
-        # Wait for form fields to become visible (they animate in sequentially)
+        # Wait for the form fields to be visible
         page.wait_for_selector(
             "input[name='username'][style*='opacity: 1'], input[name='username']:not([style*='opacity: 0'])",
             timeout=10000,
         )
 
-        # Check that form is present after clicking Accept Invitation
+        # Check that the form is present
         expect(page.locator("form")).to_be_visible()
         expect(page.locator("input[name='username']")).to_be_visible()
         expect(page.locator("input[name='password']")).to_be_visible()
@@ -182,13 +179,8 @@ class TestInvitationUserJourney:
         # Navigate to invitation page
         page.goto(f"{live_server.url()}{invitation_setup['invitation_url']}")
 
-        # Click "Accept Invitation" button to show the form
-        expect(page.locator("#accept-invite-btn")).to_be_visible()
-        page.click("#accept-invite-btn")
-
-        # Wait for the animation timeline to complete and form fields to become fully visible
-        # The animation takes ~800ms + field stagger delays (80ms * 6 fields = 480ms) + buffer
-        page.wait_for_timeout(2000)
+        # The invite link opens straight on the form; there is no card to accept.
+        expect(page.locator("#accept-invite-btn")).to_have_count(0)
 
         # Wait for form fields to become visible and interactive (with proper CSS opacity)
         page.wait_for_selector(
@@ -294,9 +286,7 @@ class TestInvitationUserJourney:
         # Navigate to invitation page
         page.goto(f"{live_server.url()}{invitation_setup['invitation_url']}")
 
-        # Click "Accept Invitation" button to show the form
-        page.click("#accept-invite-btn")
-        # Wait for form fields to become visible (they animate in sequentially)
+        # Wait for the form fields to be visible
         page.wait_for_selector(
             "input[name='username'][style*='opacity: 1'], input[name='username']:not([style*='opacity: 0'])",
             timeout=10000,
@@ -314,17 +304,8 @@ class TestInvitationUserJourney:
         page.wait_for_load_state("networkidle")
         expect(page.locator("body")).to_contain_text("error", ignore_case=True)
 
-        # After error, we might need to click accept invitation again to show form
-        try:
-            expect(page.locator("form")).to_be_visible(timeout=2000)
-        except AssertionError:
-            # If form not visible, try clicking accept invitation button again
-            if page.locator("#accept-invite-btn").is_visible():
-                page.click("#accept-invite-btn")
-                page.wait_for_selector(
-                    "input[name='username']:not([style*='opacity: 0'])", timeout=10000
-                )
-                expect(page.locator("form")).to_be_visible()
+        # The form is re-rendered with the error, ready for another attempt.
+        expect(page.locator("form")).to_be_visible()
 
 
 class TestMultiServerInvitationFlow:
@@ -404,9 +385,7 @@ class TestMultiServerInvitationFlow:
         # Should show invitation content (may not show specific server names)
         expect(page.locator("body")).to_contain_text("invitado")
 
-        # Click "Accept Invitation" button to show the form
-        page.click("#accept-invite-btn")
-        # Wait for form fields to become visible (they animate in sequentially)
+        # Wait for the form fields to be visible
         page.wait_for_selector(
             "input[name='username'][style*='opacity: 1'], input[name='username']:not([style*='opacity: 0'])",
             timeout=10000,
@@ -504,9 +483,7 @@ class TestMultiServerInvitationFlow:
         # Wait for page to load
         page.wait_for_load_state("networkidle")
 
-        # Click "Accept Invitation" button to show the form
-        page.click("#accept-invite-btn")
-        # Wait for form fields to become visible (they animate in sequentially)
+        # Wait for the form fields to be visible
         page.wait_for_selector(
             "input[name='username'][style*='opacity: 1'], input[name='username']:not([style*='opacity: 0'])",
             timeout=10000,
@@ -538,18 +515,19 @@ class TestInvitationUIComponents:
         """Test basic accessibility of invitation form."""
         page.goto(f"{live_server.url()}{invitation_setup['invitation_url']}")
 
-        # Click "Accept Invitation" button to show the form
-        page.click("#accept-invite-btn")
-        # Wait for form fields to become visible (they animate in sequentially)
+        # Wait for the form fields to be visible
         page.wait_for_selector(
             "input[name='username'][style*='opacity: 1'], input[name='username']:not([style*='opacity: 0'])",
             timeout=10000,
         )
 
         # Check for form labels (they don't have 'for' attributes but are present)
-        expect(page.locator("label").filter(has_text="Username")).to_be_visible()
-        expect(page.locator("label").filter(has_text="Password").first).to_be_visible()
-        expect(page.locator("label").filter(has_text="Email")).to_be_visible()
+        # The join form is served in es_MX.
+        expect(page.locator("label").filter(has_text="Usuario")).to_be_visible()
+        expect(
+            page.locator("label").filter(has_text="Contraseña").first
+        ).to_be_visible()
+        expect(page.locator("label").filter(has_text="Correo")).to_be_visible()
 
         # Check form uses POST method (lowercase is HTML standard)
         expect(page.locator("form")).to_have_attribute("method", "post")
@@ -570,7 +548,6 @@ class TestInvitationUIComponents:
         # Test desktop
         page.set_viewport_size({"width": 1920, "height": 1080})
         page.goto(f"{live_server.url()}{invitation_setup['invitation_url']}")
-        page.click("#accept-invite-btn")
         # Wait for form fields to become visible
         page.wait_for_selector(
             "input[name='username'][style*='opacity: 1'], input[name='username']:not([style*='opacity: 0'])",
@@ -581,7 +558,6 @@ class TestInvitationUIComponents:
         # Test tablet
         page.set_viewport_size({"width": 768, "height": 1024})
         page.reload()
-        page.click("#accept-invite-btn")
         # Wait for form fields to become visible
         page.wait_for_selector(
             "input[name='username'][style*='opacity: 1'], input[name='username']:not([style*='opacity: 0'])",
@@ -592,7 +568,6 @@ class TestInvitationUIComponents:
         # Test mobile
         page.set_viewport_size({"width": 375, "height": 667})
         page.reload()
-        page.click("#accept-invite-btn")
         # Wait for form fields to become visible
         page.wait_for_selector(
             "input[name='username'][style*='opacity: 1'], input[name='username']:not([style*='opacity: 0'])",

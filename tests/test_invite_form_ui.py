@@ -6,6 +6,7 @@ password rules must be visible before submitting, and the page must not
 advertise the upstream project.
 """
 
+import html
 import re
 
 from app.models import Invitation, MediaServer
@@ -93,3 +94,64 @@ def test_wizarr_footer_is_absent(client, session):
     # The reveal/back animations must not target the removed node — anime.js
     # throws on a null target and the form would stop animating open on mobile.
     assert "pageFooter" not in body
+
+
+def test_the_form_is_what_the_invite_link_opens_on(client, session):
+    """No "Accept invitation" card in front of it: the link lands on the form.
+
+    That card was a click that led nowhere else, between paying and creating the
+    account.
+    """
+    _create_jellyfin_invitation(session)
+
+    body = _get_invite_page(client)
+    form_screen = re.search(r'<div[^>]*id="form-screen"[^>]*>', body)
+
+    assert form_screen is not None
+    markup = form_screen.group(0)
+    assert "hidden" not in markup
+    assert "opacity-0" not in markup
+    assert "pointer-events-none" not in markup
+    # The fields used to start transparent and be faded in by the click.
+    assert 'style="opacity: 0' not in body
+    assert 'id="welcome-screen"' not in body
+    assert 'id="accept-invite-btn"' not in body
+    # Nothing to go back to, and no script left reaching for the removed nodes —
+    # a null target there throws and takes the rest of the page's script with it.
+    assert 'id="back-btn"' not in body
+    assert "acceptBtn" not in body
+    assert "welcomeScreen" not in body
+    assert "backBtn" not in body
+
+
+def test_form_reminds_the_buyer_to_save_their_credentials(client, session):
+    _create_jellyfin_invitation(session)
+
+    body = _get_invite_page(client)
+    notice = re.search(
+        r'<aside[^>]*id="save-credentials-notice"[^>]*>(.*?)</aside>', body, re.DOTALL
+    )
+
+    assert notice is not None
+    # unescape: the emoji are glued to their sentence with &nbsp; so they
+    # never wrap onto a line of their own.
+    text = html.unescape(re.sub(r"<[^>]+>", "", notice.group(1)))
+    text = re.sub(r"\s+", " ", text).strip()
+    assert "🔐 ¡Importante! Guarda tus datos de acceso" in text
+    assert (
+        "Te recomendamos enviarte tu usuario y contraseña por WhatsApp a tu propio "
+        "número para que puedas tenerlos siempre a la mano. 📱" in text
+    )
+    assert (
+        "Esto te permitirá recuperarlos fácilmente cuando los necesites, por "
+        "ejemplo, si cambias de dispositivo, reinstalas la aplicación o "
+        "simplemente olvidas dónde los guardaste." in text
+    )
+    assert (
+        "💡 Tip: Guarda este mensaje en tu WhatsApp para tener tus datos de acceso "
+        "disponibles cuando los necesites. 😉" in text
+    )
+    assert "🎬 ¡Así podrás disfrutar de Neexy sin complicaciones!" in text
+    # Shown before the button it is about, not after the account already exists.
+    assert body.index('id="save-credentials-notice"') < body.index('id="submit-btn"')
+    assert "Save your login details" not in body

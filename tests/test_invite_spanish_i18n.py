@@ -35,7 +35,10 @@ def test_invite_landing_renders_in_spanish(client, session):
     assert response.status_code == 200
     assert "¡Te han invitado!" in body
     assert "Crear cuenta" in body
-    assert "Aceptar invitación" in body
+    # The link opens straight on the form; the card that asked to "accept" first
+    # is gone, and so are its strings.
+    assert "Aceptar invitación" not in body
+    assert "Accept Invitation" not in body
     # Password rules are shown up-front, in Spanish, before the user submits.
     assert (
         "Mínimo 8 caracteres, con al menos una mayúscula, una minúscula y un número."

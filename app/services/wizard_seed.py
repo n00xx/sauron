@@ -7,7 +7,7 @@ from flask import current_app
 from sqlalchemy import inspect  # NEW
 
 from app.extensions import db
-from app.models import WizardStep
+from app.models import Settings, WizardStep
 
 # Folder containing the bundled markdown files (wizard_steps/<server>/*.md)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent / "wizard_steps"
@@ -167,6 +167,14 @@ QUICK_CONNECT_SOURCE = BASE_DIR / "jellyfin" / "03_setup_device.md"
 VIDEO_MARKER = "widget:video"
 VIDEO_SOURCE = BASE_DIR / "jellyfin" / "00_video.md"
 
+# The "before you start" page has no widget to recognise it by, so it carries an
+# HTML comment instead. That is editable text and will not survive an admin
+# rewording the step, which is why the backfill also leaves a Settings flag
+# behind: once it has run, the step is the admin's to edit or delete.
+BEFORE_YOU_START_MARKER = "sauron:before-you-start"
+BEFORE_YOU_START_SOURCE = BASE_DIR / "jellyfin" / "00_before_you_start.md"
+BEFORE_YOU_START_FLAG = "wizard_before_you_start_seeded"
+
 
 def ensure_quick_connect_step() -> None:
     """Add the Jellyfin device-setup step to installations that predate it.
@@ -256,7 +264,7 @@ def ensure_video_step() -> None:
 
     # Nothing seeded for Jellyfin yet: this is a fresh install and
     # import_default_wizard_steps already picks the file up from disk, where its
-    # 00_ filename prefix sorts it into position 0 on its own.
+    # 00_ filename prefix sorts it ahead of the steps it introduces.
     if not existing:
         return
 
@@ -287,6 +295,65 @@ def ensure_video_step() -> None:
     _renumber([video, *quick_connect, *rest])
     db.session.commit()
     current_app.logger.info("Added the Jellyfin onboarding video wizard step")
+
+
+def ensure_before_you_start_step() -> None:
+    """Open the Jellyfin wizard with the "before you start" page.
+
+    Same narrow exception as the two backfills above, for the same reason: the
+    seeder only bootstraps server types that are missing entirely.
+
+    It goes in at position 0, ahead of the video. The video introduces the
+    device setup that follows it; this page is about none of that — renewing,
+    recovering a login, freeing a device slot — so it sits in front rather than
+    between the two. Everything else keeps its relative order, and nothing
+    already there is edited.
+
+    Runs once. The flag, not the marker, is what makes that hold on an install
+    whose admin has since reworded or removed the step.
+    """
+    inspector = inspect(db.engine)
+    if not inspector.has_table(WizardStep.__tablename__):
+        return
+
+    if not BEFORE_YOU_START_SOURCE.exists():
+        return
+
+    if Settings.query.filter_by(key=BEFORE_YOU_START_FLAG).first():
+        return
+
+    existing = (
+        db.session.query(WizardStep).filter(WizardStep.server_type == "jellyfin").all()
+    )
+
+    # Nothing seeded for Jellyfin yet: this is a fresh install and
+    # import_default_wizard_steps already picks the file up from disk, where its
+    # filename sorts it into position 0 on its own.
+    if not existing:
+        return
+
+    # Already there — seeded from disk on a fresh install, or moved by an admin.
+    if not any(BEFORE_YOU_START_MARKER in (row.markdown or "") for row in existing):
+        meta = _parse_markdown(BEFORE_YOU_START_SOURCE)
+        step = WizardStep(
+            server_type="jellyfin",
+            category="post_invite",
+            position=_PARKING_OFFSET,
+            title=meta["title"],
+            markdown=meta["markdown"],
+            requires=meta["requires"],
+        )
+        db.session.add(step)
+
+        post_invite = sorted(
+            (row for row in existing if row.category == "post_invite"),
+            key=lambda row: row.position,
+        )
+        _renumber([step, *post_invite])
+        current_app.logger.info("Added the Jellyfin 'before you start' wizard step")
+
+    db.session.add(Settings(key=BEFORE_YOU_START_FLAG, value="1"))
+    db.session.commit()
 
 
 # Positions are moved out to this range before being written back in their final

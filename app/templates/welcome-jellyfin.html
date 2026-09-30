@@ -43,9 +43,6 @@
       </svg>
     </button>
   {% endmacro %}
-  {% set has_form_errors = form is defined and form.errors %}
-  {% set show_form_on_load = show_form|default(false) or error|default(false) or has_form_errors %}
-  {% set form_field_style = "opacity: 1; transform: translateY(0);" if show_form_on_load else "opacity: 0; transform: translateY(10px);" %}
   <style>
       /* Override CSS custom properties with server-specific colors */
       :root {
@@ -54,7 +51,7 @@
       }
   </style>
   <section id="invite-section"
-           class="min-h-screen bg-gradient-to-br from-gray-100 via-primary/10 to-white dark:from-slate-900 dark:via-primary/20 dark:to-slate-900 relative overflow-x-hidden overflow-y-auto {{ 'lg:overflow-hidden' if not show_form_on_load else '' }}">
+           class="min-h-screen bg-gradient-to-br from-gray-100 via-primary/10 to-white dark:from-slate-900 dark:via-primary/20 dark:to-slate-900 relative overflow-x-hidden overflow-y-auto">
     <!-- Animated background elements -->
     <div class="absolute inset-0 overflow-hidden">
       <div class="absolute -top-40 -right-80 w-80 h-80 bg-primary/60 rounded-full mix-blend-multiply filter blur-xl opacity-40 animate-blob">
@@ -69,7 +66,7 @@
     </div>
     <!-- Shimmer particles background -->
     <div class="shimmer-particles" id="shimmer-container"></div>
-    <div class="relative flex flex-col items-center justify-center px-6 mx-auto min-h-screen {{ 'py-8' if show_form_on_load else 'lg:py-0' }}">
+    <div class="relative flex flex-col items-center justify-center px-6 mx-auto min-h-screen py-8">
       <!-- Header - always visible -->
       <div class="text-center mb-4 md:mb-8 transition-all duration-500 ease-out"
            id="page-header">
@@ -89,42 +86,14 @@
         </p>
       </div>
       <!-- Main Card Container -->
-      <div class="w-full {{ 'max-w-lg' if show_form_on_load else 'max-w-md' }} transition-all duration-700 ease-out"
-           id="main-container">
-        <div class="relative bg-white/90 dark:bg-gray-800/40 backdrop-blur-xl rounded-2xl shadow-xl dark:shadow-2xl border border-gray-200 dark:border-gray-700/50 transition-all duration-700 ease-out {{ 'h-auto min-h-[520px]' if show_form_on_load else 'h-[400px]' }}"
-             id="card-container"
-             style="overflow: {{ 'visible' if show_form_on_load else 'hidden' }}">
-          <!-- Welcome Screen -->
-          <div class="p-8 space-y-6 transition-all duration-500 ease-out {{ 'hidden' if show_form_on_load else '' }}"
-               id="welcome-screen">
-            <div class="text-center">
-              <div class="mx-auto w-16 h-16 bg-gradient-to-r from-primary to-primary_hover rounded-full flex items-center justify-center mb-4 shadow-lg">
-                <svg class="w-8 h-8 text-white"
-                     fill="none"
-                     stroke="currentColor"
-                     viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z">
-                  </path>
-                </svg>
-              </div>
-              <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-2">{{ _("Accept Invitation") }}</h2>
-              <p class="text-gray-600 dark:text-gray-400 text-sm">{{ _("Get ready to join the magic") }}</p>
-            </div>
-            <button id="accept-invite-btn"
-                    class="w-full py-4 px-6 text-white font-semibold text-lg bg-gradient-to-r from-primary to-primary_hover hover:from-primary_hover hover:to-primary rounded-xl transition-all duration-200 transform hover:scale-[1.02] focus:ring-4 focus:ring-primary/30 focus:outline-none shadow-lg hover:shadow-xl">
-              <span id="button-text">{{ _("Accept Invitation") }} ✨</span>
-            </button>
-          </div>
-          <!-- Account Creation Form (initially hidden) -->
-          <div class="h-full flex flex-col transition-all duration-500 ease-out {{ 'relative opacity-100 pointer-events-auto overflow-visible' if show_form_on_load else 'opacity-0 pointer-events-none absolute inset-0 overflow-hidden hidden' }}"
-               id="form-screen">
-            <div class="text-center relative py-4 px-6 flex-shrink-0">
-              <button id="back-btn"
-                      class="absolute top-4 left-4 p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white transition-colors duration-200">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-                </svg>
-              </button>
+      <div class="w-full max-w-lg" id="main-container">
+        <div class="relative bg-white/90 dark:bg-gray-800/40 backdrop-blur-xl rounded-2xl shadow-xl dark:shadow-2xl border border-gray-200 dark:border-gray-700/50"
+             id="card-container">
+          {# Account creation form. The invite link opens straight on it: there
+             used to be an "Accept invitation" card in front, a click that led
+             nowhere else. #}
+          <div class="flex flex-col" id="form-screen">
+            <div class="text-center py-4 px-6 flex-shrink-0">
               <h2 class="text-xl md:text-2xl font-bold text-gray-900 dark:text-white mb-1">{{ _("Create Account") }}</h2>
               <p class="text-gray-600 dark:text-gray-400 text-xs md:text-sm">{{ _("Set up your magical account") }}</p>
             </div>
@@ -146,7 +115,6 @@
                 {% set check_code = invite_code|default(form.code.data or "") %}
                 <div class="form-field"
                      data-field="1"
-                     style="{{ form_field_style }}"
                      {% if check_code %}data-username-check-url="{{ url_for('public.username_available', code=check_code) }}"{% endif %}
                      data-msg-checking="{{ _('Checking availability…') }}"
                      data-msg-available="{{ _('Username available.') }}"
@@ -177,7 +145,15 @@
                      aria-live="polite"></p>
                   {% for err in form.username.errors %}<p class="text-red-400 text-xs mt-1">{{ err }}</p>{% endfor %}
                 </div>
-                <div class="form-field" data-field="2" style="{{ form_field_style }}">
+                {# A paid checkout never asks for an email, so this is where a taken
+                   one is first typed. Not wired for the free trial: that address
+                   arrives verified by the storefront and cannot be edited here. #}
+                <div class="form-field"
+                     data-field="2"
+                     {% if check_code and not email_locked|default(false) %}data-email-check-url="{{ url_for('public.email_available', code=check_code) }}"{% endif %}
+                     data-msg-checking="{{ _('Checking availability…') }}"
+                     data-msg-available="{{ _('Email available.') }}"
+                     data-msg-taken="{{ _('That email already has an account. Please use another one.') }}">
                   <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                     <svg class="w-3 h-3 inline mr-1"
                          fill="none"
@@ -203,10 +179,15 @@
                     {{ form.email(class="w-full px-3 py-2 bg-white/80 dark:bg-gray-700/50 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent backdrop-blur-sm transition-all duration-200 text-sm",
                                       placeholder=_("Enter your email") 
                     ) }}
+                    {# Filled by the availability check when the field is left. #}
+                    <p id="email-availability"
+                       class="mt-1 text-xs hidden"
+                       role="status"
+                       aria-live="polite"></p>
                   {% endif %}
                   {% for err in form.email.errors %}<p class="text-red-400 text-xs mt-1">{{ err }}</p>{% endfor %}
                 </div>
-                <div class="form-field" data-field="3" style="{{ form_field_style }}">
+                <div class="form-field" data-field="3">
                   <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                     <svg class="w-3 h-3 inline mr-1"
                          fill="none"
@@ -231,7 +212,7 @@
                   </p>
                   {% for err in form.password.errors %}<p class="text-red-400 text-xs mt-1">{{ err }}</p>{% endfor %}
                 </div>
-                <div class="form-field" data-field="4" style="{{ form_field_style }}">
+                <div class="form-field" data-field="4">
                   <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                     <svg class="w-3 h-3 inline mr-1"
                          fill="none"
@@ -250,13 +231,13 @@
                   </div>
                   {% for err in form.confirm_password.errors %}<p class="text-red-400 text-xs mt-1">{{ err }}</p>{% endfor %}
                 </div>
-                <div class="form-field" data-field="5" style="{{ form_field_style }}">
+                <div class="form-field" data-field="5">
                   <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                     <svg class="w-3 h-3 inline mr-1"
                          fill="none"
                          stroke="currentColor"
                          viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1721 9z">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z">
                       </path>
                     </svg>
                     {{ _("Invite Code") }}
@@ -268,11 +249,32 @@
                                     readonly=True) }}
                   {% for err in form.code.errors %}<p class="text-red-400 text-xs mt-1">{{ err }}</p>{% endfor %}
                 </div>
+                {# Deliberately loud. Sauron cannot show a password back later, and
+                   "I lost my login" is the most common support request. #}
+                <aside id="save-credentials-notice"
+                       class="rounded-xl border-2 border-amber-400 dark:border-amber-400/70 bg-amber-50 dark:bg-amber-400/10 p-4 shadow-md space-y-2 text-sm leading-relaxed text-amber-950 dark:text-amber-50"
+                       aria-labelledby="save-credentials-title">
+                  <h3 id="save-credentials-title"
+                      class="text-base md:text-lg font-extrabold leading-snug text-amber-900 dark:text-amber-200">
+                    🔐 {{ _("Important! Save your login details") }}
+                  </h3>
+                  <p>
+                    {{ _("We recommend sending your username and password to your own number on WhatsApp so you always have them at hand.") }}&nbsp;📱
+                  </p>
+                  <p>
+                    {{ _("That way you can get them back easily whenever you need them, for example if you switch devices, reinstall the app or simply forget where you saved them.") }}
+                  </p>
+                  <p class="font-semibold">
+                    💡 {{ _("Tip: Save this message in your WhatsApp to have your login details available whenever you need them.") }}&nbsp;😉
+                  </p>
+                  <p class="font-semibold">
+                    🎬 {{ _("That way you can enjoy Neexy with no hassle!") }}
+                  </p>
+                </aside>
                 <button type="submit"
                         id="submit-btn"
                         class="w-full py-3 px-4 text-white font-semibold text-sm bg-gradient-to-r from-primary to-primary_hover hover:from-primary_hover hover:to-primary rounded-lg transition-all duration-200 transform hover:scale-[1.02] focus:ring-4 focus:ring-primary/30 focus:outline-none shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed form-field"
-                        data-field="6"
-                        style="{{ form_field_style }}">
+                        data-field="6">
                   <span id="btn-text">{{ _("Create Account") }}</span>
                   <span id="btn-loading" class="hidden">
                     <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline"
@@ -358,24 +360,6 @@
 
           100% {
               background-position: 0% 50%;
-          }
-      }
-
-      /* Typewriter cursor */
-      .typewriter-cursor {
-          border-right: 2px solid currentColor;
-          animation: blink-caret 0.75s step-end infinite;
-      }
-
-      @keyframes blink-caret {
-
-          from,
-          to {
-              border-color: transparent;
-          }
-
-          50% {
-              border-color: currentColor;
           }
       }
 
@@ -465,47 +449,7 @@
   </style>
   <script>
       document.addEventListener('DOMContentLoaded', function() {
-          const acceptBtn = document.getElementById('accept-invite-btn');
-          const backBtn = document.getElementById('back-btn');
-          const welcomeScreen = document.getElementById('welcome-screen');
-          const formScreen = document.getElementById('form-screen');
-          const cardContainer = document.getElementById('card-container');
-          const mainContainer = document.getElementById('main-container');
-          const pageHeader = document.getElementById('page-header');
           const form = document.querySelector('form[action="{{ url_for("public.process_invitation") }}"]');
-          const submitBtn = document.getElementById('submit-btn');
-          const btnText = document.getElementById('btn-text');
-          const btnLoading = document.getElementById('btn-loading');
-          const buttonText = document.getElementById('button-text');
-          const layoutWrapper = mainContainer.parentElement;
-
-          // Enhanced typewriter effect using Anime.js
-          function typewriterEffect(element, text, speed = 80) {
-              element.innerHTML = '';
-              element.classList.add('typewriter-cursor');
-
-              return new Promise((resolve) => {
-                  anime({
-                      targets: {
-                          count: 0
-                      },
-                      count: text.length,
-                      duration: text.length * speed,
-                      round: 1,
-                      easing: 'linear',
-                      update: function(anim) {
-                          element.innerHTML = text.substring(0, Math.round(anim.animatables[0].target.count));
-                      },
-                      complete: function() {
-                          // Remove cursor after typing
-                          setTimeout(() => {
-                              element.classList.remove('typewriter-cursor');
-                              resolve();
-                          }, 300);
-                      }
-                  });
-              });
-          }
 
           // Create background shimmer particles
           function createShimmerParticles() {
@@ -560,252 +504,6 @@
 
           // Initialize background shimmer particles
           createShimmerParticles();
-
-          function revealFormWithoutAnimation() {
-              const isMobile = window.innerWidth < 768;
-              formScreen.classList.remove('hidden');
-              formScreen.style.opacity = '1';
-              formScreen.style.pointerEvents = 'auto';
-              welcomeScreen.style.display = 'none';
-              mainContainer.style.maxWidth = isMobile ? '100%' : '32rem';
-              // Same clamp, same bug, same fix as the animated path above: never pin
-              // the card to a fixed height with the form clipped inside it.
-              cardContainer.style.height = 'auto';
-              cardContainer.style.minHeight = '';
-              cardContainer.style.overflow = 'visible';
-              formScreen.style.position = 'relative';
-              formScreen.style.height = 'auto';
-              formScreen.style.overflow = 'visible';
-              if (isMobile) {
-                  layoutWrapper.style.justifyContent = 'flex-start';
-                  layoutWrapper.style.paddingTop = '3rem';
-                  layoutWrapper.style.paddingBottom = '2rem';
-              }
-              const formFields = formScreen.querySelectorAll('.form-field');
-              formFields.forEach(field => {
-                  field.style.opacity = '1';
-                  field.style.transform = 'translateY(0)';
-              });
-              const firstInput = form.querySelector('input[type="text"], input[type="email"]');
-              if (firstInput) firstInput.focus();
-          }
-
-          // Smooth container expansion animation
-          acceptBtn.addEventListener('click', async function() {
-              // Prevent multiple clicks
-              acceptBtn.disabled = true;
-
-              try {
-                  if (typeof anime === 'undefined') {
-                      revealFormWithoutAnimation();
-                      return;
-                  }
-
-                  const isMobile = window.innerWidth < 768;
-                  // Measured, never assumed. The desktop branch used to animate to a
-                  // hardcoded 520px and leave overflow:hidden on the card, which sliced
-                  // the submit button in half the moment the form was taller than that
-                  // — 556px at 1440px wide, so it always was.
-                  let revealedCardHeight = null;
-
-                  // Mobile: Hide header when form appears
-                  if (isMobile) {
-                      anime({
-                          targets: pageHeader,
-                          opacity: 0,
-                          translateY: -20,
-                          duration: 400,
-                          easing: 'easeOutQuad'
-                      });
-
-                      // Shift layout upward so the expanded card stays visible
-                      layoutWrapper.style.justifyContent = 'flex-start';
-                      layoutWrapper.style.paddingTop = '3rem';
-                      layoutWrapper.style.paddingBottom = '2rem';
-                  }
-
-                  // Step 1: Prepare form screen (hidden initially)
-                  formScreen.classList.remove('hidden');
-                  formScreen.style.opacity = '0';
-                  formScreen.style.pointerEvents = 'none';
-
-                  revealedCardHeight = Math.max(formScreen.scrollHeight, cardContainer.offsetHeight);
-
-                  // Step 2: Create timeline animation with Anime.js
-                  const timeline = anime.timeline({
-                      easing: 'cubicBezier(0.4, 0, 0.2, 1)',
-                      duration: 800
-                  });
-
-                  // Container width expansion
-                  timeline.add({
-                      targets: mainContainer,
-                      maxWidth: isMobile ? '100%' : '32rem',
-                      duration: 800,
-                      easing: 'cubicBezier(0.25, 0.46, 0.45, 0.94)'
-                  }, 0);
-
-                  // Container height expansion
-                  timeline.add({
-                      targets: cardContainer,
-                      height: `${revealedCardHeight}px`,
-                      duration: 800,
-                      easing: 'cubicBezier(0.25, 0.46, 0.45, 0.94)'
-                  }, 0);
-
-                  // Welcome screen fade out
-                  timeline.add({
-                      targets: welcomeScreen,
-                      opacity: 0,
-                      duration: 300,
-                      easing: 'easeOutQuad',
-                      complete: function() {
-                          welcomeScreen.style.display = 'none';
-                      }
-                  }, 100);
-
-                  // Form screen fades in
-                  timeline.add({
-                      targets: formScreen,
-                      opacity: 1,
-                      duration: 400,
-                      easing: 'easeInQuad',
-                      begin: function() {
-                          formScreen.style.pointerEvents = 'auto';
-                      }
-                  }, 400);
-
-                  // Wait for timeline to finish then show form fields
-                  timeline.finished.then(() => {
-                      // Animate form fields sequentially
-                      const formFields = formScreen.querySelectorAll('.form-field');
-                      formFields.forEach((field, index) => {
-                          anime({
-                              targets: field,
-                              opacity: [0, 1],
-                              translateY: [10, 0],
-                              duration: 300,
-                              delay: index * 80, // 80ms delay between each field
-                              easing: 'easeOutQuad'
-                          });
-                      });
-
-                      // Focus first input after all animations
-                      setTimeout(() => {
-                          const firstInput = form.querySelector('input[type="text"], input[type="email"]');
-                          if (firstInput) firstInput.focus();
-                      }, formFields.length * 80 + 150);
-
-                      // Let the card size itself now that the animation has landed:
-                      // height auto and no floor, so it hugs the form instead of
-                      // trailing dead space under the button. The card carries a
-                      // 700ms transition, so the last few pixels ease rather than
-                      // snap. formScreen has to leave `absolute inset-0` first, or
-                      // the card would collapse with no in-flow child to measure.
-                      cardContainer.style.height = 'auto';
-                      cardContainer.style.minHeight = '';
-                      cardContainer.style.overflow = 'visible';
-                      formScreen.style.position = 'relative';
-                      formScreen.style.height = 'auto';
-                      formScreen.style.overflow = 'visible';
-
-                      if (isMobile) {
-                          requestAnimationFrame(() => {
-                              cardContainer.scrollIntoView({
-                                  behavior: 'smooth',
-                                  block: 'start'
-                              });
-                          });
-                      }
-                  });
-
-              } catch (error) {
-                  console.error('Animation error:', error);
-                  revealFormWithoutAnimation();
-                  acceptBtn.disabled = false;
-              }
-          });
-
-          // Smooth transition back to welcome screen
-          backBtn.addEventListener('click', function() {
-              // Re-enable accept button
-              acceptBtn.disabled = false;
-
-              const isMobile = window.innerWidth < 768;
-
-              const timeline = anime.timeline({
-                  easing: 'easeOutQuad',
-                  duration: 600
-              });
-
-              // Reset form fields opacity
-              const currentHeight = cardContainer.offsetHeight;
-              const formFields = formScreen.querySelectorAll('.form-field');
-              formFields.forEach(field => {
-                  field.style.opacity = '0';
-                  field.style.transform = 'translateY(10px)';
-              });
-
-              layoutWrapper.style.justifyContent = '';
-              layoutWrapper.style.paddingTop = '';
-              layoutWrapper.style.paddingBottom = '';
-              cardContainer.style.height = `${currentHeight}px`;
-              cardContainer.style.minHeight = '';
-              cardContainer.style.overflow = 'hidden';
-              formScreen.style.position = '';
-              formScreen.style.height = '';
-              formScreen.style.overflow = '';
-
-              // Form screen fade out
-              timeline.add({
-                  targets: formScreen,
-                  opacity: 0,
-                  duration: 300,
-                  complete: function() {
-                      formScreen.style.pointerEvents = 'none';
-                      formScreen.classList.add('hidden');
-                  }
-              });
-
-              // Welcome screen fade in
-              timeline.add({
-                  targets: welcomeScreen,
-                  opacity: [0, 1],
-                  duration: 300,
-                  begin: function() {
-                      welcomeScreen.style.display = 'block';
-                      welcomeScreen.style.pointerEvents = 'auto';
-                  }
-              }, 100);
-
-              // Container size reset for both desktop and mobile
-              // Reset container width
-              timeline.add({
-                  targets: mainContainer,
-                  maxWidth: '28rem',
-                  duration: 600,
-                  easing: 'cubicBezier(0.25, 0.46, 0.45, 0.94)'
-              }, 0);
-
-              // Reset container height
-              timeline.add({
-                  targets: cardContainer,
-                  height: '400px',
-                  duration: 600,
-                  easing: 'cubicBezier(0.25, 0.46, 0.45, 0.94)'
-              }, 0);
-
-              // Mobile: Show header again when going back
-              if (isMobile) {
-                  timeline.add({
-                      targets: pageHeader,
-                      opacity: 1,
-                      translateY: 0,
-                      duration: 400,
-                      easing: 'easeOutQuad'
-                  }, 200); // Start after container animation begins
-              }
-          });
 
           // Password visibility toggles. Hidden is the default (type="password"
           // straight from the form), and each field keeps its own state.
@@ -885,129 +583,136 @@
                   }, 5000);
               }
           });
-
-          // Keyboard navigation enhancements
-          document.addEventListener('keydown', function(e) {
-              // ESC to go back from form to welcome
-              if (e.key === 'Escape' && formScreen.style.opacity === '1') {
-                  backBtn.click();
-              }
-
-              // Enter to accept invitation from welcome screen
-              if (e.key === 'Enter' && welcomeScreen.style.opacity !== '0' && !acceptBtn.disabled) {
-                  acceptBtn.click();
-              }
-          });
-
-          // Auto-focus management
-          const observer = new MutationObserver((mutations) => {
-              mutations.forEach((mutation) => {
-                  if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
-                      const target = mutation.target;
-                      if (target === formScreen && formScreen.style.opacity === '1') {
-                          setTimeout(() => {
-                              const firstInput = form.querySelector('input:not([type="hidden"])');
-                              if (firstInput) firstInput.focus();
-                          }, 100);
-                      }
-                  }
-              });
-          });
-
-          observer.observe(formScreen, {
-              attributes: true
-          });
       });
   </script>
   <script>
-      // Username availability: checked when the person leaves the field, so a
-      // taken name is caught before they fill in two passwords. A courtesy —
-      // the server re-checks on submit and has the final word.
+      // Availability hints for the username and the email: checked when the
+      // person leaves the field, so a taken value is caught before they fill in
+      // two passwords. A courtesy — the server re-checks on submit and has the
+      // final word. A field whose wrapper carries no check URL (the email of a
+      // free trial, which arrives verified) is simply left alone.
       (function () {
-          const input = document.getElementById('username');
-          const box = input && input.closest('[data-username-check-url]');
-          const out = document.getElementById('username-availability');
-          if (!input || !box || !out) return;
-
-          const url = box.dataset.usernameCheckUrl;
-          const form = input.form;
-          const minLen = input.minLength > 0 ? input.minLength : 1;
-          const maxLen = input.maxLength > 0 ? input.maxLength : 64;
-          const shapeOk = (v) => v.length >= minLen && v.length <= maxLen && /^[A-Za-z0-9]+$/.test(v);
           const TONES = {
               pending: 'mt-1 text-xs text-gray-500 dark:text-gray-400',
               ok: 'mt-1 text-xs text-green-600 dark:text-green-400',
               taken: 'mt-1 text-xs text-red-400',
           };
 
-          let checked = null;   // the value the current verdict is about
-          let taken = false;
-          let seq = 0;          // drops answers that arrive after a newer check
+          function wireAvailabilityCheck({ inputId, outId, urlAttr, ask, shapeOk }) {
+              const input = document.getElementById(inputId);
+              const box = input && input.closest('[' + urlAttr + ']');
+              const out = document.getElementById(outId);
+              if (!input || !box || !out) return;
 
-          function show(tone, text) {
-              if (!tone) {
-                  out.className = 'mt-1 text-xs hidden';
-                  out.textContent = '';
-              } else {
-                  out.className = TONES[tone];
-                  out.textContent = text;
+              const url = box.getAttribute(urlAttr);
+              const form = input.form;
+
+              let checked = null;   // the value the current verdict is about
+              let taken = false;
+              let seq = 0;          // drops answers that arrive after a newer check
+
+              function show(tone, text) {
+                  if (!tone) {
+                      out.className = 'mt-1 text-xs hidden';
+                      out.textContent = '';
+                  } else {
+                      out.className = TONES[tone];
+                      out.textContent = text;
+                  }
+                  if (tone === 'taken') input.setAttribute('aria-invalid', 'true');
+                  else input.removeAttribute('aria-invalid');
               }
-              if (tone === 'taken') input.setAttribute('aria-invalid', 'true');
-              else input.removeAttribute('aria-invalid');
+
+              async function check() {
+                  const value = input.value.trim();
+                  if (value === checked) return;
+                  checked = value;
+                  taken = false;
+                  // The rules hint and the server already explain a bad shape.
+                  if (!shapeOk(value, input)) { show(null); return; }
+                  const mine = ++seq;
+                  show('pending', box.dataset.msgChecking);
+                  try {
+                      const res = await ask(url, value, form);
+                      if (mine !== seq) return;
+                      if (!res.ok) { show(null); return; }
+                      const data = await res.json();
+                      if (mine !== seq) return;
+                      if (data.available) {
+                          show('ok', box.dataset.msgAvailable);
+                      } else if (data.reason === 'taken') {
+                          taken = true;
+                          show('taken', box.dataset.msgTaken);
+                      } else {
+                          show(null);
+                      }
+                  } catch (err) {
+                      if (mine === seq) show(null);
+                  }
+              }
+
+              input.addEventListener('blur', check);
+              input.addEventListener('input', function () {
+                  if (input.value.trim() !== checked) {
+                      checked = null;
+                      taken = false;
+                      seq++;
+                      show(null);
+                  }
+              });
+
+              // Capture phase: runs before the page's own submit handler, which
+              // would otherwise put the button into its loading state.
+              if (form) {
+                  form.addEventListener('submit', function (e) {
+                      if (!taken || input.value.trim() !== checked) return;
+                      e.preventDefault();
+                      e.stopImmediatePropagation();
+                      show('taken', box.dataset.msgTaken);
+                      input.focus();
+                  }, true);
+              }
           }
 
-          async function check() {
-              const value = input.value.trim();
-              if (value === checked) return;
-              checked = value;
-              taken = false;
-              // The rules hint and the server already explain a bad shape.
-              if (!shapeOk(value)) { show(null); return; }
-              const mine = ++seq;
-              show('pending', box.dataset.msgChecking);
-              try {
-                  const res = await fetch(url + '?username=' + encodeURIComponent(value), {
+          wireAvailabilityCheck({
+              inputId: 'username',
+              outId: 'username-availability',
+              urlAttr: 'data-username-check-url',
+              ask: function (url, value) {
+                  return fetch(url + '?username=' + encodeURIComponent(value), {
                       headers: { Accept: 'application/json' },
                       credentials: 'same-origin',
                   });
-                  if (mine !== seq) return;
-                  if (!res.ok) { show(null); return; }
-                  const data = await res.json();
-                  if (mine !== seq) return;
-                  if (data.available) {
-                      show('ok', box.dataset.msgAvailable);
-                  } else if (data.reason === 'taken') {
-                      taken = true;
-                      show('taken', box.dataset.msgTaken);
-                  } else {
-                      show(null);
-                  }
-              } catch (err) {
-                  if (mine === seq) show(null);
-              }
-          }
-
-          input.addEventListener('blur', check);
-          input.addEventListener('input', function () {
-              if (input.value.trim() !== checked) {
-                  checked = null;
-                  taken = false;
-                  seq++;
-                  show(null);
-              }
+              },
+              shapeOk: function (v, input) {
+                  const minLen = input.minLength > 0 ? input.minLength : 1;
+                  const maxLen = input.maxLength > 0 ? input.maxLength : 64;
+                  return v.length >= minLen && v.length <= maxLen && /^[A-Za-z0-9]+$/.test(v);
+              },
           });
 
-          // Capture phase: runs before the page's own submit handler, which
-          // would otherwise put the button into its loading state.
-          if (form) {
-              form.addEventListener('submit', function (e) {
-                  if (!taken || input.value.trim() !== checked) return;
-                  e.preventDefault();
-                  e.stopImmediatePropagation();
-                  show('taken', box.dataset.msgTaken);
-                  input.focus();
-              }, true);
-          }
+          wireAvailabilityCheck({
+              inputId: 'email',
+              outId: 'email-availability',
+              urlAttr: 'data-email-check-url',
+              // In the body, never the URL: a query string lands in access logs.
+              ask: function (url, value, form) {
+                  const token = form && form.querySelector('input[name="csrf_token"]');
+                  return fetch(url, {
+                      method: 'POST',
+                      headers: {
+                          Accept: 'application/json',
+                          'Content-Type': 'application/json',
+                          'X-CSRFToken': token ? token.value : '',
+                      },
+                      credentials: 'same-origin',
+                      body: JSON.stringify({ email: value }),
+                  });
+              },
+              shapeOk: function (v) {
+                  return v.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+              },
+          });
       })();
   </script>
 {% endblock main %}

@@ -503,3 +503,26 @@ msgstr "Ese usuario ya existe. Elige otro."
 
 msgid "This is the email you verified for your free trial."
 msgstr "Es el correo que verificaste para tu prueba gratis."
+
+# ─── Create-account form: email availability hint ───────────────────────────
+msgid "Email available."
+msgstr "Correo disponible."
+
+msgid "That email already has an account. Please use another one."
+msgstr "Ese correo ya tiene una cuenta. Usa otro."
+
+# ─── Create-account form: reminder to save the credentials ──────────────────
+msgid "Important! Save your login details"
+msgstr "¡Importante! Guarda tus datos de acceso"
+
+msgid "We recommend sending your username and password to your own number on WhatsApp so you always have them at hand."
+msgstr "Te recomendamos enviarte tu usuario y contraseña por WhatsApp a tu propio número para que puedas tenerlos siempre a la mano."
+
+msgid "That way you can get them back easily whenever you need them, for example if you switch devices, reinstall the app or simply forget where you saved them."
+msgstr "Esto te permitirá recuperarlos fácilmente cuando los necesites, por ejemplo, si cambias de dispositivo, reinstalas la aplicación o simplemente olvidas dónde los guardaste."
+
+msgid "Tip: Save this message in your WhatsApp to have your login details available whenever you need them."
+msgstr "Tip: Guarda este mensaje en tu WhatsApp para tener tus datos de acceso disponibles cuando los necesites."
+
+msgid "That way you can enjoy Neexy with no hassle!"
+msgstr "¡Así podrás disfrutar de Neexy sin complicaciones!"

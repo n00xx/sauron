@@ -261,12 +261,14 @@ def test_placeholder_is_replaced_in_step_markdown(app):
 # ── The bundled markdown ────────────────────────────────────────────────────
 
 
-def test_bundled_step_sorts_ahead_of_every_other_jellyfin_step():
-    """The seeder orders by filename, so the 00_ prefix is what makes it first."""
+def test_bundled_step_sorts_right_behind_the_before_you_start_page():
+    """The seeder orders by filename, so the 00_ prefix is what keeps the video
+    ahead of every step it introduces. Only the "before you start" page, which
+    is not about the devices at all, opens the wizard ahead of it."""
     from app.services.wizard_seed import BASE_DIR
 
     files = sorted(p.name for p in (BASE_DIR / "jellyfin").glob("*.md"))
-    assert files[0] == "00_video.md"
+    assert files[:2] == ["00_before_you_start.md", "00_video.md"]
 
 
 def test_bundled_step_carries_the_marker_the_backfill_looks_for():

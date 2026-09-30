@@ -61,5 +61,5 @@ def test_invitation_process_rerenders_open_join_form_on_email_error(
     assert b"Test Jellyfin" in body
     assert b"--color-primary: #AA5CC3;" in body
     assert form_screen is not None
-    assert b"opacity-100" in form_screen.group(0)
+    assert b"opacity-0" not in form_screen.group(0)
     assert b"hidden" not in form_screen.group(0)

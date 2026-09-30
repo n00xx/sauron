@@ -20,6 +20,12 @@ if TYPE_CHECKING:
 
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,7}$")
 
+# Wrong passwords a new account tolerates before Jellyfin disables it. Set on
+# every account the join creates rather than left to the server, which gave
+# customers three — quickly spent typing a password with a TV remote, and a
+# disabled account only comes back when an admin re-enables it.
+LOGIN_ATTEMPTS_BEFORE_LOCKOUT = 5
+
 # ── Home screen sections (User → Settings → Home) ────────────────────────────
 # Jellyfin keeps the Home screen layout in DisplayPreferences, not in the user
 # Policy or Configuration. jellyfin-web reads and writes it under the fixed
@@ -1001,11 +1007,12 @@ class JellyfinClient(RestApiMixin):
         # Username compared without case, as Jellyfin does: with "juan" taken
         # it refuses "Juan" too, and an exact match here let that through to
         # create_user, whose failure reached the person as "An unexpected
-        # error occurred." instead of the real reason.
+        # error occurred." instead of the real reason. The email likewise, so
+        # this agrees with the form's own "already has an account" hint.
         existing = User.query.filter(
             or_(
                 db.func.lower(User.username) == username.lower(),
-                User.email == email,
+                db.func.lower(User.email) == email.lower(),
             ),
             User.server_id == server_id,
         ).first()
@@ -1065,6 +1072,7 @@ class JellyfinClient(RestApiMixin):
             current_policy["EnableLiveTvAccess"] = allow_live_tv
             current_policy["EnableAudioPlaybackTranscoding"] = allow_transcode_audio
             current_policy["EnableVideoPlaybackTranscoding"] = allow_transcode_video
+            current_policy["LoginAttemptsBeforeLockout"] = LOGIN_ATTEMPTS_BEFORE_LOCKOUT
 
             # Apply Jellyfin max active sessions setting
             max_sessions = getattr(inv, "max_active_sessions", None)
