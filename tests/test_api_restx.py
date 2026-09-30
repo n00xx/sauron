@@ -1463,6 +1463,61 @@ class TestAPIPasswordResetRequest:
 
         assert response.status_code == 400
 
+    def test_keyless_and_malformed_requests_spend_no_allowance(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """Junk must not be able to switch resets off for everyone.
+
+        The limiter wraps the resource, so it runs before the key and body
+        checks; only accepted (200) requests may be charged.
+        """
+        from app.extensions import limiter
+
+        calls = self._spy(monkeypatch)
+        limiter.enabled = True
+        try:
+            limiter.reset()
+            junk = [
+                client.post(
+                    self.ENDPOINT,
+                    headers={"Content-Type": "application/json"},
+                    data=json.dumps({"username": "renewme"}),
+                ).status_code
+                for _ in range(35)
+            ] + [self._post(client, api_key, "   ").status_code for _ in range(5)]
+            real = self._post(client, api_key, "renewme").status_code
+        finally:
+            limiter.reset()
+            limiter.enabled = False
+
+        assert set(junk) == {400, 401}, junk
+        assert real == 200
+        assert calls == [jellyfin_user["user_id"]]
+
+    def test_one_username_is_capped_at_three_an_hour(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """conftest turns limiting off; this proves the per-name cap is wired.
+
+        Case and space variants must share the bucket.
+        """
+        from app.extensions import limiter
+
+        self._spy(monkeypatch)
+        limiter.enabled = True
+        try:
+            limiter.reset()
+            codes = [
+                self._post(client, api_key, name).status_code
+                for name in ("renewme", "RenewMe", " renewme", "RENEWME")
+            ]
+        finally:
+            limiter.reset()
+            limiter.enabled = False
+
+        assert codes[:3] == [200, 200, 200], codes
+        assert codes[3] == 429, f"4th attempt was not rate limited: {codes}"
+
 
 class TestAPIUsernameReminderRequest:
     """sauron fork: POST /api/users/username-reminder-request.

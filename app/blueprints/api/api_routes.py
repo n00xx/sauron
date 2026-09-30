@@ -861,6 +861,11 @@ class UserVerifyCredentialsResource(Resource):
         return {"valid": True, "user_id": user_id}
 
 
+def _accepted(response) -> bool:
+    """Limiter ``deduct_when``: charge only requests that were accepted."""
+    return response.status_code == 200
+
+
 def _password_reset_rate_key() -> str:
     """Rate-limit key for the reset request: the submitted username.
 
@@ -931,11 +936,25 @@ class UserPasswordResetRequestResource(Resource):
     #
     # Per-BUYER IP limiting has to happen in the storefront, which is the only
     # place that can see the buyer's address.
+    #
+    # `deduct_when`: only an ACCEPTED request (200) spends allowance. These
+    # decorators wrap the whole resource, so they run before require_api_key
+    # and the body check; without it, anyone who can reach this host could
+    # burn the 30/hour with key-less junk and switch resets off for everyone
+    # (found reviewing username-reminder-request, 2026-09-30).
     decorators: ClassVar[list] = [
-        limiter.limit(scaled_limit("100 per day")),
-        limiter.limit(scaled_limit("30 per hour")),
-        limiter.limit(scaled_limit("3 per hour"), key_func=_password_reset_rate_key),
-        limiter.limit(scaled_limit("10 per day"), key_func=_password_reset_rate_key),
+        limiter.limit(scaled_limit("100 per day"), deduct_when=_accepted),
+        limiter.limit(scaled_limit("30 per hour"), deduct_when=_accepted),
+        limiter.limit(
+            scaled_limit("3 per hour"),
+            key_func=_password_reset_rate_key,
+            deduct_when=_accepted,
+        ),
+        limiter.limit(
+            scaled_limit("10 per day"),
+            key_func=_password_reset_rate_key,
+            deduct_when=_accepted,
+        ),
     ]
 
     @api.doc("request_password_reset", security="apikey")
@@ -970,8 +989,12 @@ class UserPasswordResetRequestResource(Resource):
                 .all()
             )
         except Exception as e:
-            logger.error("Error looking up username for password reset: %s", str(e))
-            logger.error(traceback.format_exc())
+            # Exception NAME only: a SQLAlchemy error's text includes the bound
+            # parameters — the typed username, existing or not — and so would
+            # its traceback. That is the probe list this endpoint withholds.
+            logger.error(
+                "Error looking up username for password reset: %s", type(e).__name__
+            )
             return accepted
 
         if not matches:
@@ -1002,8 +1025,8 @@ class UserPasswordResetRequestResource(Resource):
         except Exception as e:
             # send_password_reset_email contracts never to raise. Belt and
             # braces: a 500 here would be the one response that stands out.
-            logger.error("Error sending password reset email: %s", str(e))
-            logger.error(traceback.format_exc())
+            # Name only, as in the lookup above.
+            logger.error("Error sending password reset email: %s", type(e).__name__)
             return accepted
 
         if result.ok:
@@ -1012,11 +1035,12 @@ class UserPasswordResetRequestResource(Resource):
             # The operator's only signal for "no_email" in particular, which
             # never reaches Activity > Resend: send_password_reset_email
             # returns before send_email, so no resend_email row is written.
+            # Code and id only: the message names the account, and Resend's can
+            # echo the recipient. The id is enough to open the user.
             logger.warning(
-                "API: password reset email NOT sent for user %s: code=%s message=%s",
+                "API: password reset email NOT sent for user %s: code=%s",
                 user.id,
                 result.error_code,
-                result.error_message,
             )
 
         return accepted
@@ -1033,11 +1057,6 @@ def _username_reminder_rate_key() -> str:
     if not isinstance(email, str):
         return "userreminder:__malformed__"
     return f"userreminder:{email.strip().lower()[:254]}"
-
-
-def _accepted(response) -> bool:
-    """Limiter ``deduct_when``: charge only requests that were accepted."""
-    return response.status_code == 200
 
 
 @users_ns.route("/username-reminder-request")
