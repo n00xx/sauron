@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.11] (2026-09-29)
+
+### Added
+
+- **El alta avisa si el usuario ya existe en cuanto se sale del campo.**
+
+  Antes se descubria al final, despues de escribir dos contrasenas. Ahora
+  `GET /j/<codigo>/username-available` consulta la tabla de sauron y la lista
+  viva de Jellyfin (cacheada 60 s; si Jellyfin no responde, decide la tabla y
+  el alta vuelve a comprobar). Solo contesta con una invitacion valida y sin
+  usar, asi no sirve de directorio de usuarios para extranos; limitado a 30 por
+  minuto por IP real del cliente.
+
+- **La prueba gratis de la tienda llega con el correo ya puesto.**
+
+  `POST /api/invitations` acepta `email`. La invitacion lo guarda en
+  `bound_email` y lo devuelve; el alta lo muestra prellenado y de solo lectura
+  y el servidor usa ese correo aunque el navegador mande otro. Sin eso, la
+  prueba (que la tienda da una vez por correo verificado) se podia canjear con
+  cualquier direccion, y los reseteos de contrasena de esa cuenta se iban a un
+  correo que nadie habia comprobado. Las invitaciones sin `email` no cambian.
+
+### Fixed
+
+- **"Juan" con "juan" existente ya no termina en un error generico.**
+
+  El alta comparaba el usuario distinguiendo mayusculas y Jellyfin no: pasaba
+  el filtro de sauron, Jellyfin rechazaba la creacion y la persona veia
+  "An unexpected error occurred." en vez de "El usuario ya existe".
+
 ## [2026.10.10] (2026-09-28)
 
 ### Fixed
