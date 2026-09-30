@@ -6,6 +6,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.15] (2026-09-30)
+
+### Added
+
+- **El alta avisa si el correo ya tiene cuenta en cuanto se sale del campo.**
+
+  El pago desde "Quiero mi acceso" no pide correo, asi que el alta es el primer
+  lugar donde se escribe, y un correo ocupado solo se descubria al enviar todo
+  el formulario. Ahora `POST /j/<codigo>/email-available` consulta la tabla de
+  sauron (Jellyfin no guarda correos) y el campo muestra el aviso igual que el
+  de usuario. Mismas condiciones: solo contesta con una invitacion valida y sin
+  usar, 30 por minuto por IP real. El correo va en el cuerpo y no en la URL
+  para que no quede en el log del proxy.
+
+  No corre en la prueba gratis: esa invitacion llega con el correo ya
+  verificado por la tienda y de solo lectura; la plantilla no conecta el aviso
+  y el endpoint responde 404 para una invitacion con `bound_email`.
+
+- **Aviso "Guarda tus datos de acceso" en el formulario de alta.** Recuadro
+  destacado justo arriba del boton de crear cuenta, recomendando enviarse el
+  usuario y la contrasena por WhatsApp.
+
+- **Nuevo primer paso del wizard: "Algunas cosas que debes saber antes de
+  empezar".** Explica como renovar en `neexy.net/pay?renovar=1`, como
+  recuperar usuario o contrasena desde "Recuperar", y como cerrar sesion para
+  liberar un dispositivo, con seis capturas en `app/static/img/wizard/`.
+
+  En instalaciones existentes se inserta una sola vez en la posicion 0, delante
+  del video, sin tocar los demas pasos. Queda registrado en Settings
+  (`wizard_before_you_start_seeded`), asi que si despues se edita o se borra
+  desde el editor de pasos no vuelve a aparecer en el siguiente reinicio.
+
+### Changed
+
+- **Una cuenta nueva aguanta 5 contrasenas incorrectas antes de bloquearse.**
+
+  El alta fija `LoginAttemptsBeforeLockout = 5` en la politica de Jellyfin en
+  vez de dejar el valor del servidor, que daba 3. Aplica a las cuentas creadas
+  a partir de esta version; las existentes conservan su valor.
+
+- **El enlace de invitacion abre directo en el formulario.** Se quito la
+  tarjeta "Aceptar invitacion", que era un clic de mas entre pagar y crear la
+  cuenta, junto con el boton de regresar y su animacion.
+
+### Fixed
+
+- **"Juan@correo.com" con "juan@correo.com" existente ya no pasa el alta.** El
+  correo se comparaba distinguiendo mayusculas; ahora no, igual que el aviso.
+
+- El icono de la llave en "Codigo de invitacion" tenia un trazo SVG invalido
+  que el navegador reportaba como error en consola.
+
 ## [2026.10.14] (2026-09-30)
 
 ### Fixed
