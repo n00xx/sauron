@@ -210,3 +210,210 @@ def test_the_new_password_stands_even_if_lifting_the_lockout_blows_up(
     ok, _msg, _lifted = _reset(user, lift={"side_effect": RuntimeError("down")})
 
     assert ok is True
+
+
+# ─── A "Validar cuenta" in between must not hide the lockout ────────────────
+#
+# The renewal page's credential check answers a locked-out account with 403 and,
+# having learned that Jellyfin has it disabled, records ``is_disabled = True``.
+# Without more, the reset would then read that as a disable sauron made on
+# purpose and leave the account locked for good — the customer tried to renew
+# before trying to recover, and that was enough to strand them.
+
+
+OLD_PASSWORD = "ClaveVieja1"
+
+
+class _LockedJellyfin:
+    """Jellyfin's lockout semantics, as far as these flows touch them."""
+
+    def __init__(self, disabled=True):
+        self.disabled = disabled
+        self.password = OLD_PASSWORD
+
+    def is_user_disabled(self, user_id):
+        return self.disabled
+
+    def enable_user(self, user_id):
+        self.disabled = False
+        return True
+
+    def disable_user(self, user_id):
+        self.disabled = True
+        return True
+
+    def authenticate_user(self, username, password):
+        # A disabled account is refused before the password is looked at.
+        if self.disabled:
+            return False, 403, None
+        if password != self.password:
+            return False, 401, None
+        return True, 200, "token"
+
+    def logout_token(self, token):
+        pass
+
+
+def _everywhere(fake):
+    """Every module in these flows builds its client through its own import."""
+    return (
+        patch(
+            "app.services.credentials.get_client_for_media_server", return_value=fake
+        ),
+        patch("app.services.lockout.get_client_for_media_server", return_value=fake),
+        patch(
+            "app.services.media.service.get_client_for_media_server", return_value=fake
+        ),
+    )
+
+
+def test_a_failed_validar_cuenta_does_not_stop_the_reset_from_unlocking(
+    app, session, jellyfin
+):
+    from app.services.credentials import verify_media_credentials
+
+    user = _user(session, jellyfin, expires=datetime.now(UTC) + timedelta(days=20))
+    fake = _LockedJellyfin(disabled=True)
+    a, b, c = _everywhere(fake)
+
+    with a, b, c:
+        # Locked out, the customer tries to renew first — even with the right
+        # password Jellyfin refuses a disabled account, so the check fails.
+        assert verify_media_credentials("juanperez1", OLD_PASSWORD) is None
+        db.session.refresh(user)
+        assert user.is_disabled is True, "the check still learns the real state"
+        assert user.disabled_externally is True
+
+        token = create_reset_token(user.id)
+        with patch("app.services.media.service.reset_user_password", return_value=True):
+            ok, _msg = use_reset_token(token.code, "NuevaClave123")
+
+    assert ok is True
+    assert fake.disabled is False, "the reset left the account locked"
+    db.session.refresh(user)
+    # Back to what it was before the check: active, and for the expiry sweep to
+    # pick up when its time comes.
+    assert user.is_disabled is False
+    assert user.disabled_externally is False
+
+
+def test_a_learned_disable_on_an_expired_account_stays(app, session, jellyfin):
+    user = _user(
+        session,
+        jellyfin,
+        is_disabled=True,
+        expires=datetime.now(UTC) - timedelta(days=1),
+    )
+    user.disabled_externally = True
+    session.commit()
+    media = _media(disabled=True)
+
+    with _patched(media):
+        assert lift_lockout(user) is False
+
+    media.enable_user.assert_not_called()
+
+
+def test_a_disable_sauron_made_itself_is_not_mistaken_for_a_learned_one(
+    app, session, jellyfin
+):
+    """The admin's button or the sweep: those go through sauron and clear the mark."""
+    from app.services.media.service import disable_user
+
+    user = _user(session, jellyfin)
+    user.is_disabled = True
+    user.disabled_externally = True  # learned earlier, by a credential check
+    session.commit()
+    fake = _LockedJellyfin(disabled=False)
+
+    with patch(
+        "app.services.media.service.get_client_for_media_server", return_value=fake
+    ):
+        assert disable_user(user.id) is True
+
+    db.session.refresh(user)
+    assert user.is_disabled is True
+    assert user.disabled_externally is False
+
+    with _patched(_media(disabled=True)) as factory:
+        assert lift_lockout(user) is False
+    factory.assert_not_called()
+
+
+def test_enabling_through_sauron_clears_the_mark_too(app, session, jellyfin):
+    """A renewal reactivates through the same path."""
+    from app.services.media.service import enable_user
+
+    user = _user(session, jellyfin)
+    user.is_disabled = True
+    user.disabled_externally = True
+    session.commit()
+
+    with patch(
+        "app.services.media.service.get_client_for_media_server",
+        return_value=_LockedJellyfin(disabled=True),
+    ):
+        assert enable_user(user.id) is True
+
+    db.session.refresh(user)
+    assert user.is_disabled is False
+    assert user.disabled_externally is False
+
+
+# ─── Migration: additive, and it must not touch the user's children ─────────
+
+
+def test_migration_adds_the_column_and_keeps_every_child_row():
+    import os
+    import sqlite3
+    import tempfile
+
+    from flask_migrate import upgrade
+
+    from app import create_app
+    from app.config import BaseConfig
+
+    class _Config(BaseConfig):
+        TESTING = True
+        WTF_CSRF_ENABLED = False
+
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        _Config.SQLALCHEMY_DATABASE_URI = f"sqlite:///{path}"
+        app = create_app(_Config)  # type: ignore[arg-type]
+        with app.app_context():
+            upgrade(revision="20260929_bound_email")
+
+        conn = sqlite3.connect(path)
+        conn.isolation_level = None
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute(
+            "INSERT INTO user (token, username, code, email, is_disabled) "
+            "VALUES ('jf-1', 'juanperez1', 'X', 'juan@example.com', 1)"
+        )
+        # A child with ON DELETE CASCADE: a table rebuild would wipe it.
+        conn.execute(
+            "INSERT INTO password_reset_token (code, user_id, created_at, expires_at, used) "
+            "VALUES ('ABCDEFGHIJ', 1, '2026-09-30 00:00:00', '2026-10-01 00:00:00', 0)"
+        )
+        conn.close()
+
+        with app.app_context():
+            upgrade()
+            upgrade()  # re-running is a no-op
+
+        conn = sqlite3.connect(path)
+        cols = [r[1] for r in conn.execute('PRAGMA table_info("user")')]
+        assert "disabled_externally" in cols
+        assert conn.execute(
+            'SELECT is_disabled, disabled_externally FROM "user"'
+        ).fetchone() == (1, 0), "existing disables are sauron's, not learned"
+        assert (
+            conn.execute("SELECT count(*) FROM password_reset_token").fetchone()[0] == 1
+        )
+        conn.close()
+    finally:
+        for suffix in ("", "-wal", "-shm"):
+            if os.path.exists(path + suffix):
+                os.unlink(path + suffix)

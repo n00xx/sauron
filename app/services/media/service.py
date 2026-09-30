@@ -69,6 +69,8 @@ def _set_user_enabled_state(db_id: int, enabled: bool) -> bool:
         action = "enabled" if enabled else "disabled"
         if result:
             user.is_disabled = not enabled
+            # Sauron's own decision now, whatever it may have learned before.
+            user.disabled_externally = False
             # Persist WITHOUT taking over a transaction we do not own.
             #
             # disable_or_delete_user_if_expired() wraps this call in a savepoint

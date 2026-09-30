@@ -984,7 +984,10 @@ class TestAPIVerifyCredentials:
         self._post(client, api_key, "renewme", "whatever")
 
         with app.app_context():
-            assert db.session.get(User, jellyfin_user["user_id"]).is_disabled is True
+            user = db.session.get(User, jellyfin_user["user_id"])
+            assert user.is_disabled is True
+            # Learned, not done: a password reset may still lift it as a lockout.
+            assert user.disabled_externally is True
 
     def test_concurrent_checks_do_not_corrupt_account_state(
         self, app, jellyfin_user, monkeypatch

@@ -229,6 +229,13 @@ class User(db.Model, UserMixin):
     identity = db.relationship("Identity", backref=db.backref("accounts", lazy=True))
     notes = db.Column(db.Text, nullable=True)
     is_disabled = db.Column(db.Boolean, nullable=False, default=False)
+    # True when `is_disabled` was LEARNED rather than done: the credential check
+    # found Jellyfin already had the account disabled (a lockout, most likely)
+    # and recorded it. Lets a password reset still recognise that lockout.
+    # Cleared by any enable or disable sauron makes itself.
+    disabled_externally = db.Column(
+        db.Boolean, nullable=False, default=False, server_default=db.false()
+    )
 
     # LDAP integration (2025-12)
     is_ldap_user = db.Column(db.Boolean, default=False, nullable=False)

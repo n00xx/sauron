@@ -52,7 +52,7 @@ _user_locks: dict[int, threading.Lock] = {}
 _user_locks_guard = threading.Lock()
 
 
-def _lock_for(user_id: int) -> threading.Lock:
+def account_lock(user_id: int) -> threading.Lock:
     with _user_locks_guard:
         return _user_locks.setdefault(user_id, threading.Lock())
 
@@ -117,7 +117,7 @@ def verify_media_credentials(username: str, password: str) -> int | None:
     if not jf_id:
         return None
 
-    with _lock_for(user.id):
+    with account_lock(user.id):
         # The ORIGINAL state comes from sauron's OWN column, never from a fresh
         # read of the Jellyfin policy. A live read races against the temporary
         # enable performed by a concurrent verification of the same account
@@ -175,9 +175,12 @@ def _restore_account_state(
             #                 reached the password check. Enabling here would
             #                 hand an attacker a way to switch on any account
             #                 that an admin disabled directly in Jellyfin. Leave
-            #                 it alone and correct our own record instead.
+            #                 it alone and correct our own record instead —
+            #                 marked as learned, so a password reset can still
+            #                 tell a lockout from a disable sauron made itself.
             if status == 403 and not user.is_disabled:
                 user.is_disabled = True
+                user.disabled_externally = True
                 db.session.commit()
             return
 

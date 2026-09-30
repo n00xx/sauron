@@ -96,8 +96,10 @@ Jellyfin and Emby only. Anything else answers `valid: false`.
 `LoginAttemptsBeforeLockout = 5`. Jellyfin's lockout has no duration: the
 account stays disabled until something re-enables it. A completed password
 reset does (`app/services/lockout.py`) when Jellyfin has the account disabled
-while sauron's own record says active and unexpired. Disables sauron made itself
-(expiry, the admin's button) are left alone. An account an admin disabled
+while sauron's own record says active and unexpired. A disable this endpoint
+merely *learned* (the 403 stale-column correction above) is marked
+`user.disabled_externally` and still counts as a lockout. Disables sauron made
+itself (expiry, the admin's button) are left alone. An account an admin disabled
 straight from Jellyfin's dashboard looks the same as a lockout, so disable
 through sauron.
 
