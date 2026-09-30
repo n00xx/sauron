@@ -55,6 +55,8 @@ from .models import (
     user_password_reset_response,
     user_update_expiry_request,
     user_update_expiry_response,
+    user_username_reminder_request,
+    user_username_reminder_response,
     user_verify_credentials_request,
     user_verify_credentials_response,
 )
@@ -1013,6 +1015,143 @@ class UserPasswordResetRequestResource(Resource):
             logger.warning(
                 "API: password reset email NOT sent for user %s: code=%s message=%s",
                 user.id,
+                result.error_code,
+                result.error_message,
+            )
+
+        return accepted
+
+
+def _username_reminder_rate_key() -> str:
+    """Rate-limit key for the username reminder: the submitted email.
+
+    Normalised exactly like the lookup (trim + lowercase), so case variants of
+    one address share one allowance instead of each getting their own.
+    """
+    payload = request.get_json(silent=True) or {}
+    email = payload.get("email")
+    if not isinstance(email, str):
+        return "userreminder:__malformed__"
+    return f"userreminder:{email.strip().lower()[:254]}"
+
+
+@users_ns.route("/username-reminder-request")
+class UserUsernameReminderRequestResource(Resource):
+    """Mail someone the usernames registered with their email address.
+
+    The public "olvidé mi usuario" form on the storefront, and the mirror of
+    password-reset-request: that one starts from a username and mails a link,
+    this one starts from an address and mails the names. Read the two together
+    — every rule below has the same reason there.
+
+    ── Enumeration ──────────────────────────────────────────────────────────
+    ALWAYS answers ``200 {"accepted": true}`` for a well-formed address:
+    unknown address, Resend off, Resend rejecting the send — all identical. An
+    address is MORE sensitive to enumerate than a username (it is personal data
+    and reusable elsewhere), so "does this address have an account here?" must
+    stay unanswerable. The real outcome goes to the log and Activity > Resend.
+
+    A malformed body — missing, not a string, not shaped like an address — is a
+    400. The storefront validates before calling, so that is a caller bug, and
+    the shape of a string says nothing about any account.
+
+    ── Who receives it ───────────────────────────────────────────────────────
+    Only ever the address ON FILE, never the one typed. They match
+    case-insensitively, so this is the same mailbox, but sending to the stored
+    spelling means nothing a visitor types is ever used as a recipient.
+
+    Several matches are all listed, unlike the reset endpoint which refuses an
+    ambiguous username. The reset has to pick ONE account to change; this
+    changes nothing, and every name listed already belongs to the recipient.
+
+    ── Timing ───────────────────────────────────────────────────────────────
+    Same as the reset: a hit costs a round trip to Resend, a miss one SELECT.
+    The storefront holds every answer to a fixed floor.
+    """
+
+    # Class-level for the flask-restx reason in UserVerifyCredentialsResource.
+    #
+    # Per-address caps are the anti-abuse control: they stop one inbox from
+    # being flooded. The unkeyed caps are a quota guard, as on the reset — and
+    # deliberately LOWER than the reset's, because the two draw on the same
+    # Resend allowance (100/day on the free tier) and a forgotten username is
+    # the rarer case. Together they can never spend more than the reset alone
+    # could before this existed plus 30.
+    decorators: ClassVar[list] = [
+        limiter.limit(scaled_limit("30 per day")),
+        limiter.limit(scaled_limit("10 per hour")),
+        limiter.limit(scaled_limit("3 per hour"), key_func=_username_reminder_rate_key),
+        limiter.limit(scaled_limit("10 per day"), key_func=_username_reminder_rate_key),
+    ]
+
+    @api.doc("request_username_reminder", security="apikey")
+    @api.expect(user_username_reminder_request)
+    @api.response(200, "Request accepted", user_username_reminder_response)
+    @api.response(400, "Malformed request body", error_model)
+    @api.response(401, "Invalid or missing API key", error_model)
+    @api.response(429, "Too many attempts", error_model)
+    @require_api_key
+    def post(self):
+        """Email the usernames registered with an address to that address."""
+        from app.services.resend_email import send_username_reminder_email
+
+        data = api.payload or {}
+        try:
+            wanted = normalize_bound_email(data.get("email"))
+        except ValueError:
+            return {"error": "email is required and must be a valid address"}, 400
+
+        accepted = {"accepted": True}
+
+        try:
+            # Trimmed in SQL too: addresses imported from a media server have
+            # been seen with surrounding whitespace, same as usernames.
+            matches = (
+                User.query.filter(func.lower(func.trim(User.email)) == wanted)
+                .order_by(User.id)
+                .all()
+            )
+        except Exception as e:
+            logger.error("Error looking up email for username reminder: %s", str(e))
+            logger.error(traceback.format_exc())
+            return accepted
+
+        if not matches:
+            # No address in the message, for the reason the reset keeps names
+            # out of its log: it would be a list of probes, misses included.
+            logger.info("API: username reminder requested for an unknown email")
+            return accepted
+
+        # One entry per distinct name. The same person on two servers shows up
+        # as two rows with one username, and listing it twice reads like a bug.
+        usernames: list[str] = []
+        seen: set[str] = set()
+        for user in matches:
+            name = (user.username or "").strip()
+            if name and name.lower() not in seen:
+                seen.add(name.lower())
+                usernames.append(name)
+
+        first = matches[0]
+
+        try:
+            result = send_username_reminder_email(
+                first.email.strip(), usernames, user_id=first.id
+            )
+        except Exception as e:
+            # The sender contracts never to raise; a 500 here would be the one
+            # response that stands out.
+            logger.error("Error sending username reminder email: %s", str(e))
+            logger.error(traceback.format_exc())
+            return accepted
+
+        ids = [u.id for u in matches]
+        if result.ok:
+            logger.info("API: username reminder sent for user(s) %s", ids)
+        else:
+            logger.warning(
+                "API: username reminder NOT sent for user(s) %s: code=%s message=%s",
+                ids,
                 result.error_code,
                 result.error_message,
             )

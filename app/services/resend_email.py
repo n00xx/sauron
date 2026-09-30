@@ -63,7 +63,15 @@ FREE_TIER_MONTHLY_LIMIT = 3000
 # What the tab lists. S105 is suppressed below because this is a log label
 # naming what the email was for, not a credential.
 KIND_PASSWORD_RESET = "password_reset"  # noqa: S105
+KIND_USERNAME_REMINDER = "username_reminder"
 KIND_TEST = "test"
+
+# Where the username reminder sends someone who ALSO forgot their password. It
+# is the storefront's page, not sauron's: that form is the one with the bot
+# gate and the per-visitor caps in front of password-reset-request. Hardcoded
+# for the same reason moonbase_expiry_notify hardcodes its renewal link — this
+# fork serves exactly one storefront.
+STOREFRONT_FORGOT_PASSWORD_URL = "https://neexy.net/forgot-password"  # noqa: S105
 
 STATUS_SENT = "sent"
 STATUS_FAILED = "failed"
@@ -482,6 +490,87 @@ siendo válida.
     return html, text
 
 
+def _username_reminder_bodies(usernames: list[str]) -> tuple[str, str]:
+    """Return ``(html, text)`` for the "olvidé mi usuario" email.
+
+    Same construction as ``_reset_email_bodies`` and for the same reasons. One
+    address can own several accounts (one per media server, or a second one
+    bought later), so the body lists them all instead of picking one — every
+    name here is already the recipient's own.
+
+    Deliberately NOT included: expiry dates, plan, disabled state. The mailbox
+    is the only proof of ownership this path has, and a username is the least
+    it needs to hand over to be useful.
+    """
+    safe_names = [html_escape.escape(u) for u in usernames]
+    safe_reset_url = html_escape.escape(STOREFRONT_FORGOT_PASSWORD_URL, quote=True)
+
+    # No accented letters, so no HTML entities: it goes into both bodies as-is.
+    intro = (
+        "Este es el nombre de usuario registrado con este correo:"
+        if len(usernames) == 1
+        else "Estos son los nombres de usuario registrados con este correo:"
+    )
+
+    names_html = "".join(
+        f'<p style="margin:0 0 8px;font-size:18px;line-height:1.4;'
+        f"font-weight:600;color:#18181b;font-family:ui-monospace,SFMono-Regular,"
+        f'Menlo,Consolas,monospace;">{name}</p>'
+        for name in safe_names
+    )
+    names_text = "\n".join(f"  {name}" for name in usernames)
+
+    html = f"""\
+<!doctype html>
+<html>
+  <body style="margin:0;padding:24px;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+    <div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:12px;padding:32px;">
+      <h1 style="margin:0 0 16px;font-size:20px;line-height:1.3;color:#18181b;">
+        Tu nombre de usuario
+      </h1>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#3f3f46;">
+        Recibimos una solicitud para recordarte tu usuario de Neexy.
+        {intro}
+      </p>
+      <div style="margin:0 0 24px;padding:16px;background:#f4f4f5;border-radius:8px;">
+        {names_html}
+      </div>
+      <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#3f3f46;">
+        &iquest;Tampoco recuerdas tu contrase&ntilde;a? Pide un enlace para
+        cambiarla:
+      </p>
+      <p style="margin:0 0 24px;">
+        <a href="{safe_reset_url}"
+           style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">
+          Recuperar mi contrase&ntilde;a
+        </a>
+      </p>
+      <p style="margin:0;font-size:13px;line-height:1.6;color:#71717a;">
+        Si no pediste este correo, ign&oacute;ralo: nadie puede entrar a tu
+        cuenta solo con tu nombre de usuario.
+      </p>
+    </div>
+  </body>
+</html>"""
+
+    text = f"""\
+Tu nombre de usuario
+
+Recibimos una solicitud para recordarte tu usuario de Neexy.
+{intro}
+
+{names_text}
+
+¿Tampoco recuerdas tu contraseña? Pide un enlace para cambiarla en:
+
+{STOREFRONT_FORGOT_PASSWORD_URL}
+
+Si no pediste este correo, ignóralo: nadie puede entrar a tu cuenta solo con
+tu nombre de usuario.
+"""
+    return html, text
+
+
 # --------------------------------------------------------------------------
 # Callers
 # --------------------------------------------------------------------------
@@ -556,6 +645,51 @@ def send_password_reset_email(
         text=text,
         kind=KIND_PASSWORD_RESET,
         user_id=user.id,
+    )
+
+
+def send_username_reminder_email(
+    to_address: str,
+    usernames: list[str],
+    *,
+    user_id: int | None = None,
+) -> SendResult:
+    """Email ``to_address`` the usernames registered with it.
+
+    Called by the public "olvidé mi usuario" endpoint AFTER it has matched the
+    address against ``User.email``, so ``to_address`` is always an address on
+    file, never whatever a visitor typed. ``user_id`` only links the log row to
+    an account in Activity > Resend; with several accounts it is the first.
+
+    Unlike a reset there is no token and nothing to burn: sending this twice
+    changes nothing but the recipient's inbox. The endpoint's caps are what
+    bound that.
+    """
+    if not is_enabled():
+        return SendResult(
+            ok=False,
+            error_code="not_enabled",
+            error_message="Resend sending is turned off.",
+        )
+
+    if not usernames:
+        # A caller bug: the endpoint only calls this after a match. Refused
+        # rather than sending an email that lists nothing.
+        return SendResult(
+            ok=False,
+            error_code="no_usernames",
+            error_message="No usernames to send.",
+        )
+
+    html, text = _username_reminder_bodies(usernames)
+
+    return send_email(
+        to_address=to_address,
+        subject="Tu nombre de usuario de Neexy",
+        html=html,
+        text=text,
+        kind=KIND_USERNAME_REMINDER,
+        user_id=user_id,
     )
 
 

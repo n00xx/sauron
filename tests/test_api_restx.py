@@ -1462,3 +1462,287 @@ class TestAPIPasswordResetRequest:
         )
 
         assert response.status_code == 400
+
+
+class TestAPIUsernameReminderRequest:
+    """sauron fork: POST /api/users/username-reminder-request.
+
+    The public "olvidé mi usuario" form. Mirrors password-reset-request: it
+    must reach the sender for a real address and say nothing about which
+    addresses have accounts.
+    """
+
+    ENDPOINT = "/api/users/username-reminder-request"
+
+    def _post(self, client, api_key, email):
+        return client.post(
+            self.ENDPOINT,
+            headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+            data=json.dumps({"email": email}),
+        )
+
+    def _spy(self, monkeypatch, ok=True, error_code=None):
+        """Replace the sender and record what it was asked to send, and where."""
+        from app.services.resend_email import SendResult
+
+        calls = []
+
+        def fake(to_address, usernames, *, user_id=None):
+            calls.append((to_address, list(usernames), user_id))
+            return SendResult(
+                ok=ok,
+                resend_id="re_test" if ok else None,
+                error_code=error_code,
+                error_message=None if ok else "nope",
+            )
+
+        monkeypatch.setattr(
+            "app.services.resend_email.send_username_reminder_email", fake
+        )
+        return calls
+
+    def _add_user(self, app, *, username, email, server_name="Second Jellyfin"):
+        with app.app_context():
+            server = MediaServer.query.filter_by(name=server_name).first()
+            if server is None:
+                server = MediaServer(
+                    name=server_name,
+                    server_type="jellyfin",
+                    url=f"http://{server_name.replace(' ', '').lower()}.local",
+                    api_key="k2",
+                )
+                db.session.add(server)
+                db.session.flush()
+            user = User(
+                token=f"jf-{username}-{server.id}",
+                username=username,
+                email=email,
+                code=f"CODE-{username}-{server.id}",
+                server_id=server.id,
+            )
+            db.session.add(user)
+            db.session.commit()
+            return user.id
+
+    def test_requires_api_key(self, client):
+        response = client.post(
+            self.ENDPOINT,
+            headers={"Content-Type": "application/json"},
+            data=json.dumps({"email": "renew@example.com"}),
+        )
+        assert response.status_code == 401
+
+    def test_known_email_mails_its_username(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        calls = self._spy(monkeypatch)
+
+        response = self._post(client, api_key, "renew@example.com")
+
+        assert response.status_code == 200
+        assert response.get_json() == {"accepted": True}
+        assert calls == [("renew@example.com", ["renewme"], jellyfin_user["user_id"])]
+
+    def test_email_is_matched_case_and_space_insensitively(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """Phones capitalise the first letter; that must not lose the mail."""
+        calls = self._spy(monkeypatch)
+
+        response = self._post(client, api_key, "  Renew@Example.COM ")
+
+        assert response.get_json() == {"accepted": True}
+        assert [c[1] for c in calls] == [["renewme"]]
+
+    def test_mail_goes_to_the_stored_address_not_the_typed_one(
+        self, app, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """Nothing a visitor types is ever used as a recipient."""
+        user_id = self._add_user(
+            app, username="stored1", email="  Stored.Spelling@Example.com "
+        )
+        calls = self._spy(monkeypatch)
+
+        self._post(client, api_key, "stored.spelling@example.com")
+
+        assert calls == [("Stored.Spelling@Example.com", ["stored1"], user_id)]
+
+    def test_unknown_email_is_indistinguishable_from_a_hit(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """The whole point: no "does this address have an account?" oracle."""
+        calls = self._spy(monkeypatch)
+
+        hit = self._post(client, api_key, "renew@example.com")
+        miss = self._post(client, api_key, "nobody@example.com")
+
+        assert hit.status_code == miss.status_code == 200
+        assert hit.get_json() == miss.get_json() == {"accepted": True}
+        assert len(calls) == 1, "nothing may be mailed for an unknown address"
+
+    def test_send_failure_is_indistinguishable_from_success(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        self._spy(monkeypatch, ok=False, error_code="daily_quota_exceeded")
+
+        response = self._post(client, api_key, "renew@example.com")
+
+        assert response.status_code == 200
+        assert response.get_json() == {"accepted": True}
+
+    def test_unconfigured_resend_still_answers_the_same(
+        self, client, api_key, jellyfin_user
+    ):
+        """No spy: the REAL sender runs, with Resend switched off in tests."""
+        response = self._post(client, api_key, "renew@example.com")
+
+        assert response.status_code == 200
+        assert response.get_json() == {"accepted": True}
+
+    def test_every_account_on_the_address_is_listed_once(
+        self, app, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """Unlike the reset, several matches are fine — and a name is not doubled.
+
+        The same person on a second server is a second row with the same
+        username; a different account bought later on the same address is a
+        different name. Both belong to the recipient.
+        """
+        self._add_user(app, username="renewme", email="renew@example.com")
+        self._add_user(app, username="segundacuenta", email="RENEW@example.com")
+        calls = self._spy(monkeypatch)
+
+        self._post(client, api_key, "renew@example.com")
+
+        assert len(calls) == 1
+        assert calls[0][1] == ["renewme", "segundacuenta"]
+        assert calls[0][2] == jellyfin_user["user_id"]
+
+    @pytest.mark.parametrize(
+        "payload",
+        [{}, {"email": None}, {"email": "   "}, {"email": "not-an-address"}],
+    )
+    def test_malformed_body_is_a_400(self, client, api_key, payload):
+        """A caller bug, safe to report — a string's shape names no account."""
+        response = client.post(
+            self.ENDPOINT,
+            headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+            data=json.dumps(payload),
+        )
+
+        assert response.status_code == 400
+
+    def test_one_address_is_capped_at_three_an_hour(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """conftest turns limiting off; this proves the caps are really wired.
+
+        Case variants of one address must share the bucket, or the cap would
+        be trivially sidestepped.
+        """
+        from app.extensions import limiter
+
+        self._spy(monkeypatch)
+        limiter.enabled = True
+        try:
+            limiter.reset()
+            codes = [
+                self._post(client, api_key, email).status_code
+                for email in (
+                    "renew@example.com",
+                    "RENEW@example.com",
+                    " renew@example.com",
+                    "Renew@Example.com",
+                )
+            ]
+        finally:
+            limiter.reset()
+            limiter.enabled = False
+
+        assert codes[:3] == [200, 200, 200], codes
+        assert codes[3] == 429, f"4th attempt was not rate limited: {codes}"
+
+
+class TestUsernameReminderEmail:
+    """The sender and the bodies behind the username reminder."""
+
+    def test_names_are_escaped_in_html_and_verbatim_in_text(self):
+        from app.services.resend_email import _username_reminder_bodies
+
+        html, text = _username_reminder_bodies(["<b>x</b>"])
+
+        assert "&lt;b&gt;x&lt;/b&gt;" in html
+        assert "<b>x</b>" not in html
+        assert "<b>x</b>" in text
+
+    def test_one_name_reads_singular_and_several_plural(self):
+        from app.services.resend_email import _username_reminder_bodies
+
+        one_html, one_text = _username_reminder_bodies(["solo1234"])
+        many_html, many_text = _username_reminder_bodies(["uno12345", "dos12345"])
+
+        assert "Este es el nombre de usuario" in one_text
+        assert "Este es el nombre de usuario" in one_html
+        assert "Estos son los nombres de usuario" in many_text
+        assert "uno12345" in many_html and "dos12345" in many_html
+        assert "uno12345" in many_text and "dos12345" in many_text
+
+    def test_both_bodies_point_to_the_storefront_reset_form(self):
+        from app.services.resend_email import (
+            STOREFRONT_FORGOT_PASSWORD_URL,
+            _username_reminder_bodies,
+        )
+
+        html, text = _username_reminder_bodies(["solo1234"])
+
+        assert f'href="{STOREFRONT_FORGOT_PASSWORD_URL}"' in html
+        assert STOREFRONT_FORGOT_PASSWORD_URL in text
+
+    def test_disabled_resend_sends_nothing(self, app, monkeypatch):
+        from app.services import resend_email
+
+        def boom(*_a, **_k):
+            raise AssertionError("must not reach Resend while sending is off")
+
+        monkeypatch.setattr(resend_email, "send_email", boom)
+        monkeypatch.setattr(resend_email, "is_enabled", lambda: False)
+
+        result = resend_email.send_username_reminder_email("a@example.com", ["x"])
+
+        assert result.ok is False
+        assert result.error_code == "not_enabled"
+
+    def test_no_names_sends_nothing(self, app, monkeypatch):
+        from app.services import resend_email
+
+        def boom(*_a, **_k):
+            raise AssertionError("an email listing nothing must not be sent")
+
+        monkeypatch.setattr(resend_email, "send_email", boom)
+        monkeypatch.setattr(resend_email, "is_enabled", lambda: True)
+
+        result = resend_email.send_username_reminder_email("a@example.com", [])
+
+        assert result.error_code == "no_usernames"
+
+    def test_enabled_resend_sends_with_the_reminder_kind(self, app, monkeypatch):
+        from app.services import resend_email
+
+        sent = {}
+
+        def fake_send(**kwargs):
+            sent.update(kwargs)
+            return resend_email.SendResult(ok=True, resend_id="re_1")
+
+        monkeypatch.setattr(resend_email, "send_email", fake_send)
+        monkeypatch.setattr(resend_email, "is_enabled", lambda: True)
+
+        result = resend_email.send_username_reminder_email(
+            "a@example.com", ["solo1234"], user_id=7
+        )
+
+        assert result.ok is True
+        assert sent["to_address"] == "a@example.com"
+        assert sent["kind"] == resend_email.KIND_USERNAME_REMINDER
+        assert sent["user_id"] == 7
+        assert "solo1234" in sent["text"]

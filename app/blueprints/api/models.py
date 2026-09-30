@@ -148,6 +148,31 @@ user_password_reset_response = api.model(
     },
 )
 
+user_username_reminder_request = api.model(
+    "UserUsernameReminderRequest",
+    {
+        "email": fields.String(
+            required=True,
+            description=(
+                "Email on file for the media account(s); matched case-insensitively"
+            ),
+        ),
+    },
+)
+
+user_username_reminder_response = api.model(
+    "UserUsernameReminderResponse",
+    {
+        "accepted": fields.Boolean(
+            description=(
+                "Always true. Says the request was received, NOT that an email "
+                "was sent — reporting that would leak which addresses have "
+                "accounts."
+            )
+        ),
+    },
+)
+
 user_max_sessions_request = api.model(
     "UserMaxSessionsRequest",
     {

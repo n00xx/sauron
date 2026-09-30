@@ -266,6 +266,7 @@
                 class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
           <option value="">{{ _("All types") }}</option>
           <option value="password_reset" {% if filters.kind == 'password_reset' %}selected{% endif %}>{{ _("Password reset") }}</option>
+          <option value="username_reminder" {% if filters.kind == 'username_reminder' %}selected{% endif %}>{{ _("Username reminder") }}</option>
           <option value="test" {% if filters.kind == 'test' %}selected{% endif %}>{{ _("Test") }}</option>
         </select>
       </div>
