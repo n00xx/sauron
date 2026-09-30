@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.12] (2026-09-29)
+
+### Added
+
+- **"Olvide mi usuario": la tienda puede mandar el usuario al correo de la cuenta.**
+
+  `POST /api/users/username-reminder-request` recibe `{"email": ...}`, busca
+  las cuentas con ese correo (sin distinguir mayusculas ni espacios, solo en la
+  base, sin tocar Jellyfin) y manda por Resend la lista de usuarios a la
+  direccion guardada, nunca a la que se escribio. Hasta ahora quien olvidaba su
+  usuario no tenia salida: el reseteo de contrasena empieza justo por el
+  usuario, y `GET /api/users?email=` no sirve para un formulario publico porque
+  consulta Jellyfin completo en cada llamada y compara mayusculas.
+
+  Igual que el reseteo, siempre contesta `200 {"accepted": true}` (un cuerpo
+  mal formado es 400), asi no dice que correos tienen cuenta. Topes: 3 por hora
+  y 10 por dia por correo, y 10 por hora y 30 por dia en total, por debajo de
+  los del reseteo porque los dos gastan la misma cuota de Resend. Los envios
+  salen en Actividad > Resend como "Username reminder".
+
 ## [2026.10.11] (2026-09-29)
 
 ### Added
