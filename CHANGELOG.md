@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.13] (2026-09-29)
+
+### Fixed
+
+- **"Olvide mi usuario": peticiones basura ya no apagan el recordatorio.**
+
+  Los topes del endpoint envuelven todo el recurso, asi que corrian antes de
+  revisar la API key y el cuerpo: cualquiera que llegara a sauron podia gastar
+  los 10 por hora globales con peticiones sin key y dejar el recordatorio sin
+  cupo para todos. Ahora solo descuenta una peticion aceptada (200).
+
+- **El recordatorio ya no puede escribir el correo en el log.** Si falla la
+  base, el texto de un error de SQLAlchemy trae los parametros de la consulta
+  (el correo escrito); se registra solo el nombre del error. Si Resend rechaza
+  el envio se registra solo el codigo, porque su mensaje puede repetir el
+  destinatario.
+
 ## [2026.10.12] (2026-09-29)
 
 ### Added
