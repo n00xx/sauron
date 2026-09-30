@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.18] (2026-09-30)
+
+### Changed
+
+- **Las cuentas nuevas vuelven a no bloquearse por contrasenas incorrectas.**
+
+  El alta fija `LoginAttemptsBeforeLockout = -1` (sin bloqueo) en vez de 5.
+  Correccion de 2026.10.15: ahi se dijo que el servidor "daba 3" y era falso.
+  Medido en tv.neexy.net: las cuentas creadas antes de 2026.10.15 tienen -1 y
+  aguantaron 10 contrasenas incorrectas; una creada con 5 se bloqueo al quinto
+  intento. Asi que 2026.10.15 no subio un limite, creo uno que no existia. Se
+  escribe -1 de forma explicita para que un cambio en el valor por defecto del
+  servidor no empiece a bloquear clientes.
+
+  Las cuentas creadas con 2026.10.15 a 2026.10.17 conservan el 5; se cambia a
+  mano en el perfil del usuario en Jellyfin, poniendo en -1 el campo de intentos
+  fallidos antes del bloqueo. Si alguna se bloquea, "Recuperar contrasena" la
+  desbloquea (2026.10.16/17).
+
 ## [2026.10.17] (2026-09-30)
 
 ### Fixed
