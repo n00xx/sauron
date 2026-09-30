@@ -20,11 +20,12 @@ if TYPE_CHECKING:
 
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,7}$")
 
-# Wrong passwords a new account tolerates before Jellyfin disables it. Set on
-# every account the join creates rather than left to the server, which gave
-# customers three — quickly spent typing a password with a TV remote, and a
-# disabled account only comes back when an admin re-enables it.
-LOGIN_ATTEMPTS_BEFORE_LOCKOUT = 5
+# Wrong passwords a new account tolerates before Jellyfin disables it; -1 means
+# never. Measured on tv.neexy.net (Jellyfin 12.1): -1 took ten wrong passwords
+# without locking, 5 locked on the fifth. A lockout has no duration and a
+# customer typing on a TV remote hits it easily, so it stays off. Written
+# explicitly so a changed server default cannot start locking people out.
+LOGIN_ATTEMPTS_BEFORE_LOCKOUT = -1
 
 # ── Home screen sections (User → Settings → Home) ────────────────────────────
 # Jellyfin keeps the Home screen layout in DisplayPreferences, not in the user

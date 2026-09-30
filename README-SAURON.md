@@ -93,8 +93,11 @@ Two Jellyfin behaviours this has to work around, both read from
 Jellyfin and Emby only. Anything else answers `valid: false`.
 
 **Lockouts outside this endpoint.** Accounts created through the join get
-`LoginAttemptsBeforeLockout = 5`. Jellyfin's lockout has no duration: the
-account stays disabled until something re-enables it. A completed password
+`LoginAttemptsBeforeLockout = -1`, which switches the lockout off (measured on
+tv.neexy.net: -1 took ten wrong passwords, 5 locked on the fifth). Accounts
+created with 2026.10.15–2026.10.17 got 5, and an admin can still set a
+threshold by hand. Jellyfin's lockout has no duration: the account stays
+disabled until something re-enables it. A completed password
 reset does (`app/services/lockout.py`) when Jellyfin has the account disabled
 while sauron's own record says active and unexpired. A disable this endpoint
 merely *learned* (the 403 stale-column correction above) is marked

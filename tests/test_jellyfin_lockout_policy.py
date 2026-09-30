@@ -1,10 +1,14 @@
-"""A new Jellyfin account tolerates five wrong passwords before it locks.
+"""A new Jellyfin account never locks itself out over wrong passwords.
 
 Jellyfin disables an account once ``InvalidLoginAttemptCount`` reaches the
-policy's ``LoginAttemptsBeforeLockout``. Sauron used to leave that to the
-server, which gave customers three tries — spent quickly when typing a password
-on a TV remote, after which the account is disabled and only an admin can bring
-it back. The join sets the threshold explicitly.
+policy's ``LoginAttemptsBeforeLockout``; ``-1`` switches that off. Measured on
+tv.neexy.net (Jellyfin 12.1): every account sauron created before 2026.10.15
+carried ``-1`` and took ten wrong passwords without locking, and one created with
+``5`` locked on the fifth. 2026.10.15 set ``5`` on the belief that the server gave
+three; it gave none, so that change introduced lockouts rather than easing them.
+
+The join writes ``-1`` explicitly rather than leaving it to the server, so a
+changed server default cannot quietly start locking customers out of their TV.
 """
 
 from app.extensions import db
@@ -66,18 +70,18 @@ def _join(session, current_policy):
     return jf.policy_updates[0][1]
 
 
-def test_the_threshold_is_five():
-    assert LOGIN_ATTEMPTS_BEFORE_LOCKOUT == 5
+def test_lockout_is_switched_off():
+    assert LOGIN_ATTEMPTS_BEFORE_LOCKOUT == -1
 
 
-def test_do_join_sets_the_lockout_threshold(client, session):
+def test_do_join_switches_the_lockout_off(client, session):
     policy = _join(session, current_policy={})
 
-    assert policy["LoginAttemptsBeforeLockout"] == 5
+    assert policy["LoginAttemptsBeforeLockout"] == -1
 
 
 def test_do_join_overrides_whatever_jellyfin_handed_back(client, session):
-    """The value the fresh account came with must not survive the read-modify-write."""
-    policy = _join(session, current_policy={"LoginAttemptsBeforeLockout": 3})
+    """Whatever the fresh account came with must not survive the read-modify-write."""
+    policy = _join(session, current_policy={"LoginAttemptsBeforeLockout": 5})
 
-    assert policy["LoginAttemptsBeforeLockout"] == 5
+    assert policy["LoginAttemptsBeforeLockout"] == -1
