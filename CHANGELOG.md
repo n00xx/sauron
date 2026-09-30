@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.17] (2026-09-30)
+
+### Fixed
+
+- **Intentar renovar antes de recuperar ya no deja la cuenta bloqueada.**
+
+  Si una cuenta bloqueada por intentos probaba "Validar cuenta" en la pagina
+  de renovacion, Jellyfin respondia 403 y sauron la anotaba como
+  deshabilitada. A partir de ahi "Recuperar contrasena" la confundia con una
+  cuenta que sauron deshabilito a proposito y no la desbloqueaba.
+
+  Ahora esa anotacion queda marcada como aprendida (`user.disabled_externally`,
+  columna nueva con migracion aditiva) y el reseteo la sigue tratando como
+  bloqueo: reactiva la cuenta y la deja otra vez activa para sauron, asi el
+  barrido de vencimientos la procesa cuando le toque. Cualquier activacion o
+  desactivacion que haga sauron (renovacion, vencimiento, boton del admin)
+  borra la marca. El reseteo usa el mismo candado por cuenta que "Validar
+  cuenta", para no leer el estado a mitad de una validacion.
+
 ## [2026.10.16] (2026-09-30)
 
 ### Fixed
