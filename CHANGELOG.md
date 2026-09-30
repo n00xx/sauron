@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.16] (2026-09-30)
+
+### Fixed
+
+- **"Recuperar contrasena" desbloquea una cuenta bloqueada por intentos.**
+
+  El bloqueo de Jellyfin no tiene duracion: al llegar al limite de
+  contrasenas incorrectas deshabilita la cuenta y ahi se queda hasta que
+  alguien la reactive. El reseteo cambiaba la contrasena pero la cuenta seguia
+  sin poder entrar. Ahora, al completar el reseteo, sauron la reactiva si
+  Jellyfin la tiene deshabilitada y el registro de sauron dice que esta
+  activa y vigente. El siguiente inicio de sesion con la contrasena nueva
+  pone en cero el contador de fallos de Jellyfin.
+
+  No reactiva lo que sauron deshabilito a proposito (vencimiento o el boton
+  del admin), ni una cuenta vencida que el barrido aun no proceso. Una cuenta
+  deshabilitada a mano desde el panel de Jellyfin se ve igual que un bloqueo,
+  asi que conviene deshabilitar desde sauron. Si falla la reactivacion, el
+  reseteo sigue contando como exitoso y queda en el log.
+
 ## [2026.10.15] (2026-09-30)
 
 ### Added
