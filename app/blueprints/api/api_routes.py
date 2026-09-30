@@ -1035,6 +1035,11 @@ def _username_reminder_rate_key() -> str:
     return f"userreminder:{email.strip().lower()[:254]}"
 
 
+def _accepted(response) -> bool:
+    """Limiter ``deduct_when``: charge only requests that were accepted."""
+    return response.status_code == 200
+
+
 @users_ns.route("/username-reminder-request")
 class UserUsernameReminderRequestResource(Resource):
     """Mail someone the usernames registered with their email address.
@@ -1077,11 +1082,25 @@ class UserUsernameReminderRequestResource(Resource):
     # Resend allowance (100/day on the free tier) and a forgotten username is
     # the rarer case. Together they can never spend more than the reset alone
     # could before this existed plus 30.
+    #
+    # `deduct_when`: only an ACCEPTED request (200) spends allowance. These
+    # decorators wrap the whole resource, so they run before require_api_key
+    # and before the body check — without it, anyone who can reach this host
+    # could burn the global 10/hour with key-less junk and quietly switch the
+    # feature off for everyone (security review, 2026-09-29).
     decorators: ClassVar[list] = [
-        limiter.limit(scaled_limit("30 per day")),
-        limiter.limit(scaled_limit("10 per hour")),
-        limiter.limit(scaled_limit("3 per hour"), key_func=_username_reminder_rate_key),
-        limiter.limit(scaled_limit("10 per day"), key_func=_username_reminder_rate_key),
+        limiter.limit(scaled_limit("30 per day"), deduct_when=_accepted),
+        limiter.limit(scaled_limit("10 per hour"), deduct_when=_accepted),
+        limiter.limit(
+            scaled_limit("3 per hour"),
+            key_func=_username_reminder_rate_key,
+            deduct_when=_accepted,
+        ),
+        limiter.limit(
+            scaled_limit("10 per day"),
+            key_func=_username_reminder_rate_key,
+            deduct_when=_accepted,
+        ),
     ]
 
     @api.doc("request_username_reminder", security="apikey")
@@ -1112,8 +1131,11 @@ class UserUsernameReminderRequestResource(Resource):
                 .all()
             )
         except Exception as e:
-            logger.error("Error looking up email for username reminder: %s", str(e))
-            logger.error(traceback.format_exc())
+            # Exception NAME only: a SQLAlchemy error's text includes the bound
+            # parameters — the typed address — and so would its traceback.
+            logger.error(
+                "Error looking up email for username reminder: %s", type(e).__name__
+            )
             return accepted
 
         if not matches:
@@ -1140,20 +1162,20 @@ class UserUsernameReminderRequestResource(Resource):
             )
         except Exception as e:
             # The sender contracts never to raise; a 500 here would be the one
-            # response that stands out.
-            logger.error("Error sending username reminder email: %s", str(e))
-            logger.error(traceback.format_exc())
+            # response that stands out. Name only, as in the lookup above.
+            logger.error("Error sending username reminder email: %s", type(e).__name__)
             return accepted
 
         ids = [u.id for u in matches]
         if result.ok:
             logger.info("API: username reminder sent for user(s) %s", ids)
         else:
+            # Code only: Resend's message can echo the recipient. The full
+            # detail is in Activity > Resend, which is where addresses belong.
             logger.warning(
-                "API: username reminder NOT sent for user(s) %s: code=%s message=%s",
+                "API: username reminder NOT sent for user(s) %s: code=%s",
                 ids,
                 result.error_code,
-                result.error_message,
             )
 
         return accepted

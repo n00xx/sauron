@@ -1662,6 +1662,73 @@ class TestAPIUsernameReminderRequest:
         assert codes[:3] == [200, 200, 200], codes
         assert codes[3] == 429, f"4th attempt was not rate limited: {codes}"
 
+    def test_keyless_and_malformed_requests_spend_no_allowance(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """Junk must not be able to switch the feature off for everyone.
+
+        The limiter wraps the resource, so it runs before the key and body
+        checks; only accepted (200) requests may be charged.
+        """
+        from app.extensions import limiter
+
+        calls = self._spy(monkeypatch)
+        limiter.enabled = True
+        try:
+            limiter.reset()
+            junk = [
+                client.post(
+                    self.ENDPOINT,
+                    headers={"Content-Type": "application/json"},
+                    data=json.dumps({"email": "renew@example.com"}),
+                ).status_code
+                for _ in range(12)
+            ] + [
+                self._post(client, api_key, "not-an-address").status_code
+                for _ in range(12)
+            ]
+            real = self._post(client, api_key, "renew@example.com").status_code
+        finally:
+            limiter.reset()
+            limiter.enabled = False
+
+        assert set(junk) == {400, 401}, junk
+        assert real == 200
+        assert len(calls) == 1
+
+    def test_global_hourly_cap_holds_across_addresses(
+        self, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """The quota guard: 10 an hour in total, whoever they are for."""
+        from app.extensions import limiter
+
+        self._spy(monkeypatch)
+        limiter.enabled = True
+        try:
+            limiter.reset()
+            codes = [
+                self._post(client, api_key, f"persona{i}@example.com").status_code
+                for i in range(11)
+            ]
+        finally:
+            limiter.reset()
+            limiter.enabled = False
+
+        assert codes[:10] == [200] * 10, codes
+        assert codes[10] == 429, codes
+
+    def test_account_without_an_email_is_never_matched(
+        self, app, client, api_key, jellyfin_user, monkeypatch
+    ):
+        """Legacy rows have NULL email; they must neither match nor crash."""
+        self._add_user(app, username="sincorreo", email=None)
+        calls = self._spy(monkeypatch)
+
+        response = self._post(client, api_key, "renew@example.com")
+
+        assert response.status_code == 200
+        assert calls[0][1] == ["renewme"]
+
 
 class TestUsernameReminderEmail:
     """The sender and the bodies behind the username reminder."""
