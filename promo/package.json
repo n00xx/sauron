@@ -7,8 +7,10 @@
   "scripts": {
     "studio": "remotion studio src/index.ts",
     "voiceover": "npx --yes tsx --env-file=.env generate-voiceover.ts",
-    "durations": "for f in public/voiceover/*.mp3; do printf '%s: %ss\\n' \"$(basename $f)\" \"$(ffprobe -v error -show_entries format=duration -of csv=p=0 $f)\"; done",
-    "render": "remotion render src/index.ts WizardVideo out/neexy-wizard.mp4 --codec h264 --quality 85"
+    "durations": "for f in public/voiceover/*.mp3 public/voiceover/antes/*.mp3; do printf '%s: %ss\\n' \"$(basename $f)\" \"$(ffprobe -v error -show_entries format=duration -of csv=p=0 $f)\"; done",
+    "render": "remotion render src/index.ts WizardVideo out/neexy-wizard.mp4 --codec h264 --quality 85",
+    "render:antes": "remotion render src/index.ts AntesDeEmpezar out/neexy-antes-de-empezar.mp4 --codec h264 --quality 85",
+    "poster:antes": "remotion still src/index.ts AntesDeEmpezar out/neexy-antes-de-empezar-poster.jpg --frame=250 --image-format=jpeg --jpeg-quality=85"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.438",

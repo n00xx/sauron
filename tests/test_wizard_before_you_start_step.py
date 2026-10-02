@@ -15,15 +15,11 @@ flag records that the backfill already ran, and after that the step is the
 admin's to edit or delete.
 """
 
-import re
-from pathlib import Path
-
 import frontmatter
 
 from app.extensions import db
 from app.models import Settings, WizardStep
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 TITLE = "Algunas cosas que debes saber antes de empezar"
 
 
@@ -243,47 +239,8 @@ def test_bundled_step_carries_the_marker_and_the_title():
     assert post["title"] == TITLE
 
 
-def test_bundled_step_covers_renewal_recovery_and_signing_out():
-    content = _bundled().content
-
-    assert "https://neexy.net/pay?renovar=1" in content
-    assert "**Validar cuenta**" in content
-    assert "**Recuperar**" in content
-    assert "**Sign Out**" in content
-    assert "No te preocupes" in content
-
-
-def test_every_screenshot_the_step_points_at_ships_with_the_app():
-    content = _bundled().content
-    # Each one appears twice: as the image and as the link to its full size.
-    names = set(re.findall(r"filename='(img/wizard/[^']+)'", content))
-
-    assert len(names) == 6
-    for name in names:
-        path = REPO_ROOT / "app" / "static" / name
-        assert path.exists(), f"{name} is missing"
-        assert path.stat().st_size > 0
-
-
-def test_step_renders_to_html_with_working_image_urls(app):
-    """Jinja runs before markdown: a typo in url_for would surface here as the
-    generic "could not be loaded" box instead of the step."""
-    from app.blueprints.wizard.routes import _render
-
-    with app.test_request_context():
-        html = _render(_bundled(), {}, server_type="jellyfin")
-
-    assert "Error Loading Step" not in html
-    assert "Algunas cosas que debes saber antes de empezar" in html
-    srcs = re.findall(r'<img[^>]*src="([^"]+)"', html)
-    assert len(srcs) == 6
-    assert all(src.startswith("/static/img/wizard/") for src in srcs)
-    assert "{{" not in html
-    assert 'href="https://neexy.net/pay?renovar=1"' in html
-    # Every screenshot says what it shows and reserves its space.
-    for tag in re.findall(r"<img[^>]*>", html):
-        assert re.search(r'alt="[^"]{10,}"', tag)
-        assert 'width="' in tag and 'height="' in tag
+# What the page says, and the files it points at, live in
+# test_wizard_before_you_start_video.py since the text became a video.
 
 
 def test_step_does_not_mention_settings():

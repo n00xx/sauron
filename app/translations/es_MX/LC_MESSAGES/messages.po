@@ -158,9 +158,9 @@ msgstr "Abre el enlace de este paso para poder continuar"
 msgid "Setup complete! Welcome to your media server."
 msgstr "¡Todo listo! Bienvenido a tu servidor multimedia."
 
-# ─── Step 1: the video ──────────────────────────────────────────────────────
+# ─── Step 2: the install video (step 1 is "antes de empezar", also a video) ─
 msgid "Watch this first"
-msgstr "Ve esto primero"
+msgstr "Ahora, instala la app"
 
 msgid "Everything in 90 seconds"
 msgstr "Todo en 90 segundos"

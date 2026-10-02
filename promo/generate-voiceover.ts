@@ -1,4 +1,5 @@
 import { writeFileSync, mkdirSync, existsSync } from "fs";
+import { dirname } from "path";
 
 const API_KEY = process.env.ELEVENLABS_API_KEY;
 if (!API_KEY) {
@@ -47,17 +48,39 @@ const scenes = [
     id: "08-cierre",
     text: "¿Te quedó alguna duda? Entra a neexy punto net, barra blog, en la sección de Guías, donde encontrarás más tutoriales. Ya con esto estás listo. Solo falta que prepares las palomitas para comenzar a disfrutar.",
   },
+
+  // Video corto del primer paso del wizard ("Algunas cosas que debes saber
+  // antes de empezar"). Va en su propia carpeta para no mezclarse con el de arriba.
+  // La direccion de renovacion no se dice: lleva un ?renovar=1 que al oido no se
+  // entiende, y el paso del wizard la deja como enlace debajo del video.
+  {
+    id: "antes/01-intro",
+    text: "Antes de empezar, tres cosas que te van a servir más adelante: cómo renovar, cómo recuperar tu acceso, y cómo cambiar de dispositivo.",
+  },
+  {
+    id: "antes/02-renovar",
+    text: "Para renovar, entra al enlace de renovación que está debajo de este video. Escribe tu usuario y tu contraseña, y toca Validar cuenta. Luego elige la duración y el plan, y paga tu suscripción.",
+  },
+  {
+    id: "antes/03-recuperar",
+    text: "¿Olvidaste tu usuario o tu contraseña? En neexy punto net, toca Recuperar en el menú de arriba, elige qué necesitas, y te lo enviamos a tu correo.",
+  },
+  {
+    id: "antes/04-dispositivos",
+    text: "Tu plan incluye cierto número de dispositivos. Si ya los usas todos y quieres ver Neexy en otro, primero cierra sesión en el que ya no vas a usar: toca tu inicial, arriba a la izquierda, y luego Sign Out.",
+  },
+  {
+    id: "antes/05-cierre",
+    text: "Eso es todo. Ahora sí, vamos a instalar la app.",
+  },
 ];
 
 const outputDir = "public/voiceover";
 
 async function generateVoiceover() {
-  if (!existsSync(outputDir)) {
-    mkdirSync(outputDir, { recursive: true });
-  }
-
   for (const scene of scenes) {
     const filePath = `${outputDir}/${scene.id}.mp3`;
+    mkdirSync(dirname(filePath), { recursive: true });
 
     // Solo se regenera lo que falta: cada llamada consume creditos de ElevenLabs.
     // Para rehacer una pista, borra su MP3 y vuelve a correr el script.

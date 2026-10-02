@@ -1,9 +1,17 @@
-# Video del wizard de Neexy
+# Videos del wizard de Neexy
 
-Video tutorial que reemplaza el texto de los pasos del wizard de onboarding
-(el que ve el usuario después de crear su usuario y contraseña).
+Dos videos tutoriales que reemplazan el texto de los pasos del wizard de
+onboarding (el que ve el usuario después de crear su usuario y contraseña):
 
-- **Salida**: `out/neexy-wizard.mp4` — 1920x1080, 30 fps, 101 s, H.264 + AAC
+| Composición | Paso del wizard | Salida | Duración |
+|---|---|---|---|
+| `AntesDeEmpezar` | 1 · "Algunas cosas que debes saber antes de empezar" | `out/neexy-antes-de-empezar.mp4` | 54.5 s |
+| `WizardVideo` | 2 · "Ahora, instala la app" | `out/neexy-wizard.mp4` | 101 s |
+
+Este README describe sobre todo `WizardVideo`; `AntesDeEmpezar` tiene su
+sección al final.
+
+- **Formato**: 1920x1080, 30 fps, H.264 + AAC
 - **Hecho con**: [Remotion](https://remotion.dev) 4.x + React 19 + TypeScript
 - **Voz**: ElevenLabs (`eleven_v3`, voz Bella `hpp4J3VqNfWAUOO0d1Us`), español
 
@@ -18,10 +26,15 @@ Video tutorial que reemplaza el texto de los pasos del wizard de onboarding
 ```bash
 npm install
 npm run studio      # preview interactivo en el navegador
-npm run voiceover   # regenera los 8 MP3 con ElevenLabs (consume créditos)
+npm run voiceover   # genera los MP3 que falten con ElevenLabs (consume créditos)
 npm run durations   # mide los MP3 con ffprobe
 npm run render      # renderiza out/neexy-wizard.mp4
+npm run render:antes   # renderiza out/neexy-antes-de-empezar.mp4
+npm run poster:antes   # su portada (frame 250, las tres tarjetas encendidas)
 ```
+
+Los MP4 que sirve la app son copias en `app/static/video/`: `out/` está
+ignorado por git, así que después de renderizar hay que copiarlos ahí.
 
 ## Estructura
 
@@ -123,3 +136,33 @@ Fonts sirve .woff).
 > **Nota:** en las tres el logotipo de la app sigue siendo el triángulo de
 > Jellyfin (solo se cambió el texto). Si Moonfin tiene un logo propio, hay que
 > regenerar las capturas.
+
+## Video del primer paso: `AntesDeEmpezar`
+
+Reemplaza el texto con seis capturas de "Algunas cosas que debes saber antes de
+empezar" (`wizard_steps/jellyfin/00_before_you_start.md`). Las capturas son las
+mismas que usaba ese texto, copiadas de `app/static/img/wizard/` a
+`public/img/antes/`, y la voz está en `public/voiceover/antes/`.
+
+| # | Escena | Duración | Contenido |
+|---|--------|----------|-----------|
+| 1 | Intro | 10 s | Tres tarjetas: renovar, recuperar, cambiar de dispositivo |
+| 2 | Renovar | 14.5 s | Enlace debajo del video → usuario y contraseña → Validar cuenta → plan |
+| 3 | Recuperar | 11 s | `neexy.net` → Recuperar → usuario o contraseña → correo |
+| 4 | Otro dispositivo | 15.5 s | Lugares del plan; cerrar sesión en la tele para entrar en el celular |
+| 5 | Listo | 5.5 s | Puente al siguiente paso, el video de instalación |
+
+Las escenas 2 a 4 comparten `scenes/antes/StepsScene.tsx`: pasos a la izquierda
+(`components/StepList.tsx`) y capturas a la derecha que se suceden con un
+fundido (`components/Shots.tsx`). Cada paso y cada captura entra en un frame
+medido sobre su pista con `silencedetect`; el comando y los tiempos están en el
+comentario de cada escena. Si cambia una pista, hay que volver a medirla.
+
+La voz no dice la dirección de renovación: lleva un `?renovar=1` que al oído no
+se entiende. Dice "el enlace que está debajo de este video", y el paso del
+wizard lo pone como enlace debajo del reproductor.
+
+En instalaciones que ya tenían el texto, `ensure_before_you_start_video()`
+(`app/services/wizard_seed.py`) lo cambia por el video una sola vez, y solo si el
+texto sigue idéntico al que se publicó; si el admin lo editó, lo deja y lo
+avisa en el log.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import frontmatter
@@ -175,6 +176,27 @@ BEFORE_YOU_START_MARKER = "sauron:before-you-start"
 BEFORE_YOU_START_SOURCE = BASE_DIR / "jellyfin" / "00_before_you_start.md"
 BEFORE_YOU_START_FLAG = "wizard_before_you_start_seeded"
 
+# The text-and-screenshots version of that page, as shipped in 2026.10.18 and
+# fingerprinted with _normalised_sha256. Since then the bundled file is a short
+# video; a live row is swapped for it only while it still matches this, because
+# anything else is an admin's edit. The original is kept in
+# tests/fixtures/wizard_before_you_start_2026_10_18.md and a test pins the two.
+BEFORE_YOU_START_TEXT_SHA256 = (
+    "020e7839bba4fab29f2bcef65188961c278a6163032f525d23756ec174f00ca7"
+)
+BEFORE_YOU_START_VIDEO_FLAG = "wizard_before_you_start_video_seeded"
+
+
+def _normalised_sha256(text: str) -> str:
+    """Fingerprint *text* ignoring line endings and trailing whitespace.
+
+    Saving a step from the admin's textarea sends it back with CRLF line endings.
+    That is not an edit, and comparing raw bytes would quietly skip the backfill.
+    """
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    normalised = "\n".join(line.rstrip() for line in lines).strip()
+    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
+
 
 def ensure_quick_connect_step() -> None:
     """Add the Jellyfin device-setup step to installations that predate it.
@@ -268,8 +290,14 @@ def ensure_video_step() -> None:
     if not existing:
         return
 
-    # Marker check spans every category: an admin may have moved the step.
-    if any(VIDEO_MARKER in (row.markdown or "") for row in existing):
+    # Marker check spans every category: an admin may have moved the step. The
+    # "before you start" page embeds a video of its own since 2026.10.20, so the
+    # widget alone no longer identifies this step.
+    if any(
+        VIDEO_MARKER in (row.markdown or "")
+        and BEFORE_YOU_START_MARKER not in (row.markdown or "")
+        for row in existing
+    ):
         return
 
     meta = _parse_markdown(VIDEO_SOURCE)
@@ -353,6 +381,59 @@ def ensure_before_you_start_step() -> None:
         current_app.logger.info("Added the Jellyfin 'before you start' wizard step")
 
     db.session.add(Settings(key=BEFORE_YOU_START_FLAG, value="1"))
+    db.session.commit()
+
+
+def ensure_before_you_start_video() -> None:
+    """Swap the text "before you start" page for its video, once.
+
+    The page shipped in 2026.10.18 as text with six screenshots; the bundled file
+    is now a ~55 s video with the two links underneath that a video cannot make
+    clickable. Fresh installs read that file from disk. Live installs hold the
+    old text in the database and the seeder never edits a row, so this replaces
+    it — but only while the row is still exactly what shipped. An admin who
+    reworded it keeps their version, and the log says so.
+
+    Runs once, recorded by its own flag, so pasting the old text back later is
+    not undone at the next restart. Position and title are left alone.
+    """
+    inspector = inspect(db.engine)
+    if not inspector.has_table(WizardStep.__tablename__):
+        return
+
+    if not BEFORE_YOU_START_SOURCE.exists():
+        return
+
+    if Settings.query.filter_by(key=BEFORE_YOU_START_VIDEO_FLAG).first():
+        return
+
+    existing = (
+        db.session.query(WizardStep).filter(WizardStep.server_type == "jellyfin").all()
+    )
+
+    # Fresh install: import_default_wizard_steps already seeded the video version.
+    if not existing:
+        return
+
+    page = next(
+        (row for row in existing if BEFORE_YOU_START_MARKER in (row.markdown or "")),
+        None,
+    )
+    if page is not None:
+        bundled = _parse_markdown(BEFORE_YOU_START_SOURCE)["markdown"]
+        current = _normalised_sha256(page.markdown)
+        if current == BEFORE_YOU_START_TEXT_SHA256:
+            page.markdown = bundled
+            current_app.logger.info(
+                "Replaced the Jellyfin 'before you start' text with its video"
+            )
+        elif current != _normalised_sha256(bundled):
+            current_app.logger.warning(
+                "Jellyfin 'before you start' step was edited by an admin; left as "
+                "is instead of replacing it with the video"
+            )
+
+    db.session.add(Settings(key=BEFORE_YOU_START_VIDEO_FLAG, value="1"))
     db.session.commit()
 
 

@@ -126,6 +126,7 @@ def create_app(config_object=DevelopmentConfig):
         try:
             from .services.wizard_seed import (
                 ensure_before_you_start_step,
+                ensure_before_you_start_video,
                 ensure_quick_connect_step,
                 ensure_video_step,
                 import_default_wizard_steps,
@@ -134,11 +135,14 @@ def create_app(config_object=DevelopmentConfig):
             import_default_wizard_steps()
             # Existing Jellyfin installs never receive newly shipped steps from
             # the seeder above, so these are backfilled explicitly. Order
-            # matters: each of the last two takes position 0, and the "before
-            # you start" page is the one that has to end up there.
+            # matters: each of the next two takes position 0, and the "before
+            # you start" page is the one that has to end up there. The last one
+            # swaps that page's original text for its video, so it runs after
+            # the page exists.
             ensure_quick_connect_step()
             ensure_video_step()
             ensure_before_you_start_step()
+            ensure_before_you_start_video()
             if show_startup:
                 logger.success("Wizard steps imported")
         except Exception as exc:

@@ -63,6 +63,26 @@ export const IconDownload = svg(
 
 export const IconCheck = svg(<path d="M4.5 12.5 9.5 17.5 19.5 7" />);
 
+export const IconRefresh = svg(
+  <>
+    <path d="M20 11a8 8 0 0 0-14.3-4.9L4 8" />
+    <path d="M4 3v5h5" />
+    <path d="M4 13a8 8 0 0 0 14.3 4.9L20 16" />
+    <path d="M20 21v-5h-5" />
+  </>
+);
+
+export const IconKey = svg(
+  <>
+    <circle cx="8" cy="15" r="4" />
+    <path d="M10.8 12.2 20 3" />
+    <path d="M16 7l3 3" />
+    <path d="M14 9l2 2" />
+  </>
+);
+
+export const IconArrowDown = svg(<path d="M12 4v15M6 13l6 6 6-6" />);
+
 /** Bolsa de compras generica: tienda de apps sin usar logos de marca. */
 export const IconStore = svg(
   <>
