@@ -37,7 +37,7 @@ const scenes = [
   },
   {
     id: "06-descargas",
-    text: "Para celulares y tablets, Android o iOS, y también para computadoras Windows y Mac, entra a neexy punto net, barra descargar, y elige tu dispositivo.",
+    text: "En tu celular, tablet o computadora, descarga Moonfin desde tu tienda de aplicaciones: Play Store en Android, o App Store en iPhone, iPad y Mac. En Windows, entra a neexy punto net, barra descargar.",
   },
   {
     id: "07-conectar",

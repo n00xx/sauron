@@ -22,7 +22,7 @@ export const T = 15;
  * Si se regenera la voz hay que volver a medir: npm run durations
  *
  *   01-gracias       7.92s      05-roku          6.00s
- *   02-dispositivos  8.00s      06-descargas    11.12s
+ *   02-dispositivos  8.00s      06-descargas    14.48s
  *   03-firetv        6.96s      07-conectar     28.56s
  *   04-googletv      5.04s      08-cierre       14.16s
  *
@@ -35,7 +35,7 @@ export const SCENES = [
   8.5 * FPS, // fire tv
   7 * FPS, // google tv
   7.5 * FPS, // roku
-  13 * FPS, // descargas
+  16 * FPS, // descargas
   30.5 * FPS, // conectar
   16 * FPS, // cierre
 ];

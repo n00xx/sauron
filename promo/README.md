@@ -3,7 +3,7 @@
 Video tutorial que reemplaza el texto de los pasos del wizard de onboarding
 (el que ve el usuario después de crear su usuario y contraseña).
 
-- **Salida**: `out/neexy-wizard.mp4` — 1920x1080, 30 fps, 98 s, H.264 + AAC
+- **Salida**: `out/neexy-wizard.mp4` — 1920x1080, 30 fps, 101 s, H.264 + AAC
 - **Hecho con**: [Remotion](https://remotion.dev) 4.x + React 19 + TypeScript
 - **Voz**: ElevenLabs (`eleven_v3`, voz Bella `hpp4J3VqNfWAUOO0d1Us`), español
 
@@ -49,7 +49,7 @@ src/
 | 3 | Fire TV | 8.5 s | App **Moonfin** (Amazon Appstore) |
 | 4 | Google TV | 7 s | App **Moonfin** |
 | 5 | Roku | 7.5 s | App **Moonfin** (tienda de canales) |
-| 6 | Descargas | 13 s | Celulares, tablets, Windows y Mac → `neexy.net/descargar` |
+| 6 | Descargas | 16 s | **Moonfin** en Play Store (Android) y App Store (iPhone, iPad, Mac); Windows → `neexy.net/descargar` |
 | 7 | Conectar | 30.5 s | Servidor `tv.neexy.net` + Quick Connect + aviso de no cerrar la página |
 | 8 | Cierre | 16 s | `neexy.net/blog` + "prepara las palomitas" |
 
@@ -57,6 +57,12 @@ Las tres plataformas de TV usan Moonfin (hasta septiembre de 2026 eran
 Wholphin en Fire TV y Jellyfin en Roku). Las tres escenas comparten el
 componente `SceneInstalar`, parametrizado por props: solo cambian la tienda y
 la captura.
+
+En celulares, tablets y computadoras también es Moonfin, desde la tienda de
+cada sistema. Windows es la excepción: Moonfin no está en la Microsoft Store
+(solo instalador de GitHub y `winget`), así que esa tarjeta sigue mandando a
+`neexy.net/descargar`. Si algún día se publica ahí, basta con cambiar la
+tarjeta en `SceneDescargas.tsx` y la frase final de `06-descargas`.
 
 El aviso de la escena 7 no es decorativo: Quick Connect autoriza la tele contra
 la cuenta que guardó la sesión del navegador al crearla
@@ -80,7 +86,9 @@ El orden importa: **la voz define las duraciones**, no al revés.
 6. Si cambió `07-conectar`, vuelve a medir las pausas con el comando
    `silencedetect` del comentario de `SceneConectar.tsx` y recalcula
    `PASO2_DELAY`, `PASO3_DELAY` y `AVISO_DELAY`: si no, los pasos aparecen
-   desfasados de la voz
+   desfasados de la voz. Lo mismo con `06-descargas`: el comando está en el
+   comentario de `SceneDescargas.tsx`, y ahí se recalculan `MOONFIN_DELAY`,
+   `PLAY_DELAY`, `APPLE_DELAY` y `WINDOWS_DELAY`, que encienden cada tienda
 7. `npm run render`
 
 Cada escena debe durar al menos `audio + delay + 0.5 s`, o la locución se corta

@@ -63,6 +63,14 @@ export const IconDownload = svg(
 
 export const IconCheck = svg(<path d="M4.5 12.5 9.5 17.5 19.5 7" />);
 
+/** Bolsa de compras generica: tienda de apps sin usar logos de marca. */
+export const IconStore = svg(
+  <>
+    <path d="M5 8h14l-1 12.5H6z" />
+    <path d="M9 8V6.5a3 3 0 0 1 6 0V8" />
+  </>
+);
+
 export const IconTablet = svg(
   <>
     <rect x="4" y="2.5" width="16" height="19" rx="2.5" />
