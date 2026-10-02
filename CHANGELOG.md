@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.20] (2026-10-02)
+
+### Changed
+
+- **El primer paso del wizard es un video de 55 s en lugar de texto.**
+
+  "Algunas cosas que debes saber antes de empezar" dejaba al cliente leer tres
+  secciones con seis capturas. Ahora es un video corto que cubre lo mismo
+  (renovar, recuperar usuario o contrasena, liberar un dispositivo) y debajo
+  quedan dos enlaces que un video no puede hacer clicables: la renovacion
+  (`neexy.net/pay?renovar=1`) y `neexy.net` -> Recuperar.
+
+  Las instalaciones nuevas lo toman del archivo. En las que ya tenian el texto,
+  el arranque lo cambia por el video una sola vez y solo si el texto sigue
+  igual al publicado en 2026.10.18; si un admin lo edito, se queda como esta y
+  se avisa en el log (WARNING). En ese caso basta con pegar en el paso el
+  contenido de `wizard_steps/jellyfin/00_before_you_start.md`.
+
+- **El paso 2 se titula "Ahora, instala la app"** en vez de "Ve esto primero",
+  porque ahora va despues de otro video.
+
 ## [2026.10.19] (2026-10-02)
 
 ### Changed
