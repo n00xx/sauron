@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.19] (2026-10-02)
+
+### Changed
+
+- **El video del wizard manda a la tienda de cada dispositivo para descargar Moonfin.**
+
+  La escena de celulares, tablets y computadoras ya no pide entrar a
+  `neexy.net/descargar`: Moonfin se descarga de la Play Store en Android y de
+  la App Store en iPhone, iPad y Mac. Windows es la excepcion y sigue en
+  `neexy.net/descargar`, porque Moonfin no esta en la Microsoft Store (solo
+  instalador de GitHub y winget).
+
+  Tres tarjetas, una por dispositivo y su tienda, que se encienden cuando la
+  voz nombra cada tienda. Solo cambio la locucion de esa escena; el video pasa
+  de 98 s a 101 s.
+
 ## [2026.10.18] (2026-09-30)
 
 ### Changed
