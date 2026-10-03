@@ -40,6 +40,8 @@ MEMBER_POLICY = {
     "EnabledFolders": ["pelis", "series", "cols"],
     "EnableLiveTvAccess": True,
     "EnableContentDownloading": True,
+    "EnableAllChannels": True,
+    "EnabledChannels": [],
     "MaxActiveSessions": 2,
 }
 
@@ -129,7 +131,7 @@ def test_restricting_a_disabled_account_turns_it_back_on():
     policy, only IsDisabled was flipped, so the snapshot is still the real one."""
     fake = _FakeJellyfin({**MEMBER_POLICY, "IsDisabled": True})
 
-    snapshot = _client(fake).restrict_user("jf-1")
+    snapshot = _client(fake).restrict_user("jf-1", lift_disable=True)
 
     assert fake.policy["IsDisabled"] is False
     assert fake.policy["EnabledFolders"] == ["renew"]
@@ -200,6 +202,40 @@ def test_restoring_never_hands_back_the_renewal_library():
     _client(fake).unrestrict_user("jf-1", _snapshot(EnabledFolders=["pelis", "renew"]))
 
     assert fake.policy["EnabledFolders"] == ["pelis"]
+
+
+@pytest.mark.parametrize("saved", [["renew"], []])
+def test_restoring_never_leaves_a_paying_member_with_nothing(saved):
+    """A restriction Jellyfin applied but sauron never recorded (a timeout, a
+    failed commit) gets snapshotted again on the next run — of the RESTRICTED
+    policy. Restoring that would hand back no library at all, silently."""
+    fake = _FakeJellyfin(_restricted())
+
+    _client(fake).unrestrict_user("jf-1", _snapshot(EnabledFolders=saved))
+
+    assert fake.policy["EnableAllFolders"] is False
+    assert fake.policy["EnabledFolders"] == ["pelis", "series", "cols"]
+
+
+def test_restricting_closes_channels_too():
+    fake = _FakeJellyfin({**MEMBER_POLICY, "EnableAllChannels": True})
+
+    snapshot = _client(fake).restrict_user("jf-1")
+
+    assert fake.policy["EnableAllChannels"] is False
+    assert fake.policy["EnabledChannels"] == []
+    assert snapshot["EnableAllChannels"] is True
+
+
+def test_restricting_an_account_disabled_by_someone_else_keeps_it_disabled():
+    """Only sauron's own disable may be lifted; a lockout or an admin's ban in
+    Jellyfin stays in force."""
+    fake = _FakeJellyfin({**MEMBER_POLICY, "IsDisabled": True})
+
+    _client(fake).restrict_user("jf-1", lift_disable=False)
+
+    assert fake.policy["IsDisabled"] is True
+    assert fake.policy["EnabledFolders"] == ["renew"]
 
 
 def test_restoring_without_a_snapshot_grants_every_real_library():

@@ -15,13 +15,17 @@ import pytest
 
 from app.extensions import db
 from app.forms.general import GeneralSettingsForm
-from app.models import MediaServer, Settings, User
+from app.models import ExpiredUser, MediaServer, Settings, User
 from app.services import credentials
 from app.services.expiry import (
     disable_or_delete_user_if_expired,
     restrict_lapsed_disabled_accounts,
 )
-from app.services.media.service import disable_user, enable_user
+from app.services.media.service import (
+    disable_user,
+    enable_user,
+    restrict_for_expiry,
+)
 
 SNAPSHOT = {
     "EnableAllFolders": False,
@@ -69,6 +73,22 @@ def _mode(value):
     db.session.commit()
 
 
+def _swept(user):
+    """The ExpiredUser row the sweep writes when IT disables an account."""
+    db.session.add(
+        ExpiredUser(
+            original_user_id=user.id,
+            username=user.username,
+            email=user.email,
+            invitation_code=user.code,
+            server_id=user.server_id,
+            expired_at=user.expires,
+        )
+    )
+    db.session.commit()
+    return user
+
+
 def _member(server, *, days, disabled=False, restricted=False, **extra):
     user = User(
         token="jf-1",
@@ -98,9 +118,9 @@ def test_a_lapsed_member_gets_the_renewal_screen_instead_of_a_disabled_account(
     _mode("restrict")
     user = _member(jellyfin_server, days=-1)
 
-    assert disable_user(user.id) is True
+    assert restrict_for_expiry(user.id) is True
 
-    jellyfin.restrict_user.assert_called_once_with("jf-1")
+    jellyfin.restrict_user.assert_called_once_with("jf-1", lift_disable=False)
     jellyfin.disable_user.assert_not_called()
     assert user.is_disabled is True
     assert json.loads(user.restricted_policy) == SNAPSHOT
@@ -110,7 +130,7 @@ def test_whoever_is_watching_is_stopped_and_told_why(jellyfin_server, jellyfin):
     _mode("restrict")
     user = _member(jellyfin_server, days=-1)
 
-    disable_user(user.id)
+    restrict_for_expiry(user.id)
 
     jellyfin.end_sessions_with_notice.assert_called_once()
     assert jellyfin.end_sessions_with_notice.call_args.args[0] == "jf-1"
@@ -121,7 +141,7 @@ def test_a_member_still_in_date_is_disabled_as_before(jellyfin_server, jellyfin)
     _mode("restrict")
     user = _member(jellyfin_server, days=10)
 
-    disable_user(user.id)
+    restrict_for_expiry(user.id)
 
     jellyfin.disable_user.assert_called_once_with("jf-1")
     jellyfin.restrict_user.assert_not_called()
@@ -132,10 +152,25 @@ def test_disable_mode_keeps_disabling(jellyfin_server, jellyfin):
     _mode("disable")
     user = _member(jellyfin_server, days=-1)
 
+    restrict_for_expiry(user.id)
+
+    jellyfin.disable_user.assert_called_once_with("jf-1")
+    jellyfin.restrict_user.assert_not_called()
+
+
+def test_a_deliberate_disable_of_a_lapsed_member_really_disables(
+    jellyfin_server, jellyfin
+):
+    """POST /disable and the admin's toggle are a decision about the account,
+    not an expiry: they must not hand it a sign-in back."""
+    _mode("restrict")
+    user = _member(jellyfin_server, days=-1)
+
     disable_user(user.id)
 
     jellyfin.disable_user.assert_called_once_with("jf-1")
     jellyfin.restrict_user.assert_not_called()
+    assert user.restricted_policy is None
 
 
 def test_restricting_twice_keeps_the_first_snapshot(jellyfin_server, jellyfin):
@@ -143,7 +178,7 @@ def test_restricting_twice_keeps_the_first_snapshot(jellyfin_server, jellyfin):
     _mode("restrict")
     user = _member(jellyfin_server, days=-1, disabled=True, restricted=True)
 
-    assert disable_user(user.id) is True
+    assert restrict_for_expiry(user.id) is True
 
     jellyfin.restrict_user.assert_not_called()
     assert json.loads(user.restricted_policy) == SNAPSHOT
@@ -154,7 +189,7 @@ def test_a_refused_restriction_changes_nothing(jellyfin_server, jellyfin):
     jellyfin.restrict_user.return_value = None
     user = _member(jellyfin_server, days=-1)
 
-    assert disable_user(user.id) is False
+    assert restrict_for_expiry(user.id) is False
 
     assert user.is_disabled is False
     assert user.restricted_policy is None
@@ -244,11 +279,11 @@ def test_members_disabled_before_the_switch_move_to_the_renewal_screen(
     jellyfin_server, jellyfin
 ):
     _mode("restrict")
-    user = _member(jellyfin_server, days=-3, disabled=True)
+    user = _swept(_member(jellyfin_server, days=-3, disabled=True))
 
     assert restrict_lapsed_disabled_accounts() == [user.id]
 
-    jellyfin.restrict_user.assert_called_once_with("jf-1")
+    jellyfin.restrict_user.assert_called_once_with("jf-1", lift_disable=True)
     db.session.refresh(user)
     assert user.is_disabled is True
     assert json.loads(user.restricted_policy) == SNAPSHOT
@@ -256,7 +291,7 @@ def test_members_disabled_before_the_switch_move_to_the_renewal_screen(
 
 def test_moving_them_happens_once(jellyfin_server, jellyfin):
     _mode("restrict")
-    _member(jellyfin_server, days=-3, disabled=True)
+    _swept(_member(jellyfin_server, days=-3, disabled=True))
 
     restrict_lapsed_disabled_accounts()
     assert restrict_lapsed_disabled_accounts() == []
@@ -274,7 +309,20 @@ def test_moving_them_happens_once(jellyfin_server, jellyfin):
 )
 def test_who_is_left_alone(jellyfin_server, jellyfin, mode, days, extra):
     _mode(mode)
-    _member(jellyfin_server, days=days, disabled=True, **extra)
+    _swept(_member(jellyfin_server, days=days, disabled=True, **extra))
+
+    assert restrict_lapsed_disabled_accounts() == []
+    jellyfin.restrict_user.assert_not_called()
+
+
+def test_an_account_disabled_outside_the_sweep_stays_disabled(
+    jellyfin_server, jellyfin
+):
+    """Lapsed and disabled, but not by the expiry sweep: an admin's ban in
+    Jellyfin (which the user sync copies into is_disabled) or a lockout. Moving
+    it would give a banned account its sign-in back."""
+    _mode("restrict")
+    _member(jellyfin_server, days=-3, disabled=True)
 
     assert restrict_lapsed_disabled_accounts() == []
     jellyfin.restrict_user.assert_not_called()
@@ -283,7 +331,7 @@ def test_who_is_left_alone(jellyfin_server, jellyfin, mode, days, extra):
 def test_a_failed_move_is_retried_later(jellyfin_server, jellyfin):
     _mode("restrict")
     jellyfin.restrict_user.return_value = None
-    user = _member(jellyfin_server, days=-3, disabled=True)
+    user = _swept(_member(jellyfin_server, days=-3, disabled=True))
 
     assert restrict_lapsed_disabled_accounts() == []
 

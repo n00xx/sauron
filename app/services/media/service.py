@@ -61,11 +61,10 @@ RENEWAL_SCREEN_TEXT = (
 
 
 def _shows_renewal_screen(user: User) -> bool:
-    """Whether cutting this user's access means the renewal screen.
+    """Whether an expiry cut for this user means the renewal screen.
 
     Only for a membership that has LAPSED, on Jellyfin, with the admin's expiry
-    action set to "restrict". Suspending a member who is still in date is not a
-    renewal problem, so it keeps disabling the account.
+    action set to "restrict". A member still in date keeps being disabled.
     """
     from app.services.expiry import get_expiry_status
 
@@ -87,11 +86,15 @@ def _saved_policy(user: User) -> dict | None:
     return snapshot if isinstance(snapshot, dict) else None
 
 
-def _apply_access(client, user: User, user_identifier: str, enabled: bool) -> bool:
+def _apply_access(
+    client, user: User, user_identifier: str, enabled: bool, *, for_expiry: bool
+) -> bool:
     """Turn access on or off on the media server; record how it was cut.
 
     A member on the renewal screen always comes back through unrestrict_user,
     whatever the setting says now, so changing it never strands anyone there.
+    Only the expiry path restricts: POST /disable and the admin's toggle are a
+    decision about the account and really disable it.
     """
     if enabled and user.restricted_policy is not None:
         if not client.unrestrict_user(user_identifier, _saved_policy(user)):
@@ -99,10 +102,14 @@ def _apply_access(client, user: User, user_identifier: str, enabled: bool) -> bo
         user.restricted_policy = None
         return True
 
-    if not enabled and _shows_renewal_screen(user):
+    if not enabled and for_expiry and _shows_renewal_screen(user):
         # Already there: a second snapshot would save the restricted policy.
         if user.restricted_policy is None:
-            snapshot = client.restrict_user(user_identifier)
+            # is_disabled here can only be the sweep's own earlier disable (see
+            # restrict_lapsed_disabled_accounts), so it may be lifted.
+            snapshot = client.restrict_user(
+                user_identifier, lift_disable=bool(user.is_disabled)
+            )
             if snapshot is None:
                 return False
             user.restricted_policy = json.dumps(snapshot)
@@ -115,7 +122,9 @@ def _apply_access(client, user: User, user_identifier: str, enabled: bool) -> bo
     return method(user_identifier)
 
 
-def _set_user_enabled_state(db_id: int, enabled: bool) -> bool:
+def _set_user_enabled_state(
+    db_id: int, enabled: bool, *, for_expiry: bool = False
+) -> bool:
     """Enable or disable a user on their media server."""
     if not (user := db.session.get(User, db_id)):
         logging.error(f"User with id {db_id} not found")
@@ -128,7 +137,9 @@ def _set_user_enabled_state(db_id: int, enabled: bool) -> bool:
     try:
         client = get_client_for_media_server(user.server)  # type: ignore
         user_identifier = _get_user_identifier(user, user.server)  # type: ignore
-        result = _apply_access(client, user, user_identifier, enabled)
+        result = _apply_access(
+            client, user, user_identifier, enabled, for_expiry=for_expiry
+        )
 
         action = "enabled" if enabled else "disabled"
         if result:
@@ -300,6 +311,16 @@ def enable_user(db_id: int) -> bool:
 def disable_user(db_id: int) -> bool:
     """Disable a user on its associated MediaServer."""
     return _set_user_enabled_state(db_id, enabled=False)
+
+
+def restrict_for_expiry(db_id: int) -> bool:
+    """Cut a lapsed member's access the way the admin chose for expiries.
+
+    The renewal screen when the expiry action is "restrict" and the account is
+    a lapsed Jellyfin one; a plain disable otherwise. Only the expiry sweep and
+    restrict_lapsed_disabled_accounts call this.
+    """
+    return _set_user_enabled_state(db_id, enabled=False, for_expiry=True)
 
 
 def remove_user_from_server(user_id: int, server_id: int) -> bool:

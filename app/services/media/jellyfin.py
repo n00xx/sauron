@@ -121,6 +121,8 @@ RESTRICTED_POLICY_FIELDS = (
     "EnabledFolders",
     "EnableLiveTvAccess",
     "EnableContentDownloading",
+    "EnableAllChannels",
+    "EnabledChannels",
 )
 
 
@@ -627,13 +629,17 @@ class JellyfinClient(RestApiMixin):
             folders = self.get("/Library/MediaFolders").json()["Items"]
         return next((f["Id"] for f in folders if _is_renewal_library(f)), None)
 
-    def restrict_user(self, user_id: str) -> dict | None:
+    def restrict_user(self, user_id: str, *, lift_disable: bool = False) -> dict | None:
         """Put the account on the renewal screen; return what it overrode.
 
-        The account stays able to sign in (IsDisabled goes False even if it was
-        True, which is how members disabled before the switch move over) and
-        sees only the renewal library. Read-modify-write on the whole Policy,
-        like enable_user: the endpoint replaces the document.
+        The account sees only the renewal library: no other library, Live TV,
+        channel or download. Read-modify-write on the whole Policy, like
+        enable_user: the endpoint replaces the document.
+
+        ``lift_disable`` turns IsDisabled off, which is how members the expiry
+        sweep disabled before the switch get their sign-in back. Only the caller
+        knows whether that disable was sauron's own; a lockout or an admin's ban
+        in Jellyfin must stay, so the default leaves IsDisabled alone.
 
         Returns the RESTRICTED_POLICY_FIELDS as they were, for unrestrict_user,
         or None when Jellyfin refused. Callers must not restrict an account that
@@ -644,12 +650,15 @@ class JellyfinClient(RestApiMixin):
             snapshot = {field: policy.get(field) for field in RESTRICTED_POLICY_FIELDS}
             renewal = self.renewal_library_id()
             policy.update(
-                IsDisabled=False,
                 EnableAllFolders=False,
                 EnabledFolders=[renewal] if renewal else [],
                 EnableLiveTvAccess=False,
                 EnableContentDownloading=False,
+                EnableAllChannels=False,
+                EnabledChannels=[],
             )
+            if lift_disable:
+                policy["IsDisabled"] = False
             self.post(f"/Users/{user_id}/Policy", json=policy)
             return snapshot
         except Exception as e:
@@ -683,6 +692,12 @@ class JellyfinClient(RestApiMixin):
                 for folder in restored.get("EnabledFolders") or []
                 if folder != renewal
             ]
+            if not restored.get("EnableAllFolders") and not restored["EnabledFolders"]:
+                # A restriction Jellyfin applied but sauron never recorded (a
+                # timeout, a failed commit) gets snapshotted again, of the
+                # restricted policy. A member who pays must never get nothing.
+                restored["EnableAllFolders"] = False
+                restored["EnabledFolders"] = _grantable_folder_ids(folders)
             policy.update(restored, IsDisabled=False)
             self.post(f"/Users/{user_id}/Policy", json=policy)
             return True

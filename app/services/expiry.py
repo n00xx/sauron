@@ -4,7 +4,11 @@ import time
 
 from app.extensions import db
 from app.models import ExpiredUser, Invitation, User, invitation_servers
-from app.services.media.service import delete_user, disable_user
+from app.services.media.service import (
+    delete_user,
+    disable_user,
+    restrict_for_expiry,
+)
 
 # The storefront page that renews a lapsed or expiring membership. Every notice
 # that tells a member to renew links here, so it lives in one place.
@@ -275,8 +279,8 @@ def disable_or_delete_user_if_expired() -> list[int]:
             # account ALONE for the next run. An account still enabled past its
             # expiry is a billing problem and self-corrects on the next sweep;
             # a deleted account is unrecoverable loss of a paying customer.
-            # "restrict" cuts access too — disable_user puts a lapsed Jellyfin
-            # account on the renewal screen instead (see media/service.py), and
+            # "restrict" cuts access too: restrict_for_expiry puts a lapsed
+            # Jellyfin account on the renewal screen instead, and still
             # disables it on any other server.
             wants_disable = expiry_action in ("disable", "restrict")
             can_disable = bool(
@@ -309,7 +313,12 @@ def disable_or_delete_user_if_expired() -> list[int]:
                 # savepoint, savepoint.commit() raised ResourceClosedError, and
                 # the handler read it as "the disable failed".
                 try:
-                    disabled_ok = disable_user(user.id)
+                    cut = (
+                        restrict_for_expiry
+                        if expiry_action == "restrict"
+                        else disable_user
+                    )
+                    disabled_ok = cut(user.id)
                 except Exception as disable_exc:
                     disabled_ok = False
                     logging.warning(
@@ -376,13 +385,19 @@ def restrict_lapsed_disabled_accounts() -> list[int]:
     disabled before "restrict" was chosen would stay disabled — no sign-in, no
     notice — until they renewed. This picks them up; idempotent, since a
     restricted account carries ``restricted_policy``. Runs only while the admin
-    has chosen "restrict", only on Jellyfin, and never touches an account
-    Jellyfin disabled by itself (``disabled_externally``: a lockout).
+    has chosen "restrict", only on Jellyfin, and only for accounts the sweep
+    itself disabled (an ExpiredUser row, never ``disabled_externally``).
 
     Returns the db ids that moved. A failure leaves the account disabled, which
     is still cut off, and the next run retries it.
     """
     from app.models import MediaServer, Settings
+
+    # The sweep writes an ExpiredUser row whenever IT disables an account. A
+    # lapsed account disabled any other way — an admin's ban in Jellyfin, which
+    # the user sync copies into is_disabled, or a lockout — has none, and must
+    # not get its sign-in back from this.
+    swept = db.session.query(ExpiredUser.original_user_id)
 
     action = Settings.query.filter_by(key="expiry_action").first()
     if action is None or action.value != "restrict":
@@ -396,6 +411,7 @@ def restrict_lapsed_disabled_accounts() -> list[int]:
             User.is_disabled.is_(True),
             User.disabled_externally.is_(False),
             User.restricted_policy.is_(None),
+            User.id.in_(swept),
             User.expires.is_not(None),
             User.expires < now,
         )
@@ -404,9 +420,9 @@ def restrict_lapsed_disabled_accounts() -> list[int]:
 
     moved: list[int] = []
     for user in candidates:
-        # disable_user is the path that restricts; it reads the same setting and
-        # the same expiry, and records the snapshot.
-        if disable_user(user.id) and user.restricted_policy is not None:
+        # The expiry path: reads the same setting and expiry, lifts the sweep's
+        # own disable, and records the snapshot.
+        if restrict_for_expiry(user.id) and user.restricted_policy is not None:
             moved.append(user.id)
             logging.info(
                 "🪧 Lapsed user %s (%s) moved to the renewal screen",
