@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.21] (2026-10-02)
+
+### Changed
+
+- **El wizard abre directo en "Conecta tu dispositivo".**
+
+  Se quitan los dos pasos que iban antes. "Algunas cosas que debes saber antes
+  de empezar" ahora es una guia en `neexy.net/blog/antes-de-empezar`, con el
+  mismo video y los mismos dos enlaces. "Ve esto primero" (el video de 101 s)
+  desaparece.
+
+  En las instalaciones que ya los tenian, el arranque borra esas dos filas una
+  sola vez y renumera: configurar el dispositivo queda como paso 1. Se
+  reconocen por su contenido, no por el titulo: el comentario
+  `sauron:before-you-start` o un `widget:video`, en cualquier categoria. El paso
+  con `widget:quick_connect` nunca se toca. Si un admin vuelve a agregar
+  cualquiera de los dos, se queda.
+
+- **Dos opciones de dispositivo en lugar de tres.** Se elimina "Apple TV, Xbox".
+
+- **Smart TV:** instala Moonfin desde la tienda de la tele; abrelo y escribe
+  `tv.neexy.net`; elige Quick Connect (la tele muestra un codigo de 6 digitos);
+  introduce el codigo en la pagina y pulsa Conectar. Debajo, el video
+  "Instalacion de la aplicacion Moonfin en Smart TV" (21 s, 1.8 MB).
+
+- **Celular, tablet o computadora:** sin Quick Connect. Tres pasos con usuario y
+  contrasena, un boton para copiar `tv.neexy.net` (y la recomendacion de
+  usarlo) y una casilla "Ya lei las instrucciones -> descargar Moonfin" que
+  activa el boton "Descargar Moonfin" hacia `neexy.net/descargar`.
+
+### Fixed
+
+- **El boton Copiar funciona en navegadores dentro de apps.** Cuando
+  `navigator.clipboard` no existe cae a `execCommand('copy')`, y solo muestra
+  "Copiado" si de verdad copio.
+
 ## [2026.10.20] (2026-10-02)
 
 ### Changed
