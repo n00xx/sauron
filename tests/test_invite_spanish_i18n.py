@@ -218,6 +218,54 @@ def test_wizard_renders_in_spanish_for_the_buyer(client, session):
     assert "Paso 1 de" in body
 
 
+def test_device_setup_renders_in_spanish_for_the_buyer(client, session, monkeypatch):
+    """Both paths of the device-setup widget, through the real route.
+
+    Every new line in the widget needs an es_MX entry of its own; a missing one
+    shows up in English with no error, which only a rendered page catches.
+    """
+    monkeypatch.setattr(
+        "app.services.media.jellyfin.JellyfinClient.quick_connect_enabled",
+        lambda self: True,
+        raising=True,
+    )
+    _create_jellyfin_invitation(session)
+    _wizard_steps(session, ["{{ widget:quick_connect }}"])
+
+    with client.session_transaction() as sess:
+        sess["wizard_access"] = "ESMX01"
+
+    body = client.get("/wizard/post-wizard/0").data.decode("utf-8")
+
+    for spanish in (
+        # Smart TV path
+        "Instala Moonfin desde la tienda de aplicaciones de tu Smart TV.",
+        "Abre Moonfin y, cuando te pida un servidor, escribe esta dirección:",
+        "En tu Smart TV aparecerá un código de 6 dígitos.",
+        "Introduce el código que aparece en tu Smart TV en esta página y pulsa",
+        "Instalación de la aplicación Moonfin en Smart TV",
+        # Phone, tablet or computer path
+        "Cómo instalar Moonfin",
+        "Antes de comenzar, lee todos los pasos.",
+        "Descarga Moonfin",
+        "Te pedirá la dirección de tu servidor:",
+        "Selecciona Contraseña",
+        "Ingresa el usuario y la contraseña que creaste.",
+        "Ya leí las instrucciones → descargar Moonfin",
+        "Descargar Moonfin",
+    ):
+        assert spanish in body, spanish
+
+    for english in (
+        "Install Moonfin from your Smart TV app store.",
+        "How to install Moonfin",
+        "I have read the instructions",
+        "Get Moonfin",
+        "Apple TV",
+    ):
+        assert english not in body, english
+
+
 def test_wizard_entry_redirect_keeps_the_buyer_in_spanish(client, session):
     """Both join paths redirect to /wizard/, so it must not drop the locale."""
     _create_jellyfin_invitation(session)

@@ -1,4 +1,4 @@
-{# Quick Connect device setup.
+{# Device setup: Quick Connect on a TV, username and password everywhere else.
 
    Lives here rather than as an inline string in wizard_widgets.py on purpose:
    Tailwind v4 only scans the globs declared in app/static/src/style.css, and
@@ -6,9 +6,11 @@
    module are silently never generated — `dark:` variants included, since each
    variant is generated separately from its base. #}
 
-{# Every device key takes the Quick Connect path — phones, tablets and laptops
-   included. The picker is kept because the buyer still thinks in terms of
-   "where am I installing this", not because the branches differ. #}
+{# The two paths really differ now. On a TV, typing a password with the remote
+   is the pain Quick Connect removes. On a phone, tablet or computer the buyer
+   reads this page on the same device they install Moonfin on, so there is no
+   second screen to type a code into: they sign in with the username and
+   password they just created. #}
 
 {# `not-prose` is load-bearing. Wizard content renders inside
    `prose prose-slate` (wizard/_content.html), and @tailwindcss/typography then
@@ -23,18 +25,59 @@
    Every element below carries its own classes, so opting the subtree out of
    prose entirely costs nothing. It covers descendants too, including the
    Quick Connect result swapped into #qc-result over HTMX. #}
+
+{# The address with a copy button. The phone path tells the buyer to copy it
+   before leaving for the store, so the copy has to work in in-app browsers too:
+   navigator.clipboard needs a secure context and is missing in some webviews,
+   hence the execCommand fallback. "Copied" only shows when a copy happened. #}
+{% macro address_row(address) %}
+<div class="mt-2 flex items-center gap-2">
+  <code class="flex-1 select-all rounded-lg bg-gray-100 px-3 py-2 font-mono text-base font-semibold text-gray-900 dark:bg-gray-800 dark:text-gray-100">{{ address }}</code>
+  <button type="button"
+          data-copy="{{ address }}"
+          x-data="{ copied: false }"
+          @click="copy($el.dataset.copy).then(ok => { if (ok) { copied = true; setTimeout(() => copied = false, 1800) } })"
+          class="shrink-0 rounded-lg border border-primary px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/5 dark:hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary">
+    <span x-show="!copied">{{ _('Copy') }}</span>
+    <span x-show="copied" x-cloak class="text-green-600 dark:text-green-400">{{ _('Copied') }}</span>
+  </button>
+</div>
+{% endmacro %}
+
+{% macro step_badge(number) %}
+<span class="absolute -left-[13px] flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">{{ number }}</span>
+{% endmacro %}
+
 <div class="qc-widget not-prose my-6"
      x-data="{
         device: null,
-        get isQuickConnect() { return this.device !== null }
+        copy(text) {
+          const fallback = () => {
+            const area = document.createElement('textarea');
+            area.value = text;
+            area.setAttribute('readonly', '');
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.appendChild(area);
+            area.select();
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+            area.remove();
+            return ok;
+          };
+          if (navigator.clipboard && window.isSecureContext) {
+            return navigator.clipboard.writeText(text).then(() => true, fallback);
+          }
+          return Promise.resolve(fallback());
+        }
      }">
 
-  {# ── Step 1: which device? ───────────────────────────────────────────── #}
+  {# ── Which device? ───────────────────────────────────────────────────── #}
   <p class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
     {{ _('Where are you setting up %(server)s?', server=server_name) }}
   </p>
 
-  <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+  <div class="grid grid-cols-2 gap-2">
     {% for opt in device_options %}
     <button type="button"
             @click="device = '{{ opt.key }}'"
@@ -48,45 +91,43 @@
     {% endfor %}
   </div>
 
-  {# ── Path A: Quick Connect ───────────────────────────────────────────── #}
-  {% if quick_connect_available %}
-  <div x-show="isQuickConnect" x-cloak x-transition.opacity class="mt-6">
+  {# ── Path A: Smart TV — Quick Connect ────────────────────────────────── #}
+  <div x-show="device === 'tv'" x-cloak x-transition.opacity class="mt-6" data-path="tv">
 
     <ol class="relative space-y-5 border-l-2 border-gray-200 pl-6 dark:border-gray-700">
 
       <li>
-        <span class="absolute -left-[13px] flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">1</span>
+        {{ step_badge(1) }}
         <p class="text-sm text-gray-700 dark:text-gray-300">
-          {{ _('Install Jellyfin on your device and, when it asks for a server, enter this address:') }}
-        </p>
-        <div class="mt-2 flex items-center gap-2">
-          <code class="flex-1 select-all rounded-lg bg-gray-100 px-3 py-2 font-mono text-base font-semibold text-gray-900 dark:bg-gray-800 dark:text-gray-100">{{ server_address }}</code>
-          <button type="button"
-                  x-data="{ copied: false }"
-                  @click="navigator.clipboard.writeText('{{ server_address }}'); copied = true; setTimeout(() => copied = false, 1800)"
-                  class="shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800">
-            <span x-show="!copied">{{ _('Copy') }}</span>
-            <span x-show="copied" x-cloak class="text-green-600 dark:text-green-400">{{ _('Copied') }}</span>
-          </button>
-        </div>
-        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          {{ _('You only type this once, the app remembers it.') }}
+          {{ _('Install Moonfin from your Smart TV app store.') }}
         </p>
       </li>
 
       <li>
-        <span class="absolute -left-[13px] flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">2</span>
+        {{ step_badge(2) }}
+        <p class="text-sm text-gray-700 dark:text-gray-300">
+          {{ _('Open Moonfin and, when it asks for a server, enter this address:') }}
+        </p>
+        {{ address_row(server_address) }}
+      </li>
+
+      {% if quick_connect_available %}
+      <li>
+        {{ step_badge(3) }}
         <p class="text-sm text-gray-700 dark:text-gray-300">
           {{ _('On the sign-in screen choose') }}
           <strong class="font-semibold text-gray-900 dark:text-gray-100">{{ _('Quick Connect') }}</strong>.
-          {{ _('Your device will show a code.') }}
+        </p>
+        <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
+          📌 {{ _('Your Smart TV will show a 6-digit code.') }}
         </p>
       </li>
 
       <li>
-        <span class="absolute -left-[13px] flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">3</span>
+        {{ step_badge(4) }}
         <p class="text-sm text-gray-700 dark:text-gray-300">
-          {{ _('Type that code here and you are in — no username, no password to type on that device.') }}
+          {{ _('Enter the code shown on your Smart TV on this page and press') }}
+          <strong class="font-semibold text-gray-900 dark:text-gray-100">{{ _('Connect') }}</strong>.
         </p>
 
         <form class="mt-3"
@@ -113,20 +154,99 @@
 
         <div id="qc-result" class="mt-3" aria-live="polite"></div>
       </li>
+      {% else %}
+      {# Quick Connect is off on the server, or we could not reach it. Offering
+         the code box anyway would be a dead end, so the TV signs in with the
+         username and password instead. #}
+      <li>
+        {{ step_badge(3) }}
+        <div class="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+          {{ _('Quick Connect is unavailable right now. On the sign-in screen choose Password and enter the username and password you just created.') }}
+        </div>
+      </li>
+      {% endif %}
     </ol>
-  </div>
-  {% else %}
-  {# Quick Connect is off on the server, or we could not reach it. Offering the
-     code box anyway would be a dead end, so route everyone to credentials. #}
-  <div x-show="isQuickConnect" x-cloak x-transition.opacity
-       class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
-    {{ _('Quick Connect is unavailable right now. Sign in on your device with the server address below plus the username and password you just created.') }}
-    <code class="mt-2 block select-all rounded bg-white/60 px-3 py-2 font-mono font-semibold dark:bg-black/20">{{ server_address }}</code>
-  </div>
-  {% endif %}
 
-  {# The old "signs in the classic way" branch lived here. It only existed for
-     the Samsung option, and with that option gone every device reaches Quick
-     Connect. Credentials are still the fallback when the server has the
-     feature switched off — see the {% raw %}{% else %}{% endraw %} above. #}
+    <h3 class="mt-8 text-base font-semibold text-gray-900 dark:text-gray-100">
+      🎬 {{ _('Installing the Moonfin app on a Smart TV') }}
+    </h3>
+    {% with video_url=url_for('static', filename='video/neexy-moonfin-smart-tv.mp4'),
+            poster_url=url_for('static', filename='video/neexy-moonfin-smart-tv-poster.jpg'),
+            title=_('Installing the Moonfin app on a Smart TV'),
+            caption='' %}
+      {% include 'wizard/widgets/video.html' %}
+    {% endwith %}
+  </div>
+
+  {# ── Path B: phone, tablet or computer — username and password ────────── #}
+  <div x-show="device === 'other'" x-cloak x-transition.opacity class="mt-6"
+       x-data="{ ready: false }" data-path="other">
+
+    <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
+      📱💻 {{ _('How to install Moonfin') }}
+    </h3>
+    <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">
+      {{ _('Before you start, read every step. Once you press the download button you will be taken to the store for your device.') }}
+    </p>
+
+    <ol class="relative mt-5 space-y-5 border-l-2 border-gray-200 pl-6 dark:border-gray-700">
+
+      <li>
+        {{ step_badge(1) }}
+        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Download Moonfin') }}</p>
+      </li>
+
+      <li>
+        {{ step_badge(2) }}
+        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Open Moonfin') }}</p>
+        <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
+          {{ _('It will ask for your server address:') }}
+        </p>
+        {{ address_row(server_address) }}
+        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          💡 {{ _('Press Copy now: in Moonfin you just paste the address, no typing.') }}
+        </p>
+      </li>
+
+      <li>
+        {{ step_badge(3) }}
+        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Choose Password') }}</p>
+        <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
+          {{ _('Enter the username and password you created.') }}
+        </p>
+      </li>
+    </ol>
+
+    {# The checkbox is the point of this block: the buyer leaves this page the
+       moment they press the button, so it only unlocks once they say they have
+       read the steps above. #}
+    <label :class="ready
+                   ? 'border-primary bg-primary/10 dark:bg-primary/20'
+                   : 'border-primary/60 bg-primary/5 dark:bg-primary/10 hover:border-primary'"
+           class="mt-8 flex cursor-pointer items-center gap-3 rounded-xl border-2 p-4 transition-colors">
+      <input type="checkbox"
+             x-model="ready"
+             class="h-6 w-6 shrink-0 cursor-pointer rounded text-primary accent-primary focus:ring-2 focus:ring-primary">
+      <span class="text-sm font-extrabold uppercase tracking-wide text-gray-900 dark:text-gray-100">
+        {{ _('I have read the instructions → download Moonfin') }}
+      </span>
+    </label>
+
+    {# An <a> cannot be disabled, so until the box is ticked it has no href:
+       not focusable, not clickable, announced as disabled. #}
+    <a :href="ready ? '{{ download_url }}' : null"
+       :aria-disabled="(!ready).toString()"
+       :tabindex="ready ? 0 : -1"
+       target="_blank"
+       rel="noopener noreferrer"
+       :class="ready
+               ? 'bg-primary text-white shadow-lg hover:bg-primary_hover'
+               : 'pointer-events-none bg-gray-200 text-gray-400 dark:bg-gray-800 dark:text-gray-500'"
+       class="mt-4 flex w-full items-center justify-center rounded-lg px-6 py-3 text-base font-semibold transition-colors focus:outline-none focus:ring-4 focus:ring-primary/40">
+      {{ _('Get Moonfin') }}
+    </a>
+    <p x-show="!ready" class="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+      {{ _('Tick the box above to turn on the button.') }}
+    </p>
+  </div>
 </div>

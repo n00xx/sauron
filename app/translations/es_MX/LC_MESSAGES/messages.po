@@ -187,13 +187,8 @@ msgstr "Conecta tu dispositivo"
 msgid "Set up your first device"
 msgstr "Configura tu primer dispositivo"
 
-msgid ""
-"Pick where you want to watch and we will walk you through it. You will not "
-"have to type your password on that device — we handle the sign-in for you."
-msgstr ""
-"Elige dónde quieres ver y te guiamos paso a paso. No vas a tener que "
-"escribir tu contraseña en ese dispositivo — nosotros nos encargamos de "
-"iniciar la sesión."
+msgid "Pick where you want to watch and we will walk you through it."
+msgstr "Elige dónde quieres ver y te guiamos paso a paso."
 
 msgid "Where are you setting up %(server)s?"
 msgstr "¿Dónde vas a configurar %(server)s?"
@@ -201,18 +196,16 @@ msgstr "¿Dónde vas a configurar %(server)s?"
 msgid "Smart TV, Fire TV, Roku, projector"
 msgstr "Smart TV, Fire TV, Roku, proyector"
 
-msgid "Apple TV, Xbox"
-msgstr "Apple TV, Xbox"
-
 msgid "Phone, tablet or computer"
 msgstr "Celular, tablet o computadora"
 
-msgid ""
-"Install Jellyfin on your device and, when it asks for a server, enter this "
-"address:"
+# Smart TV path
+msgid "Install Moonfin from your Smart TV app store."
+msgstr "Instala Moonfin desde la tienda de aplicaciones de tu Smart TV."
+
+msgid "Open Moonfin and, when it asks for a server, enter this address:"
 msgstr ""
-"Instala Jellyfin en tu dispositivo y, cuando te pida un servidor, escribe "
-"esta dirección:"
+"Abre Moonfin y, cuando te pida un servidor, escribe esta dirección:"
 
 msgid "Copy"
 msgstr "Copiar"
@@ -220,32 +213,68 @@ msgstr "Copiar"
 msgid "Copied"
 msgstr "¡Copiado!"
 
-msgid "You only type this once, the app remembers it."
-msgstr "Sólo la escribes una vez, la app la recuerda."
-
 msgid "On the sign-in screen choose"
 msgstr "En la pantalla de inicio de sesión elige"
 
-msgid "Your device will show a code."
-msgstr "Tu dispositivo va a mostrar un código."
+msgid "Your Smart TV will show a 6-digit code."
+msgstr "En tu Smart TV aparecerá un código de 6 dígitos."
 
-msgid ""
-"Type that code here and you are in — no username, no password to type on "
-"that device."
-msgstr ""
-"Escribe ese código aquí y ya estás dentro — sin usuario ni contraseña en ese "
-"dispositivo."
+msgid "Enter the code shown on your Smart TV on this page and press"
+msgstr "Introduce el código que aparece en tu Smart TV en esta página y pulsa"
 
 msgid "Connect"
 msgstr "Conectar"
 
 msgid ""
-"Quick Connect is unavailable right now. Sign in on your device with the "
-"server address below plus the username and password you just created."
+"Quick Connect is unavailable right now. On the sign-in screen choose "
+"Password and enter the username and password you just created."
 msgstr ""
-"Quick Connect no está disponible en este momento. Entra en tu dispositivo "
-"con la dirección del servidor de abajo, más el usuario y la contraseña que "
-"acabas de crear."
+"Quick Connect no está disponible en este momento. En la pantalla de inicio "
+"de sesión elige Contraseña e ingresa el usuario y la contraseña que acabas "
+"de crear."
+
+msgid "Installing the Moonfin app on a Smart TV"
+msgstr "Instalación de la aplicación Moonfin en Smart TV"
+
+# Phone, tablet or computer path: username and password, no Quick Connect
+msgid "How to install Moonfin"
+msgstr "Cómo instalar Moonfin"
+
+msgid ""
+"Before you start, read every step. Once you press the download button you "
+"will be taken to the store for your device."
+msgstr ""
+"Antes de comenzar, lee todos los pasos. Una vez que presiones el botón de "
+"descarga, serás enviado a la tienda correspondiente a tu dispositivo."
+
+msgid "Download Moonfin"
+msgstr "Descarga Moonfin"
+
+msgid "Open Moonfin"
+msgstr "Abre Moonfin"
+
+msgid "It will ask for your server address:"
+msgstr "Te pedirá la dirección de tu servidor:"
+
+msgid "Press Copy now: in Moonfin you just paste the address, no typing."
+msgstr ""
+"Te recomendamos presionar Copiar ahora: en Moonfin solo pegas la dirección, "
+"sin tener que escribirla."
+
+msgid "Choose Password"
+msgstr "Selecciona Contraseña"
+
+msgid "Enter the username and password you created."
+msgstr "Ingresa el usuario y la contraseña que creaste."
+
+msgid "I have read the instructions → download Moonfin"
+msgstr "Ya leí las instrucciones → descargar Moonfin"
+
+msgid "Get Moonfin"
+msgstr "Descargar Moonfin"
+
+msgid "Tick the box above to turn on the button."
+msgstr "Marca la casilla de arriba para activar el botón."
 
 # ─── Quick Connect result messages ──────────────────────────────────────────
 msgid "Connected!"
@@ -395,6 +424,14 @@ msgstr "Este paquete no tiene pasos que mostrar."
 # 2026.10.5, and they render from there until an admin deletes those steps in
 # the UI. Translated so nothing shows up in English in the meantime.
 # ════════════════════════════════════════════════════════════════════════════
+msgid ""
+"Pick where you want to watch and we will walk you through it. You will not "
+"have to type your password on that device — we handle the sign-in for you."
+msgstr ""
+"Elige dónde quieres ver y te guiamos paso a paso. No vas a tener que "
+"escribir tu contraseña en ese dispositivo — nosotros nos encargamos de "
+"iniciar la sesión."
+
 msgid ""
 "Pick where you want to watch and we will walk you through it. On a TV you "
 "will not have to type your password with the remote — we handle the sign-in "

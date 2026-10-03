@@ -125,24 +125,18 @@ def create_app(config_object=DevelopmentConfig):
     with app.app_context():
         try:
             from .services.wizard_seed import (
-                ensure_before_you_start_step,
-                ensure_before_you_start_video,
                 ensure_quick_connect_step,
-                ensure_video_step,
                 import_default_wizard_steps,
+                retire_intro_steps,
             )
 
             import_default_wizard_steps()
             # Existing Jellyfin installs never receive newly shipped steps from
-            # the seeder above, so these are backfilled explicitly. Order
-            # matters: each of the next two takes position 0, and the "before
-            # you start" page is the one that has to end up there. The last one
-            # swaps that page's original text for its video, so it runs after
-            # the page exists.
+            # the seeder above, so device setup is backfilled explicitly. The
+            # two pages that used to precede it are then dropped, once, which
+            # leaves device setup opening the wizard.
             ensure_quick_connect_step()
-            ensure_video_step()
-            ensure_before_you_start_step()
-            ensure_before_you_start_video()
+            retire_intro_steps()
             if show_startup:
                 logger.success("Wizard steps imported")
         except Exception as exc:

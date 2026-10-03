@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 import frontmatter
@@ -164,39 +163,6 @@ def import_default_wizard_steps() -> None:
 QUICK_CONNECT_MARKER = "widget:quick_connect"
 QUICK_CONNECT_SOURCE = BASE_DIR / "jellyfin" / "03_setup_device.md"
 
-# Same idea for the onboarding video step.
-VIDEO_MARKER = "widget:video"
-VIDEO_SOURCE = BASE_DIR / "jellyfin" / "00_video.md"
-
-# The "before you start" page has no widget to recognise it by, so it carries an
-# HTML comment instead. That is editable text and will not survive an admin
-# rewording the step, which is why the backfill also leaves a Settings flag
-# behind: once it has run, the step is the admin's to edit or delete.
-BEFORE_YOU_START_MARKER = "sauron:before-you-start"
-BEFORE_YOU_START_SOURCE = BASE_DIR / "jellyfin" / "00_before_you_start.md"
-BEFORE_YOU_START_FLAG = "wizard_before_you_start_seeded"
-
-# The text-and-screenshots version of that page, as shipped in 2026.10.18 and
-# fingerprinted with _normalised_sha256. Since then the bundled file is a short
-# video; a live row is swapped for it only while it still matches this, because
-# anything else is an admin's edit. The original is kept in
-# tests/fixtures/wizard_before_you_start_2026_10_18.md and a test pins the two.
-BEFORE_YOU_START_TEXT_SHA256 = (
-    "020e7839bba4fab29f2bcef65188961c278a6163032f525d23756ec174f00ca7"
-)
-BEFORE_YOU_START_VIDEO_FLAG = "wizard_before_you_start_video_seeded"
-
-
-def _normalised_sha256(text: str) -> str:
-    """Fingerprint *text* ignoring line endings and trailing whitespace.
-
-    Saving a step from the admin's textarea sends it back with CRLF line endings.
-    That is not an edit, and comparing raw bytes would quietly skip the backfill.
-    """
-    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    normalised = "\n".join(line.rstrip() for line in lines).strip()
-    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
-
 
 def ensure_quick_connect_step() -> None:
     """Add the Jellyfin device-setup step to installations that predate it.
@@ -250,190 +216,77 @@ def ensure_quick_connect_step() -> None:
     current_app.logger.info("Added the Jellyfin Quick Connect wizard step")
 
 
-def ensure_video_step() -> None:
-    """Open the Jellyfin wizard with the video, then the device setup.
+# The two pages that used to open the Jellyfin wizard — "Algunas cosas que
+# debes saber antes de empezar" and "Watch this first". They are recognised by
+# what they embed rather than by title, so an admin's rewording does not hide
+# them: the first carries an HTML comment, the second is the only other step
+# built around the video widget.
+BEFORE_YOU_START_MARKER = "sauron:before-you-start"
+VIDEO_MARKER = "widget:video"
+INTRO_STEPS_RETIRED_FLAG = "wizard_intro_steps_retired"
 
-    Same narrow exception as ``ensure_quick_connect_step``: the seeder only
-    bootstraps server types that are missing entirely, so a live Jellyfin install
-    would never receive this.
 
-    Two things happen here, both once, both guarded by the video marker:
+def _is_retired_intro(row: WizardStep) -> bool:
+    markdown = row.markdown or ""
+    # Device setup is the step the wizard now opens on. Whatever an admin has
+    # embedded in it, it stays.
+    if QUICK_CONNECT_MARKER in markdown:
+        return False
+    return BEFORE_YOU_START_MARKER in markdown or VIDEO_MARKER in markdown
 
-    1. The video goes in at position 0. It is the introduction — it narrates what
-       the remaining steps then let you do, so it cannot sit anywhere else.
-    2. The Quick Connect step is pulled up right behind it. ``ensure_quick_connect
-       _step`` *appends*, so on installs that already had wizard steps it landed
-       after the tips page, leaving the video followed by reading material and the
-       actual "connect your device" instructions at the very end.
 
-    Everything else keeps its relative order. This reorders; it never deletes or
-    rewrites content. The two text steps the video supersedes ("What is
-    Jellyfin?" and "Download Jellyfin Clients") are gone from the bundled files
-    for fresh installs, but on an existing install they stay put until an admin
-    removes them in the UI — they may have been edited, and that is not a call
-    this function gets to make.
+def retire_intro_steps() -> None:
+    """Drop the two pages that opened the Jellyfin wizard, once.
+
+    The wizard now opens straight on device setup. The "before you start" video
+    moved to the guides at neexy.net/blog, and the "watch this first" video was
+    dropped. Fresh installs never see either: their bundled files are gone. A
+    live install still holds both rows, and the seeder never touches existing
+    rows, so this deletes them and closes the gap they leave in the numbering.
+
+    Runs once, recorded by a Settings flag, so an admin who adds either page back
+    from the UI keeps it.
     """
     inspector = inspect(db.engine)
     if not inspector.has_table(WizardStep.__tablename__):
         return
 
-    if not VIDEO_SOURCE.exists():
+    if Settings.query.filter_by(key=INTRO_STEPS_RETIRED_FLAG).first():
         return
 
     existing = (
         db.session.query(WizardStep).filter(WizardStep.server_type == "jellyfin").all()
     )
 
-    # Nothing seeded for Jellyfin yet: this is a fresh install and
-    # import_default_wizard_steps already picks the file up from disk, where its
-    # 00_ filename prefix sorts it ahead of the steps it introduces.
+    # Nothing seeded for Jellyfin yet: a fresh install, seeded from disk without
+    # these pages.
     if not existing:
         return
 
-    # Marker check spans every category: an admin may have moved the step. The
-    # "before you start" page embeds a video of its own since 2026.10.20, so the
-    # widget alone no longer identifies this step.
-    if any(
-        VIDEO_MARKER in (row.markdown or "")
-        and BEFORE_YOU_START_MARKER not in (row.markdown or "")
-        for row in existing
-    ):
-        return
+    retired = [row for row in existing if _is_retired_intro(row)]
+    for row in retired:
+        db.session.delete(row)
+    db.session.flush()
 
-    meta = _parse_markdown(VIDEO_SOURCE)
-    video = WizardStep(
-        server_type="jellyfin",
-        category="post_invite",
-        position=_PARKING_OFFSET,
-        title=meta["title"],
-        markdown=meta["markdown"],
-        requires=meta["requires"],
-    )
-    db.session.add(video)
-
-    post_invite = sorted(
-        (row for row in existing if row.category == "post_invite"),
-        key=lambda row: row.position,
-    )
-    quick_connect = [
-        row for row in post_invite if QUICK_CONNECT_MARKER in (row.markdown or "")
-    ]
-    rest = [row for row in post_invite if row not in quick_connect]
-
-    _renumber([video, *quick_connect, *rest])
-    db.session.commit()
-    current_app.logger.info("Added the Jellyfin onboarding video wizard step")
-
-
-def ensure_before_you_start_step() -> None:
-    """Open the Jellyfin wizard with the "before you start" page.
-
-    Same narrow exception as the two backfills above, for the same reason: the
-    seeder only bootstraps server types that are missing entirely.
-
-    It goes in at position 0, ahead of the video. The video introduces the
-    device setup that follows it; this page is about none of that — renewing,
-    recovering a login, freeing a device slot — so it sits in front rather than
-    between the two. Everything else keeps its relative order, and nothing
-    already there is edited.
-
-    Runs once. The flag, not the marker, is what makes that hold on an install
-    whose admin has since reworded or removed the step.
-    """
-    inspector = inspect(db.engine)
-    if not inspector.has_table(WizardStep.__tablename__):
-        return
-
-    if not BEFORE_YOU_START_SOURCE.exists():
-        return
-
-    if Settings.query.filter_by(key=BEFORE_YOU_START_FLAG).first():
-        return
-
-    existing = (
-        db.session.query(WizardStep).filter(WizardStep.server_type == "jellyfin").all()
-    )
-
-    # Nothing seeded for Jellyfin yet: this is a fresh install and
-    # import_default_wizard_steps already picks the file up from disk, where its
-    # filename sorts it into position 0 on its own.
-    if not existing:
-        return
-
-    # Already there — seeded from disk on a fresh install, or moved by an admin.
-    if not any(BEFORE_YOU_START_MARKER in (row.markdown or "") for row in existing):
-        meta = _parse_markdown(BEFORE_YOU_START_SOURCE)
-        step = WizardStep(
-            server_type="jellyfin",
-            category="post_invite",
-            position=_PARKING_OFFSET,
-            title=meta["title"],
-            markdown=meta["markdown"],
-            requires=meta["requires"],
-        )
-        db.session.add(step)
-
-        post_invite = sorted(
-            (row for row in existing if row.category == "post_invite"),
+    # Marker check spans every category, since an admin may have moved a page,
+    # so each category it left gets renumbered on its own.
+    for category in sorted({row.category for row in retired}):
+        remaining = sorted(
+            (
+                row
+                for row in existing
+                if row.category == category and row not in retired
+            ),
             key=lambda row: row.position,
         )
-        _renumber([step, *post_invite])
-        current_app.logger.info("Added the Jellyfin 'before you start' wizard step")
+        _renumber(remaining)
 
-    db.session.add(Settings(key=BEFORE_YOU_START_FLAG, value="1"))
-    db.session.commit()
+    if retired:
+        current_app.logger.info(
+            "Removed %d retired Jellyfin intro wizard step(s)", len(retired)
+        )
 
-
-def ensure_before_you_start_video() -> None:
-    """Swap the text "before you start" page for its video, once.
-
-    The page shipped in 2026.10.18 as text with six screenshots; the bundled file
-    is now a ~55 s video with the two links underneath that a video cannot make
-    clickable. Fresh installs read that file from disk. Live installs hold the
-    old text in the database and the seeder never edits a row, so this replaces
-    it — but only while the row is still exactly what shipped. An admin who
-    reworded it keeps their version, and the log says so.
-
-    Runs once, recorded by its own flag, so pasting the old text back later is
-    not undone at the next restart. Position and title are left alone.
-    """
-    inspector = inspect(db.engine)
-    if not inspector.has_table(WizardStep.__tablename__):
-        return
-
-    if not BEFORE_YOU_START_SOURCE.exists():
-        return
-
-    if Settings.query.filter_by(key=BEFORE_YOU_START_VIDEO_FLAG).first():
-        return
-
-    existing = (
-        db.session.query(WizardStep).filter(WizardStep.server_type == "jellyfin").all()
-    )
-
-    # Fresh install: import_default_wizard_steps already seeded the video version.
-    if not existing:
-        return
-
-    page = next(
-        (row for row in existing if BEFORE_YOU_START_MARKER in (row.markdown or "")),
-        None,
-    )
-    if page is not None:
-        bundled = _parse_markdown(BEFORE_YOU_START_SOURCE)["markdown"]
-        current = _normalised_sha256(page.markdown)
-        if current == BEFORE_YOU_START_TEXT_SHA256:
-            page.markdown = bundled
-            current_app.logger.info(
-                "Replaced the Jellyfin 'before you start' text with its video"
-            )
-        elif current != _normalised_sha256(bundled):
-            current_app.logger.warning(
-                "Jellyfin 'before you start' step was edited by an admin; left as "
-                "is instead of replacing it with the video"
-            )
-
-    db.session.add(Settings(key=BEFORE_YOU_START_VIDEO_FLAG, value="1"))
+    db.session.add(Settings(key=INTRO_STEPS_RETIRED_FLAG, value="1"))
     db.session.commit()
 
 

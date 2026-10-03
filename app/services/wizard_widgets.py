@@ -35,6 +35,11 @@ from app.services.media.service import get_media_client
 # what shows when that field is empty.
 PUBLIC_SERVER_ADDRESS = "tv.neexy.net"
 
+# Where the phone, tablet and computer path sends the buyer once they have read
+# the steps. That page detects the device and shows its store button, so the
+# wizard does not need to keep its own list of stores.
+MOONFIN_DOWNLOAD_URL = "https://neexy.net/descargar"
+
 
 class WizardWidget:
     """Base class for wizard widgets."""
@@ -312,23 +317,18 @@ class QuickConnectWidget(WizardWidget):
     doubly so, because each variant is its own candidate.
     """
 
-    # (key, emoji, label). Every option now takes the same Quick Connect path:
-    # the code box is not a TV-only feature, it works just as well from the
-    # phone, tablet and desktop apps, and typing a six-digit code beats typing a
-    # password on any of them.
+    # (key, emoji, label). The two options take different paths:
     #
-    # The picker survives the merge because the *instructions* still differ by
-    # device in the buyer's head ("where do I install this?"), and because the
-    # earlier version trained people to pick before reading.
+    #   tv    → Quick Connect. Typing a password with a remote is the problem
+    #           the code box exists to solve.
+    #   other → username and password. On a phone, tablet or computer the
+    #           buyer is already holding a keyboard, and Quick Connect would need
+    #           a second screen showing this page.
     #
-    # A Samsung option used to sit here, routed to username and password:
-    # Jellyfin's client support table lists Android TV, Roku, WebOS,
-    # Swiftfin/tvOS and Xbox for Quick Connect but has no row for Tizen. It was
-    # removed on request; a Tizen owner now lands on the Quick Connect steps
-    # like everyone else.
+    # An "Apple TV, Xbox" option and, before it, a Samsung one used to sit here.
+    # Both were removed on request.
     DEVICE_OPTIONS: ClassVar[list[tuple[str, str, Any]]] = [
         ("tv", "📺", _l("Smart TV, Fire TV, Roku, projector")),
-        ("console", "🎮", _l("Apple TV, Xbox")),
         ("other", "📱", _l("Phone, tablet or computer")),
     ]
 
@@ -346,6 +346,7 @@ class QuickConnectWidget(WizardWidget):
                 # cannot reach from outside the house.
                 server_address=context.get("external_url") or PUBLIC_SERVER_ADDRESS,
                 server_name=context.get("server_name") or "Jellyfin",
+                download_url=MOONFIN_DOWNLOAD_URL,
                 quick_connect_available=self._quick_connect_available(
                     server_type, context.get("server_id")
                 ),

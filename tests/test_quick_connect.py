@@ -383,22 +383,97 @@ def test_widget_falls_back_to_credentials_when_quick_connect_is_off(
     assert "https://tv.example.net" in html
 
 
-def test_widget_offers_every_device_path(app, jellyfin_server, monkeypatch):
-    """Three options, and every one of them reaches Quick Connect.
+def _paths(html):
+    """Split the widget into its Smart TV and phone/computer sections.
 
-    The code box is not a TV-only feature — the phone, tablet and desktop apps
-    all support it — so the picker no longer branches into a credentials path.
-    The separate Samsung option was dropped along with that branch.
+    The template renders the TV path first, then the phone path, each opening
+    on a ``data-path`` attribute.
     """
+    tv_start = html.index('data-path="tv"')
+    other_start = html.index('data-path="other"')
+    assert tv_start < other_start
+    return html[tv_start:other_start], html[other_start:]
+
+
+def test_widget_offers_two_device_paths(app, jellyfin_server, monkeypatch):
+    """Smart TV and phone/tablet/computer. "Apple TV, Xbox" was dropped."""
     with app.test_request_context():
         html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
 
-    for key in ("'tv'", "'console'", "'other'"):
-        assert f"device = {key}" in html
-
+    assert "device = 'tv'" in html
+    assert "device = 'other'" in html
+    assert "'console'" not in html
+    assert "Apple TV" not in html
     assert "'samsung'" not in html
-    # No option falls through to "sign in the classic way" any more.
-    assert "isManual" not in html
+
+
+def test_only_the_tv_path_uses_quick_connect(app, jellyfin_server, monkeypatch):
+    """On a phone the buyer reads this page on the device they are setting up,
+    so there is no second screen to type a code into."""
+    with app.test_request_context():
+        html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
+
+    tv, other = _paths(html)
+    assert 'name="code"' in tv
+    assert "Quick Connect" in tv
+    assert 'name="code"' not in other
+    assert "Quick Connect" not in other
+    assert "/wizard/quick-connect" not in other
+
+
+def test_tv_path_ends_with_the_install_video(app, jellyfin_server, monkeypatch):
+    with app.test_request_context():
+        html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
+
+    tv, other = _paths(html)
+    assert "Install Moonfin from your Smart TV app store." in tv
+    assert "Installing the Moonfin app on a Smart TV" in tv
+    assert "/static/video/neexy-moonfin-smart-tv.mp4" in tv
+    assert "/static/video/neexy-moonfin-smart-tv-poster.jpg" in tv
+    assert tv.index('id="qc-result"') < tv.index("<video"), "the video goes last"
+    assert "<video" not in other
+
+
+def test_tv_path_keeps_the_install_steps_when_quick_connect_is_off(
+    app, jellyfin_server, monkeypatch
+):
+    with app.test_request_context():
+        html = _render_widget(monkeypatch, jellyfin_server, enabled=False)
+
+    tv, _ = _paths(html)
+    assert "Install Moonfin from your Smart TV app store." in tv
+    assert "https://tv.example.net" in tv
+    assert "unavailable right now" in tv
+    assert "<video" in tv
+
+
+def test_phone_path_unlocks_the_download_only_after_the_checkbox(
+    app, jellyfin_server, monkeypatch
+):
+    """The buyer leaves the page when they press the button, so it stays dead
+    until they tick the box saying they read the steps."""
+    from app.services.wizard_widgets import MOONFIN_DOWNLOAD_URL
+
+    with app.test_request_context():
+        html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
+
+    _, other = _paths(html)
+    assert MOONFIN_DOWNLOAD_URL == "https://neexy.net/descargar"
+    assert 'type="checkbox"' in other
+    assert 'x-model="ready"' in other
+    # No static href: the link only exists once `ready` is true.
+    assert f":href=\"ready ? '{MOONFIN_DOWNLOAD_URL}' : null\"" in other
+    assert f'href="{MOONFIN_DOWNLOAD_URL}"' not in other.replace(":href=", "")
+
+
+def test_phone_path_lets_the_buyer_copy_the_address(app, jellyfin_server, monkeypatch):
+    with app.test_request_context():
+        html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
+
+    _, other = _paths(html)
+    assert 'data-copy="https://tv.example.net"' in other
+    assert "Press Copy now" in other
+    assert "Choose Password" in other
 
 
 def test_widget_opts_out_of_prose_typography(app, jellyfin_server, monkeypatch):
