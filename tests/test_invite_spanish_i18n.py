@@ -245,9 +245,10 @@ def test_device_setup_renders_in_spanish_for_the_buyer(client, session, monkeypa
         "Introduce el código que aparece en tu Smart TV en esta página y pulsa",
         "Instalación de la aplicación Moonfin en Smart TV",
         # Phone, tablet or computer path
-        ">Instalar</p>",
-        ">Abrir</p>",
-        ">Añadir servidor</p>",
+        ">Descarga e instala Moonfin desde la tienda de aplicaciones de tu "
+        "dispositivo.</p>",
+        ">Abre la aplicación Moonfin.</p>",
+        ">Selecciona “Añadir servidor”.</p>",
         ">Dirección del servidor</p>",
         "Te pedirá la dirección de tu servidor:",
         ">Selecciona Contraseña</p>",
@@ -266,6 +267,9 @@ def test_device_setup_renders_in_spanish_for_the_buyer(client, session, monkeypa
         "Install Moonfin from your Smart TV app store.",
         "How to install Moonfin",
         ">Install</p>",
+        "Download and install Moonfin",
+        "Open the Moonfin app.",
+        "Choose “Add server”.",
         ">Open</p>",
         ">Add server</p>",
         ">Server address</p>",
@@ -286,6 +290,9 @@ def test_device_setup_renders_in_spanish_for_the_buyer(client, session, monkeypa
         "Antes de comenzar, lee todos los pasos.",
         "Descarga Moonfin",
         "Ingresa el usuario y la contraseña que creaste.",
+        ">Instalar</p>",
+        ">Abrir</p>",
+        ">Añadir servidor</p>",
     ):
         assert removed not in body, removed
 

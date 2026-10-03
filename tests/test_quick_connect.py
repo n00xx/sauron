@@ -486,9 +486,9 @@ def test_phone_path_walks_moonfin_screen_by_screen(app, jellyfin_server, monkeyp
 
     _, other = _paths(html)
     steps = [
-        ">Install</p>",
-        ">Open</p>",
-        ">Add server</p>",
+        ">Download and install Moonfin from your device's app store.</p>",
+        ">Open the Moonfin app.</p>",
+        ">Choose “Add server”.</p>",
         ">Server address</p>",
         ">Choose Password</p>",
         ">Enter your username and password and choose Sign in.</p>",
@@ -503,6 +503,9 @@ def test_phone_path_walks_moonfin_screen_by_screen(app, jellyfin_server, monkeyp
         "Download Moonfin",
         "Open Moonfin",
         "Enter the username and password you created.",
+        ">Install</p>",
+        ">Open</p>",
+        ">Add server</p>",
     ):
         assert removed not in other, removed
 

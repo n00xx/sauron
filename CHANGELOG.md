@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.32] (2026-10-03)
+
+### Changed
+
+- **Wizard, ruta de celular:** los pasos 1 a 3 ahora son frases completas:
+  "Descarga e instala Moonfin desde la tienda de aplicaciones de tu
+  dispositivo.", "Abre la aplicacion Moonfin." y "Selecciona “Anadir
+  servidor”.". Los pasos 4 a 6 y las franjas del GIF no cambian.
+
 ## [2026.10.31] (2026-10-03)
 
 ### Added

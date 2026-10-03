@@ -247,14 +247,16 @@ msgstr ""
 "Antes de comenzar, lee todos los pasos. Una vez que presiones el botón de "
 "descarga, serás enviado a la tienda correspondiente a tu dispositivo."
 
-msgid "Install"
-msgstr "Instalar"
+msgid "Download and install Moonfin from your device's app store."
+msgstr ""
+"Descarga e instala Moonfin desde la tienda de aplicaciones de tu "
+"dispositivo."
 
-msgid "Open"
-msgstr "Abrir"
+msgid "Open the Moonfin app."
+msgstr "Abre la aplicación Moonfin."
 
-msgid "Add server"
-msgstr "Añadir servidor"
+msgid "Choose “Add server”."
+msgstr "Selecciona “Añadir servidor”."
 
 msgid "Server address"
 msgstr "Dirección del servidor"
