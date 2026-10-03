@@ -2,9 +2,13 @@
 Overseerr/Jellyseerr companion client implementation.
 """
 
+import requests
+
 from app.models import Connection
 
 from .base import CompanionClient
+
+TEST_TIMEOUT_SECONDS = 10
 
 
 class OverseerrClient(CompanionClient):
@@ -58,17 +62,29 @@ class OverseerrClient(CompanionClient):
             "message": "Overseerr users managed automatically",
         }
 
-    def test_connection(self, connection: Connection) -> dict[str, str]:  # noqa: ARG002
-        """
-        Test connection for Overseerr (info-only).
+    def test_connection(self, connection: Connection) -> dict[str, str]:
+        """Check the URL and API key when given; info-only otherwise.
 
-        Args:
-            connection: Connection object with URL and API key (unused - info-only)
-
-        Returns:
-            Dict with 'status' and 'message' keys
+        The URL and API key are optional. With them, sauron can take Seerr
+        requests away from members on the renewal screen
+        (app/services/seerr_access.py), so they must actually work.
         """
-        return {
-            "status": "info_only",
-            "message": "Overseerr connections are informational only - no API testing required",
-        }
+        if not (connection.url and connection.api_key):
+            return {
+                "status": "info_only",
+                "message": "Overseerr connections are informational only - no API testing required",
+            }
+        try:
+            response = requests.get(
+                f"{connection.url.rstrip('/')}/api/v1/settings/main",
+                headers={"X-Api-Key": connection.api_key},
+                timeout=TEST_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            return {"status": "error", "message": f"Could not reach Seerr: {exc}"}
+        if response.status_code != 200:
+            return {
+                "status": "error",
+                "message": f"Seerr refused the API key (HTTP {response.status_code})",
+            }
+        return {"status": "success", "message": "Connected to Seerr"}

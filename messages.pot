@@ -4422,3 +4422,8 @@ msgstr ""
 #: app/templates/tables/user_card.html:194
 msgid "Can sign in, but only sees the renewal screen until renewed"
 msgstr ""
+
+#: app/templates/settings/connections/form.html:142
+#: app/templates/modals/connection-form.html:91
+msgid "Optional: with Seerr's URL and API key, members on the renewal screen cannot request titles until they renew."
+msgstr ""

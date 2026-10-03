@@ -44,8 +44,8 @@
         </div>
         <!-- Connection Name -->
         <div>
-          {{ form.name.label(class="block mb-2 text-sm font-medium " + ("text-gray-500 dark:text-gray-400" if form.connection_type.data == 'overseerr' else "text-gray-900 dark:text-white") ) }}
-          {{ form.name(class="text-sm rounded-lg block w-full p-2.5 " + ("bg-gray-100 border-gray-200 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:border-gray-600 dark:text-gray-400" if form.connection_type.data == 'overseerr' else "bg-gray-50 border border-gray-300 text-gray-900 focus:ring-primary focus:border-primary dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white dark:focus:ring-primary dark:focus:border-primary") , disabled=(form.connection_type.data == 'overseerr')) }}
+          {{ form.name.label(class="block mb-2 text-sm font-medium text-gray-900 dark:text-white") }}
+          {{ form.name(class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary focus:border-primary block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white dark:focus:ring-primary dark:focus:border-primary") }}
           {% if form.name.errors %}
             <div class="mt-1 text-sm text-red-600 dark:text-red-400">
               {% for error in form.name.errors %}<p>{{ error }}</p>{% endfor %}
@@ -54,8 +54,8 @@
         </div>
         <!-- Media Server -->
         <div>
-          {{ form.media_server_id.label(class="block mb-2 text-sm font-medium " + ("text-gray-500 dark:text-gray-400" if form.connection_type.data == 'overseerr' else "text-gray-900 dark:text-white") ) }}
-          {{ form.media_server_id(class="text-sm rounded-lg block w-full p-2.5 " + ("bg-gray-100 border-gray-200 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:border-gray-600 dark:text-gray-400" if form.connection_type.data == 'overseerr' else "bg-gray-50 border border-gray-300 text-gray-900 focus:ring-primary focus:border-primary dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white dark:focus:ring-primary dark:focus:border-primary") , disabled=(form.connection_type.data == 'overseerr')) }}
+          {{ form.media_server_id.label(class="block mb-2 text-sm font-medium text-gray-900 dark:text-white") }}
+          {{ form.media_server_id(class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary focus:border-primary block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white dark:focus:ring-primary dark:focus:border-primary") }}
           {% if form.media_server_id.errors %}
             <div class="mt-1 text-sm text-red-600 dark:text-red-400">
               {% for error in form.media_server_id.errors %}<p>{{ error }}</p>{% endfor %}
@@ -87,7 +87,10 @@
               </div>
             </div>
           </div>
-        {% else %}
+          <p class="text-sm text-gray-600 dark:text-gray-300">
+            {{ _("Optional: with Seerr's URL and API key, members on the renewal screen cannot request titles until they renew.") }}
+          </p>
+        {% endif %}
           <!-- URL -->
           <div>
             {{ form.url.label(class="block mb-2 text-sm font-medium text-gray-900 dark:text-white") }}
@@ -122,7 +125,6 @@
               </div>
             {% endif %}
           </div>
-        {% endif %}
         <!-- Test Result Area -->
         <div id="test-result-area" class="mt-4"></div>
         <!-- Test Spinner -->
@@ -149,14 +151,12 @@
               {{ _("Update Connection") }}
             {% endif %}
           </button>
-          {% if form.connection_type.data != 'overseerr' %}
-            <button type="button"
-                    class="py-2.5 px-5 ms-3 text-sm font-medium text-blue-700 focus:outline-none bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 focus:z-10 focus:ring-4 focus:ring-blue-100 dark:focus:ring-blue-700 dark:bg-blue-900 dark:text-blue-400 dark:border-blue-600 dark:hover:text-white dark:hover:bg-blue-800"
-                    hx-post="{{ url_for('connections.test_connection') }}"
-                    hx-target="#test-result-area"
-                    hx-include="form"
-                    hx-indicator="#test-spinner">{{ _("Test Connection") }}</button>
-          {% endif %}
+          <button type="button"
+                  class="py-2.5 px-5 ms-3 text-sm font-medium text-blue-700 focus:outline-none bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 focus:z-10 focus:ring-4 focus:ring-blue-100 dark:focus:ring-blue-700 dark:bg-blue-900 dark:text-blue-400 dark:border-blue-600 dark:hover:text-white dark:hover:bg-blue-800"
+                  hx-post="{{ url_for('connections.test_connection') }}"
+                  hx-target="#test-result-area"
+                  hx-include="form"
+                  hx-indicator="#test-spinner">{{ _("Test Connection") }}</button>
           <button type="button"
                   class="py-2.5 px-5 ms-3 text-sm font-medium text-gray-900 focus:outline-none bg-white rounded-lg border border-gray-200 hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-4 focus:ring-gray-100 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700"
                   onclick="document.getElementById('connection-modal-backdrop').remove()">{{ _("Cancel") }}</button>

@@ -3159,3 +3159,6 @@ msgstr "Pantalla de renovación"
 
 msgid "Can sign in, but only sees the renewal screen until renewed"
 msgstr "Puede iniciar sesión, pero solo ve la pantalla de renovación hasta que renueve"
+
+msgid "Optional: with Seerr's URL and API key, members on the renewal screen cannot request titles until they renew."
+msgstr "Opcional: con la URL y la API key de Seerr, los socios en la pantalla de renovación no pueden pedir títulos hasta que renueven."
