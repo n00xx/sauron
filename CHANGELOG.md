@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.23] (2026-10-03)
+
+### Added
+
+- **Pantalla de renovacion en lugar de cuenta desactivada.** Nuevo valor de
+  "Expiry Action": "Show only the renewal screen (Jellyfin)". Al vencer, la
+  cuenta sigue pudiendo iniciar sesion pero solo ve la biblioteca "Membresia
+  vencida", cuya portada lleva el QR a `neexy.net/pay?renovar=1`. Ninguna otra
+  biblioteca, TV en vivo, canal ni descarga.
+
+  Por que: desactivar mata la sesion de la TV (y no revive al reactivar), asi
+  que cada renovacion obligaba a volver a entrar; y Moonfin 2.5.1 contesta el
+  login de una cuenta desactivada con "Connection failed (badResponse): HTTP
+  403", sin decir nada de renovar. Medido en Jellyfin 12.1: con solo esa
+  biblioteca, la misma sesion recibe 404 en la ficha, la reproduccion y la
+  descarga de todo lo demas, y Continuar viendo y la busqueda no lo muestran.
+
+  - Al renovar (`/extend` o `/enable`, sin cambios para la tienda) vuelven las
+    bibliotecas, TV en vivo, descargas y canales que tenia, sin volver a iniciar
+    sesion. Solo se guardan esos campos, para no deshacer un cambio de plan.
+  - Al restringir se detiene lo que se reproduce y se avisa en pantalla.
+  - Moonbase: aviso "Tu membresia vencio" en el buzon, con el boton de renovar.
+    Reemplaza al de ultimo dia y se retira al renovar.
+  - Los socios que el barrido ya habia desactivado pasan solos a la pantalla
+    de renovacion en la siguiente pasada de caducidad.
+  - Solo la caducidad restringe. `POST /disable` y el boton del panel siguen
+    desactivando de verdad, y un baneo hecho en Jellyfin nunca se levanta.
+  - Panel: insignia "Pantalla de renovacion".
+
+  **Configuracion del servidor, no de esta imagen:** elegir esa opcion en
+  Settings -> General -> Expiry Action, y la biblioteca "Membresia vencida" en
+  Jellyfin (vacia, sin carpeta, con la tarjeta como Primary/Thumb/Backdrop). Sin
+  la biblioteca, la cuenta restringida no ve ninguna.
+
+### Changed
+
+- **"Todas las bibliotecas" ya no incluye la pantalla de renovacion.** Cuando
+  existe, una invitacion o un cambio a "todas" se guarda como lista explicita
+  sin ella, y nunca se ofrece en las invitaciones.
+
 ## [2026.10.22] (2026-10-02)
 
 ### Fixed
