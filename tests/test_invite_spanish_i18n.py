@@ -245,10 +245,14 @@ def test_device_setup_renders_in_spanish_for_the_buyer(client, session, monkeypa
         "Introduce el código que aparece en tu Smart TV en esta página y pulsa",
         "Instalación de la aplicación Moonfin en Smart TV",
         # Phone, tablet or computer path
-        "Descarga Moonfin",
+        ">Instalar</p>",
+        ">Abrir</p>",
+        ">Añadir servidor</p>",
+        ">Dirección del servidor</p>",
         "Te pedirá la dirección de tu servidor:",
-        "Selecciona Contraseña",
-        "Ingresa el usuario y la contraseña que creaste.",
+        ">Selecciona Contraseña</p>",
+        ">Ingresa tu usuario y contraseña y selecciona Iniciar sesión.</p>",
+        'alt="Moonfin en el celular, pantalla por pantalla"',
         "Ya leí las instrucciones → descargar Moonfin",
         "Descargar Moonfin",
     ):
@@ -257,16 +261,25 @@ def test_device_setup_renders_in_spanish_for_the_buyer(client, session, monkeypa
     for english in (
         "Install Moonfin from your Smart TV app store.",
         "How to install Moonfin",
+        ">Install</p>",
+        ">Open</p>",
+        ">Add server</p>",
+        ">Server address</p>",
+        "Enter your username and password and choose Sign in.",
+        "Moonfin on a phone, screen by screen",
         "I have read the instructions",
         "Get Moonfin",
         "Apple TV",
     ):
         assert english not in body, english
 
-    # Removed from the phone path on request: the steps speak for themselves.
+    # Removed from the phone path on request: the steps speak for themselves,
+    # and then reshaped to one step per Moonfin screen.
     for removed in (
         "Cómo instalar Moonfin",
         "Antes de comenzar, lee todos los pasos.",
+        "Descarga Moonfin",
+        "Ingresa el usuario y la contraseña que creaste.",
     ):
         assert removed not in body, removed
 

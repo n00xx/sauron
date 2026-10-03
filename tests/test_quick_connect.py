@@ -477,6 +477,51 @@ def test_phone_path_lets_the_buyer_copy_the_address(app, jellyfin_server, monkey
     assert "Choose Password" in other
 
 
+def test_phone_path_walks_moonfin_screen_by_screen(app, jellyfin_server, monkeypatch):
+    """Six steps, one per screen Moonfin shows on a phone, in the order the GIF
+    plays them. The address sits on its own step, where Moonfin asks for it."""
+    with app.test_request_context():
+        html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
+
+    _, other = _paths(html)
+    steps = [
+        ">Install</p>",
+        ">Open</p>",
+        ">Add server</p>",
+        ">Server address</p>",
+        ">Choose Password</p>",
+        ">Enter your username and password and choose Sign in.</p>",
+    ]
+    positions = [other.index(step) for step in steps]
+    assert positions == sorted(positions)
+
+    address = other.index('data-copy="https://tv.example.net"')
+    assert positions[3] < address < positions[4], "the address belongs to step 4"
+
+    for removed in (
+        "Download Moonfin",
+        "Open Moonfin",
+        "Enter the username and password you created.",
+    ):
+        assert removed not in other, removed
+
+
+def test_phone_path_shows_the_setup_gif_above_the_checkbox(
+    app, jellyfin_server, monkeypatch
+):
+    with app.test_request_context():
+        html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
+
+    tv, other = _paths(html)
+    gif = "/static/img/neexy-moonfin-phone-setup.gif"
+    assert gif in other
+    assert gif not in tv
+    assert other.index(gif) < other.index('type="checkbox"')
+    # Hidden until the buyer picks this path, so a TV buyer never downloads it.
+    assert 'loading="lazy"' in other
+    assert 'width="700"' in other and 'height="650"' in other
+
+
 def test_widget_opts_out_of_prose_typography(app, jellyfin_server, monkeypatch):
     """`not-prose` is not decoration — dropping it puts two bugs back on screen.
 

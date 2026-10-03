@@ -187,16 +187,27 @@
   <div x-show="device === 'other'" x-cloak x-transition.opacity class="mt-6"
        x-data="{ ready: false }" data-path="other">
 
+    {# One step per screen Moonfin shows, in the order the GIF below plays them. #}
     <ol class="relative space-y-5 border-l-2 border-gray-200 pl-6 dark:border-gray-700">
 
       <li>
         {{ step_badge(1) }}
-        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Download Moonfin') }}</p>
+        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Install') }}</p>
       </li>
 
       <li>
         {{ step_badge(2) }}
-        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Open Moonfin') }}</p>
+        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Open') }}</p>
+      </li>
+
+      <li>
+        {{ step_badge(3) }}
+        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Add server') }}</p>
+      </li>
+
+      <li>
+        {{ step_badge(4) }}
+        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Server address') }}</p>
         <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
           {{ _('It will ask for your server address:') }}
         </p>
@@ -207,13 +218,28 @@
       </li>
 
       <li>
-        {{ step_badge(3) }}
+        {{ step_badge(5) }}
         <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Choose Password') }}</p>
-        <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
-          {{ _('Enter the username and password you created.') }}
-        </p>
+      </li>
+
+      <li>
+        {{ step_badge(6) }}
+        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Enter your username and password and choose Sign in.') }}</p>
       </li>
     </ol>
+
+    {# Six frames, two seconds each, one per step above. Re-encoded from the
+       original with a single optimised palette (567K → 434K, same 700×650).
+       `loading="lazy"` matters: this path is display:none until the buyer picks
+       it, so a TV buyer never downloads the file. width/height reserve the box
+       so the checkbox below does not jump when the frames arrive. #}
+    <figure class="mt-8 flex justify-center">
+      <img src="{{ url_for('static', filename='img/neexy-moonfin-phone-setup.gif') }}"
+           alt="{{ _('Moonfin on a phone, screen by screen') }}"
+           width="700" height="650"
+           loading="lazy" decoding="async"
+           class="h-auto w-full max-w-md rounded-xl border border-gray-200 shadow-lg dark:border-gray-700">
+    </figure>
 
     {# The checkbox is the point of this block: the buyer leaves this page the
        moment they press the button, so it only unlocks once they say they have

@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.29] (2026-10-03)
+
+### Changed
+
+- **Wizard, ruta de celular, tablet o computadora:** seis pasos, uno por
+  pantalla de Moonfin: Instalar, Abrir, Anadir servidor, Direccion del servidor
+  (con la direccion y el boton Copiar que antes iban en "Abre Moonfin"),
+  Selecciona Contrasena e "Ingresa tu usuario y contrasena y selecciona Iniciar
+  sesion". Arriba de la casilla "Ya lei las instrucciones" va un GIF de esas
+  pantallas (`app/static/img/neexy-moonfin-phone-setup.gif`, 434K, carga
+  diferida: quien elige TV no lo descarga).
+
 ## [2026.10.28] (2026-10-03)
 
 ### Fixed

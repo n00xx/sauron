@@ -247,11 +247,17 @@ msgstr ""
 "Antes de comenzar, lee todos los pasos. Una vez que presiones el botón de "
 "descarga, serás enviado a la tienda correspondiente a tu dispositivo."
 
-msgid "Download Moonfin"
-msgstr "Descarga Moonfin"
+msgid "Install"
+msgstr "Instalar"
 
-msgid "Open Moonfin"
-msgstr "Abre Moonfin"
+msgid "Open"
+msgstr "Abrir"
+
+msgid "Add server"
+msgstr "Añadir servidor"
+
+msgid "Server address"
+msgstr "Dirección del servidor"
 
 msgid "It will ask for your server address:"
 msgstr "Te pedirá la dirección de tu servidor:"
@@ -264,8 +270,11 @@ msgstr ""
 msgid "Choose Password"
 msgstr "Selecciona Contraseña"
 
-msgid "Enter the username and password you created."
-msgstr "Ingresa el usuario y la contraseña que creaste."
+msgid "Enter your username and password and choose Sign in."
+msgstr "Ingresa tu usuario y contraseña y selecciona Iniciar sesión."
+
+msgid "Moonfin on a phone, screen by screen"
+msgstr "Moonfin en el celular, pantalla por pantalla"
 
 msgid "I have read the instructions → download Moonfin"
 msgstr "Ya leí las instrucciones → descargar Moonfin"
