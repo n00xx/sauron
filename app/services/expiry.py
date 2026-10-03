@@ -397,7 +397,16 @@ def restrict_lapsed_disabled_accounts() -> list[int]:
     # lapsed account disabled any other way — an admin's ban in Jellyfin, which
     # the user sync copies into is_disabled, or a lockout — has none, and must
     # not get its sign-in back from this.
-    swept = db.session.query(ExpiredUser.original_user_id)
+    # The row must be about THIS lapse: one left from an earlier expiry
+    # (renewal only clears it when the account has an email) proves nothing.
+    swept = (
+        db.session.query(ExpiredUser.id)
+        .filter(
+            ExpiredUser.original_user_id == User.id,
+            ExpiredUser.expired_at == User.expires,
+        )
+        .exists()
+    )
 
     action = Settings.query.filter_by(key="expiry_action").first()
     if action is None or action.value != "restrict":
@@ -411,7 +420,7 @@ def restrict_lapsed_disabled_accounts() -> list[int]:
             User.is_disabled.is_(True),
             User.disabled_externally.is_(False),
             User.restricted_policy.is_(None),
-            User.id.in_(swept),
+            swept,
             User.expires.is_not(None),
             User.expires < now,
         )

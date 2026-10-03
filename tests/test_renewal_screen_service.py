@@ -15,7 +15,14 @@ import pytest
 
 from app.extensions import db
 from app.forms.general import GeneralSettingsForm
-from app.models import ExpiredUser, MediaServer, Settings, User
+from app.models import (
+    ExpiredUser,
+    Invitation,
+    Library,
+    MediaServer,
+    Settings,
+    User,
+)
 from app.services import credentials
 from app.services.expiry import (
     disable_or_delete_user_if_expired,
@@ -204,7 +211,9 @@ def test_renewal_restores_the_saved_libraries(jellyfin_server, jellyfin):
 
     assert enable_user(user.id) is True
 
-    jellyfin.unrestrict_user.assert_called_once_with("jf-1", SNAPSHOT)
+    jellyfin.unrestrict_user.assert_called_once_with(
+        "jf-1", SNAPSHOT, fallback_folders=None
+    )
     jellyfin.enable_user.assert_not_called()
     assert user.is_disabled is False
     assert user.restricted_policy is None
@@ -229,7 +238,30 @@ def test_a_corrupt_snapshot_still_restores_access(jellyfin_server, jellyfin):
 
     assert enable_user(user.id) is True
 
-    jellyfin.unrestrict_user.assert_called_once_with("jf-1", None)
+    jellyfin.unrestrict_user.assert_called_once_with(
+        "jf-1", None, fallback_folders=None
+    )
+
+
+def test_the_fallback_is_what_the_invitation_granted(jellyfin_server, jellyfin):
+    """Without a usable snapshot, renewal gives back the invitation's
+    libraries — never more than the plan the member bought."""
+    pelis = Library(name="Peliculas", external_id="pelis", server_id=jellyfin_server.id)
+    other = Library(name="Otro", external_id="otro", server_id=jellyfin_server.id)
+    invitation = Invitation(code="INVITE1", used=True, unlimited=False)
+    invitation.libraries = [pelis]
+    db.session.add_all([pelis, other, invitation])
+    db.session.commit()
+    _mode("restrict")
+    user = _member(jellyfin_server, days=-1, disabled=True)
+    user.restricted_policy = "{not json"
+    db.session.commit()
+
+    enable_user(user.id)
+
+    jellyfin.unrestrict_user.assert_called_once_with(
+        "jf-1", None, fallback_folders=["pelis"]
+    )
 
 
 def test_restoring_works_after_switching_back_to_disable_mode(
@@ -323,6 +355,25 @@ def test_an_account_disabled_outside_the_sweep_stays_disabled(
     it would give a banned account its sign-in back."""
     _mode("restrict")
     _member(jellyfin_server, days=-3, disabled=True)
+
+    assert restrict_lapsed_disabled_accounts() == []
+    jellyfin.restrict_user.assert_not_called()
+
+
+def test_a_record_from_an_earlier_expiry_is_not_enough(jellyfin_server, jellyfin):
+    """The sweep's row must be about THIS lapse. A row left over from an old
+    expiry (renewal only clears it when the account has an email) says nothing
+    about who disabled the account now."""
+    _mode("restrict")
+    user = _member(jellyfin_server, days=-3, disabled=True)
+    db.session.add(
+        ExpiredUser(
+            original_user_id=user.id,
+            username=user.username,
+            expired_at=user.expires - datetime.timedelta(days=60),
+        )
+    )
+    db.session.commit()
 
     assert restrict_lapsed_disabled_accounts() == []
     jellyfin.restrict_user.assert_not_called()

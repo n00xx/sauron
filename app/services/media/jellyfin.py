@@ -665,39 +665,46 @@ class JellyfinClient(RestApiMixin):
             structlog.get_logger().error(f"Failed to restrict Jellyfin user: {e}")
             return None
 
-    def unrestrict_user(self, user_id: str, snapshot: dict | None) -> bool:
+    def unrestrict_user(
+        self,
+        user_id: str,
+        snapshot: dict | None,
+        fallback_folders: list[str] | None = None,
+    ) -> bool:
         """Take the account off the renewal screen and turn it on.
 
-        Puts back only the saved fields. Without a usable snapshot the account
-        gets every library a member may have, rather than staying locked out
-        after paying.
+        Puts back only the saved fields. When the snapshot carries no library —
+        lost, unreadable, or taken of an already-restricted policy (Jellyfin
+        applied a restriction sauron never recorded) — the account gets
+        ``fallback_folders``, the libraries its invitation granted, and only
+        without those every library a member may have. Never nothing: the
+        member just paid.
         """
         try:
             policy = self.get(f"/Users/{user_id}").json()["Policy"]
             folders = self.get("/Library/MediaFolders").json()["Items"]
             renewal = self.renewal_library_id(folders)
-            if snapshot:
-                restored = {
-                    field: snapshot[field]
-                    for field in RESTRICTED_POLICY_FIELDS
-                    if field in snapshot
-                }
-            else:
-                restored = {
-                    "EnableAllFolders": False,
-                    "EnabledFolders": _grantable_folder_ids(folders),
-                }
+            restored = {
+                field: snapshot[field]
+                for field in RESTRICTED_POLICY_FIELDS
+                if snapshot and field in snapshot
+            }
             restored["EnabledFolders"] = [
                 folder
                 for folder in restored.get("EnabledFolders") or []
                 if folder != renewal
             ]
             if not restored.get("EnableAllFolders") and not restored["EnabledFolders"]:
-                # A restriction Jellyfin applied but sauron never recorded (a
-                # timeout, a failed commit) gets snapshotted again, of the
-                # restricted policy. A member who pays must never get nothing.
+                grantable = _grantable_folder_ids(folders)
+                planned = [f for f in fallback_folders or [] if f in grantable]
                 restored["EnableAllFolders"] = False
-                restored["EnabledFolders"] = _grantable_folder_ids(folders)
+                restored["EnabledFolders"] = planned or grantable
+                logging.error(
+                    "Jellyfin user %s came off the renewal screen without a usable "
+                    "snapshot; granted %s",
+                    user_id,
+                    "the invitation's libraries" if planned else "every library",
+                )
             policy.update(restored, IsDisabled=False)
             self.post(f"/Users/{user_id}/Policy", json=policy)
             return True

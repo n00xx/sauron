@@ -247,6 +247,26 @@ def test_restoring_without_a_snapshot_grants_every_real_library():
     assert fake.policy["EnabledFolders"] == ["pelis", "series", "cols"]
 
 
+@pytest.mark.parametrize("snapshot", [None, {"EnabledFolders": ["renew"]}])
+def test_without_a_usable_snapshot_the_invitation_libraries_win(snapshot):
+    """A member whose plan had only movies must not come back with series."""
+    fake = _FakeJellyfin(_restricted())
+
+    _client(fake).unrestrict_user("jf-1", snapshot, fallback_folders=["pelis"])
+
+    assert fake.policy["EnabledFolders"] == ["pelis"]
+
+
+def test_the_fallback_only_grants_libraries_that_exist_and_may_be_granted():
+    fake = _FakeJellyfin(_restricted())
+
+    _client(fake).unrestrict_user(
+        "jf-1", None, fallback_folders=["pelis", "renew", "lists", "gone"]
+    )
+
+    assert fake.policy["EnabledFolders"] == ["pelis"]
+
+
 def test_a_refused_restore_returns_false():
     assert (
         _client(_FakeJellyfin(_restricted(), fail_posts=True)).unrestrict_user(

@@ -86,6 +86,25 @@ def _saved_policy(user: User) -> dict | None:
     return snapshot if isinstance(snapshot, dict) else None
 
 
+def _invitation_folders(user: User) -> list[str] | None:
+    """Library ids the member's invitation granted on their server; None = all.
+
+    The fallback for a restore without a usable snapshot: never more than the
+    plan the member bought.
+    """
+    from app.models import Invitation
+
+    invitation = Invitation.query.filter_by(code=user.code).first()
+    if invitation is None:
+        return None
+    folders = [
+        lib.external_id
+        for lib in invitation.libraries
+        if lib.server_id == user.server_id and lib.external_id
+    ]
+    return folders or None
+
+
 def _apply_access(
     client, user: User, user_identifier: str, enabled: bool, *, for_expiry: bool
 ) -> bool:
@@ -97,7 +116,11 @@ def _apply_access(
     decision about the account and really disable it.
     """
     if enabled and user.restricted_policy is not None:
-        if not client.unrestrict_user(user_identifier, _saved_policy(user)):
+        if not client.unrestrict_user(
+            user_identifier,
+            _saved_policy(user),
+            fallback_folders=_invitation_folders(user),
+        ):
             return False
         user.restricted_policy = None
         return True
