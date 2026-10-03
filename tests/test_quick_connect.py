@@ -507,6 +507,23 @@ def test_phone_path_walks_moonfin_screen_by_screen(app, jellyfin_server, monkeyp
         assert removed not in other, removed
 
 
+def test_phone_path_tips_a_screenshot_right_after_the_steps(
+    app, jellyfin_server, monkeypatch
+):
+    """Right under step 6, so on a phone the steps and the address are still
+    on screen when the buyer reads it and takes the screenshot."""
+    with app.test_request_context():
+        html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
+
+    tv, other = _paths(html)
+    tip = "Take a screenshot of this information before you continue."
+    assert tip in other
+    assert tip not in tv
+    assert 'role="note"' in other
+    step_6 = other.index("Enter your username and password and choose Sign in.")
+    assert step_6 < other.index(tip) < other.index("What it looks like in Moonfin")
+
+
 def test_phone_path_shows_the_setup_gif_above_the_checkbox(
     app, jellyfin_server, monkeypatch
 ):

@@ -273,6 +273,18 @@ msgstr "Selecciona Contraseña"
 msgid "Enter your username and password and choose Sign in."
 msgstr "Ingresa tu usuario y contraseña y selecciona Iniciar sesión."
 
+msgid "Tip:"
+msgstr "Tip:"
+
+msgid ""
+"Take a screenshot of this information before you continue. That way you "
+"will have the instructions and the details you need at hand when you open "
+"Moonfin."
+msgstr ""
+"Toma una captura de pantalla de esta información antes de continuar. Así "
+"tendrás las instrucciones y los datos necesarios a la mano cuando abras "
+"Moonfin."
+
 msgid "What it looks like in Moonfin"
 msgstr "Así se ve en Moonfin"
 

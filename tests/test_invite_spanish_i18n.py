@@ -252,6 +252,9 @@ def test_device_setup_renders_in_spanish_for_the_buyer(client, session, monkeypa
         "Te pedirá la dirección de tu servidor:",
         ">Selecciona Contraseña</p>",
         ">Ingresa tu usuario y contraseña y selecciona Iniciar sesión.</p>",
+        "Toma una captura de pantalla de esta información antes de continuar. "
+        "Así tendrás las instrucciones y los datos necesarios a la mano cuando "
+        "abras Moonfin.",
         "Así se ve en Moonfin",
         'alt="Moonfin en el celular, pantalla por pantalla"',
         "Ya leí las instrucciones → descargar Moonfin",
@@ -269,6 +272,7 @@ def test_device_setup_renders_in_spanish_for_the_buyer(client, session, monkeypa
         "Enter your username and password and choose Sign in.",
         "Moonfin on a phone, screen by screen",
         "What it looks like in Moonfin",
+        "Take a screenshot of this information",
         "I have read the instructions",
         "Get Moonfin",
         "Apple TV",

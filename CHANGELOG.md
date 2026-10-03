@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.31] (2026-10-03)
+
+### Added
+
+- **Wizard, ruta de celular:** recuadro ambar justo debajo del paso 6 con
+  "Tip: Toma una captura de pantalla de esta informacion antes de continuar.
+  Asi tendras las instrucciones y los datos necesarios a la mano cuando abras
+  Moonfin." Va ahi para que, en el celular, los pasos y la direccion del
+  servidor sigan en pantalla al tomar la captura. En computadora queda en la
+  columna de los pasos.
+
 ## [2026.10.30] (2026-10-03)
 
 ### Changed

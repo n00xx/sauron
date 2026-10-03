@@ -191,46 +191,60 @@
        view while the buyer reads; on a phone they stack, steps first. #}
     <div class="md:grid md:grid-cols-2 md:items-start md:gap-8">
 
-      {# One step per screen Moonfin shows, in the order the GIF plays them. #}
-      <ol class="relative space-y-5 border-l-2 border-gray-200 pl-6 dark:border-gray-700">
+      <div>
+        {# One step per screen Moonfin shows, in the order the GIF plays them. #}
+        <ol class="relative space-y-5 border-l-2 border-gray-200 pl-6 dark:border-gray-700">
 
-        <li>
-          {{ step_badge(1) }}
-          <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Install') }}</p>
-        </li>
+          <li>
+            {{ step_badge(1) }}
+            <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Install') }}</p>
+          </li>
 
-        <li>
-          {{ step_badge(2) }}
-          <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Open') }}</p>
-        </li>
+          <li>
+            {{ step_badge(2) }}
+            <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Open') }}</p>
+          </li>
 
-        <li>
-          {{ step_badge(3) }}
-          <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Add server') }}</p>
-        </li>
+          <li>
+            {{ step_badge(3) }}
+            <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Add server') }}</p>
+          </li>
 
-        <li>
-          {{ step_badge(4) }}
-          <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Server address') }}</p>
-          <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
-            {{ _('It will ask for your server address:') }}
+          <li>
+            {{ step_badge(4) }}
+            <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Server address') }}</p>
+            <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
+              {{ _('It will ask for your server address:') }}
+            </p>
+            {{ address_row(server_address) }}
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              💡 {{ _('Press Copy now: in Moonfin you just paste the address, no typing.') }}
+            </p>
+          </li>
+
+          <li>
+            {{ step_badge(5) }}
+            <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Choose Password') }}</p>
+          </li>
+
+          <li>
+            {{ step_badge(6) }}
+            <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Enter your username and password and choose Sign in.') }}</p>
+          </li>
+        </ol>
+
+        {# Right under step 6 on purpose: on a phone the steps and the address
+           are still on screen when the buyer reads this, so the screenshot
+           it asks for catches them. Amber, not primary, so it does not read
+           as the checkbox below. #}
+        <div role="note"
+             class="mt-6 rounded-xl border-2 border-amber-300 bg-amber-50 p-4 shadow-sm dark:border-amber-600/60 dark:bg-amber-900/20">
+          <p class="text-sm leading-relaxed text-amber-900 dark:text-amber-100">
+            <strong class="font-extrabold">💡 {{ _('Tip:') }}</strong>
+            {{ _('Take a screenshot of this information before you continue. That way you will have the instructions and the details you need at hand when you open Moonfin.') }} 📱
           </p>
-          {{ address_row(server_address) }}
-          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-            💡 {{ _('Press Copy now: in Moonfin you just paste the address, no typing.') }}
-          </p>
-        </li>
-
-        <li>
-          {{ step_badge(5) }}
-          <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Choose Password') }}</p>
-        </li>
-
-        <li>
-          {{ step_badge(6) }}
-          <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Enter your username and password and choose Sign in.') }}</p>
-        </li>
-      </ol>
+        </div>
+      </div>
 
       {# Built by promo/phone-setup/build.py: each of the six frames carries a
          strip with its step number and name, and stays three seconds.
