@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.24] (2026-10-03)
+
+### Security
+
+- **Al renovar sin una foto util de las bibliotecas, el socio recibe las de su
+  invitacion**, no todas. Antes podia volver con mas bibliotecas de las que
+  compro. Solo si la invitacion no listaba ninguna recibe todas las que un
+  socio puede tener; nunca ninguna.
+- **El paso automatico a la pantalla de renovacion exige el registro de ESTE
+  vencimiento.** Una fila de `ExpiredUser` de un vencimiento anterior (renovar
+  solo la borra si la cuenta tiene correo) ya no basta para quitarle
+  `IsDisabled` a una cuenta desactivada despues por otra razon.
+
+Usar esta version en lugar de 2026.10.23.
+
 ## [2026.10.23] (2026-10-03)
 
 ### Added
