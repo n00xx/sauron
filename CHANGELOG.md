@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.27] (2026-10-03)
+
+### Fixed
+
+- **La conexion de Seerr se puede crear desde el panel.** El formulario de
+  Overseerr/Jellyseerr no tenia campos de URL ni API key y deshabilitaba el
+  nombre y el servidor, asi que la conexion que pide 2026.10.25 no se podia
+  crear. Ahora tiene los dos campos (opcionales) y prueba la llave contra
+  Seerr antes de guardar; sin ellos sigue siendo solo informativa.
+
 ## [2026.10.26] (2026-10-03)
 
 ### Security
