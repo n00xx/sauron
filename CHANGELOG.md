@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.26] (2026-10-03)
+
+### Security
+
+- **El bloqueo de Seerr ya no puede quedar abierto sin que se note.** La lista
+  de usuarios de Seerr se recorre completa (antes solo la primera pagina), y si
+  hay socios en la pantalla de renovacion sin una conexion de Seerr
+  configurada, cada pasada de caducidad lo registra como advertencia.
+
+Usar esta version en lugar de 2026.10.25.
+
 ## [2026.10.25] (2026-10-03)
 
 ### Fixed
