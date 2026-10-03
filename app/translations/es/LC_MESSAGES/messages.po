@@ -3153,3 +3153,9 @@ msgstr "Ese usuario ya existe. Elige otro."
 
 msgid "This is the email you verified for your free trial."
 msgstr "Es el correo que verificaste para tu prueba gratis."
+
+msgid "Renewal screen"
+msgstr "Pantalla de renovación"
+
+msgid "Can sign in, but only sees the renewal screen until renewed"
+msgstr "Puede iniciar sesión, pero solo ve la pantalla de renovación hasta que renueve"

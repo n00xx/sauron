@@ -97,6 +97,47 @@ ROKU_HOME_SECTION_COUNT = 8
 # own a guarantee — that part lives in Jellyfin's own configuration.
 PLAYLISTS_COLLECTION_TYPE = "playlists"
 
+# ── Renewal screen ───────────────────────────────────────────────────────────
+# A lapsed account on the renewal screen keeps its sign-in but sees only this
+# library: empty, its artwork the "Membresía vencida" card with the renewal QR
+# code. Matched by name, created by hand in Jellyfin (no media path; the
+# artwork uploaded as Primary/Thumb/Backdrop). Without it a restricted account
+# simply sees no libraries.
+#
+# Why not IsDisabled: it kills the token the TV holds, and a re-enable does not
+# revive it, so every renewal meant signing in again on the TV; and while
+# disabled, Moonfin 2.5.1 answers the login with "Connection failed
+# (badResponse): HTTP 403" and nothing about renewing. Measured on Jellyfin 12.1:
+# with only this library in EnabledFolders the same token gets 404 on any other
+# item's page, PlaybackInfo and download, and Continue Watching, search and the
+# library list leave them out.
+RENEWAL_LIBRARY_NAME = "Membresía vencida"
+
+# The policy fields the renewal screen overrides, and so the only ones saved and
+# put back. A renewal into a bigger plan writes MaxActiveSessions while the
+# account is still restricted; restoring a whole saved policy would undo that.
+RESTRICTED_POLICY_FIELDS = (
+    "EnableAllFolders",
+    "EnabledFolders",
+    "EnableLiveTvAccess",
+    "EnableContentDownloading",
+)
+
+
+def _is_renewal_library(folder: dict) -> bool:
+    return folder.get("Name") == RENEWAL_LIBRARY_NAME
+
+
+def _grantable_folder_ids(folders: list[dict]) -> list[str]:
+    """Every library a member may be given: not Playlists, not the renewal screen."""
+    return [
+        folder["Id"]
+        for folder in folders
+        if (folder.get("CollectionType") or "").lower() != PLAYLISTS_COLLECTION_TYPE
+        and not _is_renewal_library(folder)
+    ]
+
+
 # ── Media-user credential verification ───────────────────────────────────────
 # Identifies sauron to Jellyfin on AuthenticateByName and on the logout that
 # follows it. Jellyfin refuses AuthenticateByName without a client-identification
@@ -185,7 +226,9 @@ class JellyfinClient(RestApiMixin):
         permanently and silently. See tests/test_library_scanning.py.
         """
         items = self.get("/Library/MediaFolders").json()["Items"]
-        return {item["Id"]: item["Name"] for item in items}
+        return {
+            item["Id"]: item["Name"] for item in items if not _is_renewal_library(item)
+        }
 
     def scan_libraries(
         self, url: str | None = None, token: str | None = None
@@ -211,7 +254,12 @@ class JellyfinClient(RestApiMixin):
             else:
                 items = self.get("/Library/MediaFolders").json()["Items"]
 
-            return {item["Name"]: item["Id"] for item in items}
+            # The renewal screen is never something an invitation can grant.
+            return {
+                item["Name"]: item["Id"]
+                for item in items
+                if not _is_renewal_library(item)
+            }
         except Exception as exc:
             logging.warning("Jellyfin: failed to scan libraries – %s", exc)
             return {}
@@ -462,19 +510,19 @@ class JellyfinClient(RestApiMixin):
                     )
 
                 logging.info(f"JELLYFIN: Converted to folder IDs: {folder_ids}")
-            else:
-                # None means all libraries - get all enabled libraries for this server
-                libraries = Library.query.filter_by(
-                    server_id=self.server_id, enabled=True
-                ).all()
-                folder_ids = [lib.external_id for lib in libraries]
-                logging.info(f"JELLYFIN: Using all library IDs: {folder_ids}")
+            all_libraries = _library_names is None
+            if all_libraries:
+                # EnableAllFolders would also show the renewal screen, so when
+                # that library exists "all" becomes an explicit list without it.
+                folders = self.get("/Library/MediaFolders").json()["Items"]
+                if any(_is_renewal_library(folder) for folder in folders):
+                    all_libraries = False
+                    folder_ids = _grantable_folder_ids(folders)
+                logging.info(f"JELLYFIN: Granting all libraries: {folder_ids or 'ALL'}")
 
             # Update policy with library access
-            current_policy["EnableAllFolders"] = _library_names is None
-            current_policy["EnabledFolders"] = (
-                folder_ids if _library_names is not None else []
-            )
+            current_policy["EnableAllFolders"] = all_libraries
+            current_policy["EnabledFolders"] = [] if all_libraries else folder_ids
 
             # Update policy
             response = self.post(
@@ -572,6 +620,106 @@ class JellyfinClient(RestApiMixin):
         except Exception as e:
             structlog.get_logger().error(f"Failed to disable Jellyfin user: {e}")
             return False
+
+    def renewal_library_id(self, folders: list[dict] | None = None) -> str | None:
+        """Id of the "Membresía vencida" library, or None when it does not exist."""
+        if folders is None:
+            folders = self.get("/Library/MediaFolders").json()["Items"]
+        return next((f["Id"] for f in folders if _is_renewal_library(f)), None)
+
+    def restrict_user(self, user_id: str) -> dict | None:
+        """Put the account on the renewal screen; return what it overrode.
+
+        The account stays able to sign in (IsDisabled goes False even if it was
+        True, which is how members disabled before the switch move over) and
+        sees only the renewal library. Read-modify-write on the whole Policy,
+        like enable_user: the endpoint replaces the document.
+
+        Returns the RESTRICTED_POLICY_FIELDS as they were, for unrestrict_user,
+        or None when Jellyfin refused. Callers must not restrict an account that
+        is already restricted: the snapshot would be the restricted policy.
+        """
+        try:
+            policy = self.get(f"/Users/{user_id}").json()["Policy"]
+            snapshot = {field: policy.get(field) for field in RESTRICTED_POLICY_FIELDS}
+            renewal = self.renewal_library_id()
+            policy.update(
+                IsDisabled=False,
+                EnableAllFolders=False,
+                EnabledFolders=[renewal] if renewal else [],
+                EnableLiveTvAccess=False,
+                EnableContentDownloading=False,
+            )
+            self.post(f"/Users/{user_id}/Policy", json=policy)
+            return snapshot
+        except Exception as e:
+            structlog.get_logger().error(f"Failed to restrict Jellyfin user: {e}")
+            return None
+
+    def unrestrict_user(self, user_id: str, snapshot: dict | None) -> bool:
+        """Take the account off the renewal screen and turn it on.
+
+        Puts back only the saved fields. Without a usable snapshot the account
+        gets every library a member may have, rather than staying locked out
+        after paying.
+        """
+        try:
+            policy = self.get(f"/Users/{user_id}").json()["Policy"]
+            folders = self.get("/Library/MediaFolders").json()["Items"]
+            renewal = self.renewal_library_id(folders)
+            if snapshot:
+                restored = {
+                    field: snapshot[field]
+                    for field in RESTRICTED_POLICY_FIELDS
+                    if field in snapshot
+                }
+            else:
+                restored = {
+                    "EnableAllFolders": False,
+                    "EnabledFolders": _grantable_folder_ids(folders),
+                }
+            restored["EnabledFolders"] = [
+                folder
+                for folder in restored.get("EnabledFolders") or []
+                if folder != renewal
+            ]
+            policy.update(restored, IsDisabled=False)
+            self.post(f"/Users/{user_id}/Policy", json=policy)
+            return True
+        except Exception as e:
+            structlog.get_logger().error(f"Failed to unrestrict Jellyfin user: {e}")
+            return False
+
+    def end_sessions_with_notice(self, user_id: str, header: str, text: str) -> int:
+        """Stop what the user is playing and tell every open session why.
+
+        Best-effort and never raises: the restriction already happened. Returns
+        how many sessions got the message.
+        """
+        try:
+            sessions = self.get("/Sessions").json() or []
+        except Exception as e:
+            structlog.get_logger().warning(f"Could not list Jellyfin sessions: {e}")
+            return 0
+
+        told = 0
+        for session in sessions:
+            if session.get("UserId") != user_id or not session.get("Id"):
+                continue
+            session_id = session["Id"]
+            try:
+                if session.get("NowPlayingItem"):
+                    self.post(f"/Sessions/{session_id}/Playing/Stop")
+                self.post(
+                    f"/Sessions/{session_id}/Message",
+                    json={"Header": header, "Text": text, "TimeoutMs": 30000},
+                )
+                told += 1
+            except Exception as e:
+                structlog.get_logger().warning(
+                    f"Could not end Jellyfin session {session_id}: {e}"
+                )
+        return told
 
     def is_user_disabled(self, user_id: str) -> bool | None:
         """Read the LIVE `IsDisabled` flag from Jellyfin.
@@ -862,7 +1010,10 @@ class JellyfinClient(RestApiMixin):
         user.allow_camera_upload = perms["allow_camera_upload"]
         # Self-heal: reflect Jellyfin's real disabled state even if it was
         # changed out-of-band (directly in Jellyfin, not through Wizarr).
-        user.is_disabled = perms["is_disabled"]
+        # Except on the renewal screen, where Jellyfin reports the account as
+        # enabled by design: copying that would make /extend skip the restore
+        # and leave a member who paid looking at "Membresía vencida".
+        user.is_disabled = perms["is_disabled"] or user.restricted_policy is not None
 
         # Store library access
         library_names, has_full_access = self._get_user_library_access(jf_user)
@@ -965,6 +1116,13 @@ class JellyfinClient(RestApiMixin):
             policy_patch = {
                 "EnableAllFolders": False,
                 "EnabledFolders": [],
+            }
+        elif not folder_ids and any(_is_renewal_library(item) for item in items):
+            # "All libraries", but EnableAllFolders would include the renewal
+            # screen: name every library a member may have instead.
+            policy_patch = {
+                "EnableAllFolders": False,
+                "EnabledFolders": _grantable_folder_ids(items),
             }
         else:
             policy_patch = {

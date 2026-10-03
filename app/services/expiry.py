@@ -275,7 +275,10 @@ def disable_or_delete_user_if_expired() -> list[int]:
             # account ALONE for the next run. An account still enabled past its
             # expiry is a billing problem and self-corrects on the next sweep;
             # a deleted account is unrecoverable loss of a paying customer.
-            wants_disable = expiry_action == "disable"
+            # "restrict" cuts access too — disable_user puts a lapsed Jellyfin
+            # account on the renewal screen instead (see media/service.py), and
+            # disables it on any other server.
+            wants_disable = expiry_action in ("disable", "restrict")
             can_disable = bool(
                 user.server
                 and get_server_disable_capabilities().get(
@@ -364,6 +367,60 @@ def disable_or_delete_user_if_expired() -> list[int]:
 
     db.session.commit()
     return processed
+
+
+def restrict_lapsed_disabled_accounts() -> list[int]:
+    """Move lapsed members that are plainly disabled onto the renewal screen.
+
+    The sweep only ever looks at accounts that are still on, so members it
+    disabled before "restrict" was chosen would stay disabled — no sign-in, no
+    notice — until they renewed. This picks them up; idempotent, since a
+    restricted account carries ``restricted_policy``. Runs only while the admin
+    has chosen "restrict", only on Jellyfin, and never touches an account
+    Jellyfin disabled by itself (``disabled_externally``: a lockout).
+
+    Returns the db ids that moved. A failure leaves the account disabled, which
+    is still cut off, and the next run retries it.
+    """
+    from app.models import MediaServer, Settings
+
+    action = Settings.query.filter_by(key="expiry_action").first()
+    if action is None or action.value != "restrict":
+        return []
+
+    now = datetime.datetime.now(datetime.UTC)
+    candidates = (
+        User.query.join(MediaServer, User.server_id == MediaServer.id)
+        .filter(
+            MediaServer.server_type == "jellyfin",
+            User.is_disabled.is_(True),
+            User.disabled_externally.is_(False),
+            User.restricted_policy.is_(None),
+            User.expires.is_not(None),
+            User.expires < now,
+        )
+        .all()
+    )
+
+    moved: list[int] = []
+    for user in candidates:
+        # disable_user is the path that restricts; it reads the same setting and
+        # the same expiry, and records the snapshot.
+        if disable_user(user.id) and user.restricted_policy is not None:
+            moved.append(user.id)
+            logging.info(
+                "🪧 Lapsed user %s (%s) moved to the renewal screen",
+                user.id,
+                user.username,
+            )
+        else:
+            logging.error(
+                "Could not move lapsed user %s (%s) to the renewal screen; "
+                "it stays disabled and the next run retries.",
+                user.id,
+                user.username,
+            )
+    return moved
 
 
 def cleanup_expired_user_by_email(email: str) -> None:

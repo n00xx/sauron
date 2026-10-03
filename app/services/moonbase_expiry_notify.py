@@ -12,11 +12,17 @@ next time they open the app. That is what separates this from
 two are independent and keep separate bookkeeping on purpose: sharing
 ``expiry_notified_at`` would let either one suppress the other.
 
-Two columns on ``User`` carry the state:
+A member already on the renewal screen (lapsed, restricted rather than
+disabled — see ``JellyfinClient.restrict_user``) gets a second kind of notice
+instead: the membership ENDED, same button, kept for 30 days. A plainly disabled
+member gets neither; they cannot sign in to read it.
+
+Three columns on ``User`` carry the state:
 
 * ``moonbase_notice_id`` — the Moonbase message on show, if any.
 * ``moonbase_notice_expires`` — the expiry that message was about. Once
   ``expires`` moves past it, or is cleared, the member renewed.
+* ``moonbase_notice_lapsed`` — the message on show is the "venció" one.
 """
 
 import datetime
@@ -59,6 +65,26 @@ NOTICE_ACTION_URL = RENEWAL_URL
 NOTICE_DELIVERY = "inbox"
 NOTICE_COLOR = "white"
 
+# For a member already on the renewal screen (see JellyfinClient.restrict_user):
+# the last-day copy is wrong once the membership has lapsed, and a restricted
+# account can still sign in to read this one. Same button, same delivery. Kept
+# longer than the last-day notice because a lapsed member may come back weeks
+# later; Moonbase prunes it past EndUtc.
+LAPSED_TITLE = "⛔ TU MEMBRESÍA VENCIÓ"
+LAPSED_BODY = (
+    "Hola 👋\n"
+    "\n"
+    "Tu membresía **venció** y por eso ya no ves el catálogo. 🔒\n"
+    "\n"
+    "Renuévala desde el siguiente enlace y vuelve a ver todo al instante, "
+    "sin volver a iniciar sesión:\n"
+    "\n"
+    "👉 **Renovar mi membresía**\n"
+    "\n"
+    "🎬 ¡Te esperamos de vuelta! 🍿"
+)
+LAPSED_DURATION = datetime.timedelta(days=30)
+
 
 def _as_naive_utc(value: datetime.datetime | None) -> datetime.datetime | None:
     """Coerce a datetime to naive UTC for safe comparison with DB values."""
@@ -73,6 +99,7 @@ def _empty_summary() -> dict:
     return {
         "notified": 0,
         "already_notified": 0,
+        "lapsed": 0,
         "retracted": 0,
         "skipped": 0,
         "errors": 0,
@@ -80,7 +107,8 @@ def _empty_summary() -> dict:
 
 
 def sync_moonbase_expiry_notices() -> dict:
-    """Take notices down for members who renewed, then notify those in their last day.
+    """Take notices down for members who renewed, notify those in their last day,
+    and tell those on the renewal screen that the membership ended.
 
     Requires an application context. Removal runs first so that a short renewal
     still landing inside the last day gets a fresh notice in the same pass.
@@ -112,6 +140,21 @@ def sync_moonbase_expiry_notices() -> dict:
     )
     for user in last_day:
         summary[_notify(user)] += 1
+
+    # Members on the renewal screen: replace the last-day warning with "venció".
+    on_renewal_screen = (
+        User.query.options(db.joinedload(User.server))
+        .filter(
+            User.restricted_policy.is_not(None),
+            User.moonbase_notice_lapsed.is_(False),
+            User.expires.is_not(None),
+            User.expires <= now,
+        )
+        .order_by(User.expires.asc())
+        .all()
+    )
+    for user in on_renewal_screen:
+        summary[_notify_lapsed(user)] += 1
 
     return summary
 
@@ -189,6 +232,51 @@ def _notify(user: User) -> str:
     return "notified"
 
 
+def _notify_lapsed(user: User) -> str:
+    """Tell a member on the renewal screen that the membership ended."""
+    server = user.server
+    if server is None or server.server_type not in SUPPORTED_SERVER_TYPES:
+        return "skipped"
+    if not user.token:
+        return "skipped"
+    # The last-day notice would sit next to this one saying "vence dentro de
+    # 1 día". If it cannot come down now, try again on the next run.
+    if user.moonbase_notice_id and not _retract(user):
+        return "errors"
+
+    try:
+        client = get_client_for_media_server(server)  # type: ignore
+        message_id = client.create_moonbase_message(
+            title=LAPSED_TITLE,
+            body=LAPSED_BODY,
+            target_user_id=user.token,
+            end_utc=datetime.datetime.now(datetime.UTC) + LAPSED_DURATION,
+            delivery=NOTICE_DELIVERY,
+            color=NOTICE_COLOR,
+            action_label=NOTICE_ACTION_LABEL,
+            action_url=NOTICE_ACTION_URL,
+        )
+    except Exception:
+        logging.exception(
+            "Moonbase lapsed notice for %s on %s failed", user.username, server.name
+        )
+        return "errors"
+
+    user.moonbase_notice_id = message_id
+    user.moonbase_notice_expires = user.expires
+    user.moonbase_notice_lapsed = True
+    if not _commit():
+        logging.error(
+            "Moonbase message %s for %s was sent but not recorded",
+            message_id,
+            user.username,
+        )
+        return "errors"
+
+    logging.info("📩 Moonbase lapsed notice sent to %s", user.username)
+    return "lapsed"
+
+
 def _retract(user: User) -> bool:
     """Delete the member's notice from Moonbase and forget it. False on failure."""
     message_id = user.moonbase_notice_id
@@ -206,6 +294,7 @@ def _retract(user: User) -> bool:
 
     user.moonbase_notice_id = None
     user.moonbase_notice_expires = None
+    user.moonbase_notice_lapsed = False
     if not _commit():
         return False
 

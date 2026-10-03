@@ -3,6 +3,7 @@ import os
 
 from app.services.expiry import (
     disable_or_delete_user_if_expired,
+    restrict_lapsed_disabled_accounts,
 )
 
 
@@ -91,6 +92,14 @@ def check_expiring(app=None):
         # Only log in development mode to avoid spam in production logs
         elif os.getenv("WIZARR_ENABLE_SCHEDULER") == "true":
             logging.info("🕒 Expiry cleanup: No expired users found.")
+
+        # Members disabled before "restrict" was chosen. A no-op otherwise.
+        moved = restrict_lapsed_disabled_accounts()
+        if moved:
+            logging.info(
+                "🪧 Expiry cleanup: %s lapsed users moved to the renewal screen.",
+                len(moved),
+            )
 
 
 def notify_streaming_expirers(app=None):

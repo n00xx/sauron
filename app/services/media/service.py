@@ -6,6 +6,7 @@ dispatches requests to the appropriate media client implementation.
 """
 
 import copy
+import json
 import logging
 import re
 from collections import defaultdict
@@ -50,6 +51,70 @@ def _delete_from_companion_apps(user: User) -> None:
         logging.error(f"Error deleting from companion apps: {exc}")
 
 
+# Shown on the member's open sessions when the renewal screen replaces their
+# catalogue. Fixed Spanish (México), like the other notices members read.
+RENEWAL_SCREEN_HEADER = "Tu membresía venció"
+RENEWAL_SCREEN_TEXT = (
+    "Renuévala en neexy.net/pay para volver a ver todo el catálogo. "
+    "No tienes que volver a iniciar sesión."
+)
+
+
+def _shows_renewal_screen(user: User) -> bool:
+    """Whether cutting this user's access means the renewal screen.
+
+    Only for a membership that has LAPSED, on Jellyfin, with the admin's expiry
+    action set to "restrict". Suspending a member who is still in date is not a
+    renewal problem, so it keeps disabling the account.
+    """
+    from app.services.expiry import get_expiry_status
+
+    action = db.session.query(Settings.value).filter_by(key="expiry_action").scalar()
+    return (
+        action == "restrict"
+        and user.server is not None
+        and user.server.server_type == "jellyfin"
+        and get_expiry_status(user.expires) == "expired"
+    )
+
+
+def _saved_policy(user: User) -> dict | None:
+    try:
+        snapshot = json.loads(user.restricted_policy or "")
+    except ValueError:
+        logging.error(f"Unreadable restricted_policy for user {user.id}")
+        return None
+    return snapshot if isinstance(snapshot, dict) else None
+
+
+def _apply_access(client, user: User, user_identifier: str, enabled: bool) -> bool:
+    """Turn access on or off on the media server; record how it was cut.
+
+    A member on the renewal screen always comes back through unrestrict_user,
+    whatever the setting says now, so changing it never strands anyone there.
+    """
+    if enabled and user.restricted_policy is not None:
+        if not client.unrestrict_user(user_identifier, _saved_policy(user)):
+            return False
+        user.restricted_policy = None
+        return True
+
+    if not enabled and _shows_renewal_screen(user):
+        # Already there: a second snapshot would save the restricted policy.
+        if user.restricted_policy is None:
+            snapshot = client.restrict_user(user_identifier)
+            if snapshot is None:
+                return False
+            user.restricted_policy = json.dumps(snapshot)
+        client.end_sessions_with_notice(
+            user_identifier, RENEWAL_SCREEN_HEADER, RENEWAL_SCREEN_TEXT
+        )
+        return True
+
+    method = client.enable_user if enabled else client.disable_user
+    return method(user_identifier)
+
+
 def _set_user_enabled_state(db_id: int, enabled: bool) -> bool:
     """Enable or disable a user on their media server."""
     if not (user := db.session.get(User, db_id)):
@@ -63,8 +128,7 @@ def _set_user_enabled_state(db_id: int, enabled: bool) -> bool:
     try:
         client = get_client_for_media_server(user.server)  # type: ignore
         user_identifier = _get_user_identifier(user, user.server)  # type: ignore
-        method = client.enable_user if enabled else client.disable_user
-        result = method(user_identifier)
+        result = _apply_access(client, user, user_identifier, enabled)
 
         action = "enabled" if enabled else "disabled"
         if result:

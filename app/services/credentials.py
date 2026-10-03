@@ -122,7 +122,11 @@ def verify_media_credentials(username: str, password: str) -> int | None:
         # read of the Jellyfin policy. A live read races against the temporary
         # enable performed by a concurrent verification of the same account
         # (see the _user_locks note above) — the column does not.
-        original_disabled = bool(user.is_disabled)
+        #
+        # An account on the renewal screen is cut off but NOT disabled: it can
+        # sign in as it is. Opening the door would hand it the catalogue for a
+        # moment, and closing it again would stop whatever is on its screen.
+        original_disabled = bool(user.is_disabled) and user.restricted_policy is None
         ok = False
         status: int | None = None
 

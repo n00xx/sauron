@@ -266,6 +266,18 @@ class User(db.Model, UserMixin):
     # and the message is deleted. See app/services/moonbase_expiry_notify.py.
     moonbase_notice_id = db.Column(db.String(64), nullable=True)
     moonbase_notice_expires = db.Column(db.DateTime, nullable=True)
+    # True when that notice is the "tu membresía venció" one for a member on the
+    # renewal screen, rather than the last-day warning it replaces.
+    moonbase_notice_lapsed = db.Column(
+        db.Boolean, nullable=False, default=False, server_default=db.false()
+    )
+
+    # Set while the account is on the renewal screen: able to sign in, but shown
+    # only the "Membresía vencida" library. Holds, as JSON, the policy fields the
+    # restriction overrode, which renewal puts back. `is_disabled` is True too —
+    # access is cut either way; this says it was cut by restriction rather than
+    # by Jellyfin's IsDisabled. See JellyfinClient.restrict_user.
+    restricted_policy = db.Column(db.Text, nullable=True)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

@@ -4414,3 +4414,11 @@ msgstr ""
 msgid "Open RomM"
 msgstr ""
 
+
+#: app/templates/tables/user_card.html:195
+msgid "Renewal screen"
+msgstr ""
+
+#: app/templates/tables/user_card.html:194
+msgid "Can sign in, but only sees the renewal screen until renewed"
+msgstr ""

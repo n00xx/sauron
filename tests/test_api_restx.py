@@ -1023,6 +1023,7 @@ class TestAPIVerifyCredentials:
             username="renewme",
             token="jf-user-id",
             is_disabled=True,
+            restricted_policy=None,  # plainly disabled, not on the renewal screen
             server=SimpleNamespace(server_type="jellyfin"),
         )
         monkeypatch.setattr(

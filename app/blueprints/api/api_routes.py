@@ -589,8 +589,11 @@ class UserExtendResource(Resource):
         # `user.is_disabled` rather than a live read of the media server's
         # policy: sauron's own column is the source of truth here, the same
         # choice app/services/credentials.py makes and for the same reason.
+        # `restricted_policy` too: an account on the renewal screen must come
+        # back even if something cleared the flag, or the member pays and keeps
+        # looking at "Membresía vencida".
         reactivated = False
-        if user.is_disabled:
+        if user.is_disabled or user.restricted_policy is not None:
             try:
                 enabled = enable_user(user.id)
             except Exception as exc:

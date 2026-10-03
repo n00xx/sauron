@@ -13,6 +13,8 @@ class GeneralSettingsForm(FlaskForm):
         choices=[
             ("delete", "Delete User"),
             ("disable", "Disable User (if supported)"),
+            # Jellyfin only; disables on any other server.
+            ("restrict", "Show only the renewal screen (Jellyfin)"),
         ],
         default="delete",
         validators=[DataRequired()],
