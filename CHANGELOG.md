@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.25] (2026-10-03)
+
+### Fixed
+
+- **Un socio en la pantalla de renovacion ya no puede pedir titulos en
+  Seerr.** Su cuenta sigue pudiendo entrar a Seerr (Moonfin lo usa con la
+  sesion propia del socio), asi que al restringir se guardan sus permisos de
+  Seerr y se ponen en 0; al renovar vuelven. Con permisos 0, Seerr 3.5.0
+  contesta "You do not have permission to make movie requests". La tarea de
+  caducidad lo re-sincroniza cada pasada, porque Seerr importa al socio con
+  permisos por defecto la primera vez que entra. Nunca toca a un admin de
+  Seerr.
+
+  **Requiere** una conexion de tipo Overseerr/Jellyseerr en Settings ->
+  Connections, para el servidor de Jellyfin, con la URL de Seerr
+  (`http://192.168.8.207:30357`) y su API key. Sin ella no hace nada.
+
+- **El aviso en pantalla al restringir lleva la direccion completa**,
+  `https://neexy.net/pay?renovar=1`.
+
+### Added
+
+- **`POST /api/users/<id>/renewal-screen`**: mueve a la pantalla de renovacion
+  una cuenta vencida que el paso automatico deja desactivada porque no puede
+  probar que la desactivo el barrido de caducidad (desactivada a mano, con la
+  fecha editada despues, o registrada como bloqueo). Responde con el
+  diagnostico de por que no se movio sola.
+
+### Changed
+
+- La tarjeta "Membresia vencida" explica que hacer con el QR y muestra la
+  direccion completa. Es configuracion del servidor y ya esta subida.
+
 ## [2026.10.24] (2026-10-03)
 
 ### Security
