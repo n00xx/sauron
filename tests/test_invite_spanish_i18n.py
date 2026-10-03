@@ -245,8 +245,6 @@ def test_device_setup_renders_in_spanish_for_the_buyer(client, session, monkeypa
         "Introduce el código que aparece en tu Smart TV en esta página y pulsa",
         "Instalación de la aplicación Moonfin en Smart TV",
         # Phone, tablet or computer path
-        "Cómo instalar Moonfin",
-        "Antes de comenzar, lee todos los pasos.",
         "Descarga Moonfin",
         "Te pedirá la dirección de tu servidor:",
         "Selecciona Contraseña",
@@ -264,6 +262,13 @@ def test_device_setup_renders_in_spanish_for_the_buyer(client, session, monkeypa
         "Apple TV",
     ):
         assert english not in body, english
+
+    # Removed from the phone path on request: the steps speak for themselves.
+    for removed in (
+        "Cómo instalar Moonfin",
+        "Antes de comenzar, lee todos los pasos.",
+    ):
+        assert removed not in body, removed
 
 
 def test_wizard_entry_redirect_keeps_the_buyer_in_spanish(client, session):

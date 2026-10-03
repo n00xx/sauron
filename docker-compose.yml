@@ -6,4 +6,4 @@ services:
         volumes:
             - ./test-data:/data/database
         environment:
-            - TZ=Europe/London
+            - TZ=America/Monterrey

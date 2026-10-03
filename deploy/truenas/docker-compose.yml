@@ -22,7 +22,7 @@ services:
       # Match these to the dataset owner so the container can write its volume.
       PUID: "568" # TrueNAS 'apps' user (default). Adjust if your dataset differs.
       PGID: "568"
-      TZ: "America/Mexico_City"
+      TZ: "America/Monterrey"
     volumes:
       # LEFT side = host dataset path on TrueNAS. Change to your dataset.
       - /mnt/pool/apps/sauron/data:/data/database

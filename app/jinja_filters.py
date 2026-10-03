@@ -61,6 +61,36 @@ def _resolve_local_timezone():
 _LOCAL_TIMEZONE = _resolve_local_timezone()
 
 
+def _local_tz():
+    """The display timezone, read at call time so tests can patch the module."""
+    return _LOCAL_TIMEZONE or datetime.now().astimezone().tzinfo
+
+
+def to_local(value: datetime) -> datetime:
+    """Return *value* in the display timezone; a naive value is taken as UTC.
+
+    Every timestamp sauron stores is naive UTC, so this is the one place the
+    panel turns it into the admin's wall clock.
+    """
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(_local_tz())
+
+
+def parse_local_datetime(raw: str) -> datetime:
+    """Parse a form value typed in the display timezone into an aware UTC datetime.
+
+    A ``datetime-local`` input carries no offset: the admin typed their own
+    wall clock. Converting before the value reaches the model matters, because
+    SQLite's DateTime drops tzinfo without converting — an aware -06:00 value
+    would be stored as local time and read back as UTC, six hours off.
+    """
+    parsed = datetime.fromisoformat(raw)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_local_tz())
+    return parsed.astimezone(UTC)
+
+
 def _server_colour(server_type: str) -> str:
     """Return the hex colour for the given *server_type* or a default grey."""
     if not server_type:
@@ -102,7 +132,7 @@ def server_name_tag(server_type: str, server_name: str) -> Markup:
 
 
 def human_date(date_value) -> str:
-    """Format date to 'Jan 15, 2024 at 2:30 PM'."""
+    """Format a UTC timestamp as 'Jan 15, 2024 at 2:30 PM' in local time."""
     if not date_value:
         return "—"
 
@@ -128,6 +158,8 @@ def human_date(date_value) -> str:
             return date_value[:16] if len(date_value) > 16 else date_value  # type: ignore
 
     # Handle datetime objects
+    if isinstance(date_value, datetime):
+        date_value = to_local(date_value)
     if hasattr(date_value, "strftime"):
         return date_value.strftime("%b %-d, %Y at %-I:%M %p")
 
@@ -152,12 +184,8 @@ def local_date(date_value, format_str="%m/%d %H:%M") -> str:
             return str(date_value)[:16]
 
     # Format datetime object
-    if hasattr(date_value, "strftime"):
-        if date_value.tzinfo is None:
-            date_value = date_value.replace(tzinfo=UTC)
-
-        local_time = date_value.astimezone(_LOCAL_TIMEZONE or None)
-        return local_time.strftime(format_str)
+    if isinstance(date_value, datetime):
+        return to_local(date_value).strftime(format_str)
 
     return str(date_value)
 

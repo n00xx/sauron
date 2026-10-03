@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.28] (2026-10-03)
+
+### Fixed
+
+- **El panel muestra y acepta la caducidad en hora local.** La caducidad se
+  guarda en UTC y se aplica en UTC (eso no cambia), pero la pagina de Usuarios,
+  el modal de edicion, los vencidos y los ultimos invitados la imprimian en UTC
+  sin decirlo: una caducidad de las 02:17 UTC se leia "2:17 AM" cuando en
+  Monterrey eran las 20:17 del dia anterior. El modal ademas guardaba como UTC
+  la hora que se tecleaba, asi que una hora pensada en local cortaba la cuenta
+  6 horas antes. Ahora las fechas de usuarios y de caducidad se muestran en la
+  zona del contenedor (`TZ`) y lo tecleado se convierte a UTC al guardar. La
+  API (`/extend`, `/update-expiry`) sigue en UTC.
+- Las plantillas de despliegue usan `TZ=America/Monterrey`.
+
+### Changed
+
+- **Wizard, paso "Configura tu primer dispositivo":** sin el parrafo de
+  introduccion en el archivo incluido, y sin el titulo "Como instalar Moonfin"
+  ni el aviso "Antes de comenzar..." en la ruta de celular, tablet o
+  computadora.
+
 ## [2026.10.27] (2026-10-03)
 
 ### Fixed

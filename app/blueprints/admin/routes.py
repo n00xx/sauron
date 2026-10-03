@@ -17,6 +17,7 @@ from flask import (
 from flask_babel import _
 from flask_login import login_required
 
+from app import jinja_filters
 from app.extensions import db, limiter, scaled_limit
 from app.models import (
     Identity,
@@ -524,13 +525,8 @@ def user_detail(db_id: int):
         if "expires" in request.form:
             raw_expires = request.form.get("expires")
             if raw_expires:
-                user_expires = datetime.datetime.fromisoformat(raw_expires)
-                # Ensure timezone-aware datetime
-                user.expires = (
-                    user_expires
-                    if user_expires.tzinfo
-                    else user_expires.replace(tzinfo=datetime.UTC)
-                )
+                # The modal shows and takes the admin's wall clock; store UTC.
+                user.expires = jinja_filters.parse_local_datetime(raw_expires)
             else:
                 user.expires = None
 

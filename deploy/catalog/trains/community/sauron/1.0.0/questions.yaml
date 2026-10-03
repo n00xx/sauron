@@ -17,7 +17,7 @@ questions:
           label: Timezone
           schema:
             type: string
-            default: "America/Mexico_City"
+            default: "America/Monterrey"
             required: true
 
   - variable: run_as
