@@ -535,6 +535,48 @@ class UserDisableResource(Resource):
             return {"error": "Internal server error"}, 500
 
 
+@users_ns.route("/<int:user_id>/renewal-screen")
+class UserRenewalScreenResource(Resource):
+    @api.doc("move_user_to_renewal_screen", security="apikey")
+    @api.response(200, "Moved, or already there")
+    @api.response(401, "Invalid or missing API key", error_model)
+    @api.response(404, "User not found", error_model)
+    @api.response(409, "Not a lapsed Jellyfin membership in restrict mode", error_model)
+    @api.response(502, "Jellyfin refused the restriction", error_model)
+    @require_api_key
+    def post(self, user_id):
+        """Move one lapsed account to the renewal screen, lifting IsDisabled.
+
+        The expiry run only moves accounts it can prove the expiry sweep
+        disabled for their current expiry, so a ban made in Jellyfin never
+        gets its sign-in back. Anything else stays disabled — and answers 403 —
+        until an operator calls this. `diagnosis` says why the automatic pass
+        left it alone.
+        """
+        from app.services.expiry import move_to_renewal_screen
+
+        user = db.session.get(User, user_id)
+        if not user:
+            abort(404, error="User not found")
+            return None
+
+        outcome, diagnosis = move_to_renewal_screen(user)
+        if outcome == "not_applicable":
+            return {
+                "error": (
+                    "Only a lapsed Jellyfin membership can go to the renewal "
+                    "screen, and only with Expiry Action set to restrict."
+                ),
+                "diagnosis": diagnosis,
+            }, 409
+        if outcome == "failed":
+            return {
+                "error": f"Jellyfin refused to restrict {user.username}. Safe to retry.",
+                "diagnosis": diagnosis,
+            }, 502
+        return {"moved": outcome == "moved", "diagnosis": diagnosis}
+
+
 @users_ns.route("/<int:user_id>/extend")
 class UserExtendResource(Resource):
     @api.doc("extend_user_expiry", security="apikey")

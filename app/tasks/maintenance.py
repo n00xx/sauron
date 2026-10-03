@@ -101,6 +101,15 @@ def check_expiring(app=None):
                 len(moved),
             )
 
+        # Seerr: requests off for everyone on the renewal screen (including a
+        # member who signs in to Seerr for the first time after the cut), back
+        # on for everyone who renewed. A no-op without a Seerr connection.
+        from app.services.seerr_access import sync_seerr_access
+
+        seerr = sync_seerr_access()
+        if seerr["suspended"] or seerr["restored"] or seerr["errors"]:
+            logging.info("🎟️ Seerr access sync: %s", seerr)
+
 
 def notify_streaming_expirers(app=None):
     """Message expiring users who are currently streaming.

@@ -448,6 +448,52 @@ def restrict_lapsed_disabled_accounts() -> list[int]:
     return moved
 
 
+def renewal_screen_diagnosis(user: User) -> dict:
+    """Why restrict_lapsed_disabled_accounts would (not) move this account."""
+    swept = (
+        ExpiredUser.query.filter(
+            ExpiredUser.original_user_id == user.id,
+            ExpiredUser.expired_at == user.expires,
+        ).first()
+        is not None
+    )
+    return {
+        "is_disabled": bool(user.is_disabled),
+        "disabled_externally": bool(user.disabled_externally),
+        "swept_for_this_expiry": swept,
+    }
+
+
+def move_to_renewal_screen(user: User) -> tuple[str, dict]:
+    """The operator's explicit move of one lapsed account to the renewal screen.
+
+    For accounts the automatic pass will not move because it cannot prove the
+    expiry sweep disabled them (see restrict_lapsed_disabled_accounts). Lifts
+    IsDisabled: calling this IS the decision that the account is lapsed, not
+    banned.
+
+    Returns ``(outcome, diagnosis)``; outcome is "moved", "already",
+    "not_applicable" or "failed". The diagnosis is taken before moving.
+    """
+    from app.services.media.service import shows_renewal_screen
+
+    diagnosis = renewal_screen_diagnosis(user)
+    if user.restricted_policy is not None:
+        return "already", diagnosis
+    if not shows_renewal_screen(user):
+        return "not_applicable", diagnosis
+
+    if not restrict_for_expiry(user.id) or user.restricted_policy is None:
+        return "failed", diagnosis
+    logging.warning(
+        "🪧 User %s (%s) moved to the renewal screen by the operator (%s)",
+        user.id,
+        user.username,
+        diagnosis,
+    )
+    return "moved", diagnosis
+
+
 def cleanup_expired_user_by_email(email: str) -> None:
     """
     Remove expired user entries when a new user with the same email is created.

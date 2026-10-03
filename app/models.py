@@ -279,6 +279,10 @@ class User(db.Model, UserMixin):
     # by Jellyfin's IsDisabled. See JellyfinClient.restrict_user.
     restricted_policy = db.Column(db.Text, nullable=True)
 
+    # The member's Seerr permissions while they are zeroed for the renewal
+    # screen; put back on renewal. See app/services/seerr_access.py.
+    seerr_saved_permissions = db.Column(db.Integer, nullable=True)
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 

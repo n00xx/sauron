@@ -15,6 +15,7 @@ from typing import Any
 
 from app.extensions import db
 from app.models import Identity, MediaServer, Settings, User
+from app.services import seerr_access
 
 from .client_base import CLIENTS
 
@@ -52,15 +53,17 @@ def _delete_from_companion_apps(user: User) -> None:
 
 
 # Shown on the member's open sessions when the renewal screen replaces their
-# catalogue. Fixed Spanish (México), like the other notices members read.
+# catalogue. Fixed Spanish (México), like the other notices members read. The
+# link is expiry.RENEWAL_URL written out (importing it here would be circular);
+# tests/test_renewal_screen_seerr.py pins the two together.
 RENEWAL_SCREEN_HEADER = "Tu membresía venció"
 RENEWAL_SCREEN_TEXT = (
-    "Renuévala en neexy.net/pay para volver a ver todo el catálogo. "
-    "No tienes que volver a iniciar sesión."
+    "Renuévala en https://neexy.net/pay?renovar=1 para volver a ver todo el "
+    "catálogo. No tienes que volver a iniciar sesión."
 )
 
 
-def _shows_renewal_screen(user: User) -> bool:
+def shows_renewal_screen(user: User) -> bool:
     """Whether an expiry cut for this user means the renewal screen.
 
     Only for a membership that has LAPSED, on Jellyfin, with the admin's expiry
@@ -123,9 +126,12 @@ def _apply_access(
         ):
             return False
         user.restricted_policy = None
+        # Best-effort: a Seerr that is down must not block a paid renewal. The
+        # expiry run retries whatever is left in seerr_saved_permissions.
+        seerr_access.restore_requests(user)
         return True
 
-    if not enabled and for_expiry and _shows_renewal_screen(user):
+    if not enabled and for_expiry and shows_renewal_screen(user):
         # Already there: a second snapshot would save the restricted policy.
         if user.restricted_policy is None:
             # is_disabled here can only be the sweep's own earlier disable (see
@@ -136,6 +142,9 @@ def _apply_access(
             if snapshot is None:
                 return False
             user.restricted_policy = json.dumps(snapshot)
+        # The account can still sign in to Seerr; take its requests away too.
+        # Best-effort, retried by the expiry run.
+        seerr_access.suspend_requests(user)
         client.end_sessions_with_notice(
             user_identifier, RENEWAL_SCREEN_HEADER, RENEWAL_SCREEN_TEXT
         )
