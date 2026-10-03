@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.22] (2026-10-02)
+
+### Fixed
+
+- **Quick Connect por fin muestra por que no conecto una membresia vencida.**
+
+  La ruta contesta 403 con el aviso "Tu membresia no esta activa", pero htmx 2
+  descarta las respuestas 4xx por defecto: el aviso nunca llego a la pantalla,
+  y tampoco "Tu sesion expiro", que sale por el mismo camino. El contenedor del
+  resultado acepta ahora los 403. Una prueba en navegador real
+  (`tests/e2e/test_quick_connect_e2e.py`) lo reproducia y ahora pasa, con una
+  prueba de control para el 200.
+
+### Added
+
+- **Boton "Renovar mi membresia" en ese aviso**, hacia
+  `https://neexy.net/pay?renovar=1`, en una pestana nueva y en espanol.
+
+- **Una sola direccion de renovacion** (`RENEWAL_URL` en
+  `app/services/expiry.py`), que usan tanto Quick Connect como el aviso de
+  Moonbase.
+
+  Aparte de sauron, la pagina de inicio de sesion de Jellyfin
+  (tv.neexy.net) tiene un segundo boton "¿Membresia vencida? Renovar" debajo
+  de "Forgot Password". Es configuracion del servidor, no de esta imagen.
+
 ## [2026.10.21] (2026-10-02)
 
 ### Changed
