@@ -31,6 +31,7 @@ NO_PERMISSIONS = 0
 # Seerr's ADMIN bit. An admin's permissions are never touched.
 ADMIN_PERMISSION = 2
 TIMEOUT_SECONDS = 15
+PAGE_SIZE = 100
 
 log = logging.getLogger(__name__)
 
@@ -53,19 +54,27 @@ def _key(jellyfin_id: str | None) -> str:
 
 
 def _seerr_users(conn: Connection) -> dict[str, dict]:
-    """Seerr users keyed by their Jellyfin id. Raises on transport errors."""
-    response = requests.get(
-        _api(conn, "/user"),
-        headers={"X-Api-Key": conn.api_key},
-        params={"take": 1000},
-        timeout=TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-    return {
-        _key(u.get("jellyfinUserId")): u
-        for u in response.json().get("results", [])
-        if u.get("jellyfinUserId")
-    }
+    """Every Seerr user, keyed by their Jellyfin id. Raises on transport errors.
+
+    Walks every page: a member left off the listing would keep requesting.
+    """
+    users: dict[str, dict] = {}
+    skip = 0
+    while True:
+        response = requests.get(
+            _api(conn, "/user"),
+            headers={"X-Api-Key": conn.api_key},
+            params={"take": PAGE_SIZE, "skip": skip},
+            timeout=TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        page = response.json().get("results", [])
+        for u in page:
+            if u.get("jellyfinUserId"):
+                users[_key(u["jellyfinUserId"])] = u
+        if len(page) < PAGE_SIZE:
+            return users
+        skip += PAGE_SIZE
 
 
 def _set_permissions(conn: Connection, seerr_id: int, permissions: int) -> None:
@@ -143,7 +152,7 @@ def sync_seerr_access() -> dict:
 
     One Seerr listing per connection per run. Requires an app context; commits.
     """
-    summary = {"suspended": 0, "restored": 0, "errors": 0}
+    summary = {"suspended": 0, "restored": 0, "errors": 0, "unconfigured": 0}
     users = User.query.filter(
         or_(
             User.restricted_policy.is_not(None),
@@ -155,6 +164,8 @@ def sync_seerr_access() -> dict:
     for user in users:
         conn = _connection(user)
         if conn is None:
+            if user.restricted_policy is not None:
+                summary["unconfigured"] += 1
             continue
         try:
             if conn.id not in listings:
@@ -170,6 +181,15 @@ def sync_seerr_access() -> dict:
         except Exception as exc:
             summary["errors"] += 1
             log.warning("Seerr access sync failed for user %s: %s", user.id, exc)
+
+    if summary["unconfigured"]:
+        # Setting Seerr up is a manual step; forgetting it must not be silent.
+        log.warning(
+            "%s member(s) on the renewal screen can still request in Seerr: "
+            "no Overseerr/Jellyseerr connection with a URL and API key for "
+            "their server.",
+            summary["unconfigured"],
+        )
 
     try:
         db.session.commit()

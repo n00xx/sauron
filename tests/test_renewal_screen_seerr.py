@@ -49,7 +49,9 @@ class _FakeSeerr:
         if self.down:
             raise requests.ConnectionError("down")
         assert url.endswith("/api/v1/user")
-        return _Resp({"results": list(self.users.values())})
+        everyone = list(self.users.values())
+        skip, take = params.get("skip", 0), params["take"]
+        return _Resp({"results": everyone[skip : skip + take]})
 
     def post(self, url, headers=None, json=None, timeout=None):
         self.calls.append(("POST", url, json))
@@ -242,7 +244,7 @@ def test_the_pass_catches_a_first_seerr_sign_in_and_a_renewal(
 
     summary = seerr_access.sync_seerr_access()
 
-    assert summary == {"suspended": 1, "restored": 1, "errors": 0}
+    assert summary == {"suspended": 1, "restored": 1, "errors": 0, "unconfigured": 0}
     assert fake.users[26]["permissions"] == 0
     assert fake.users[27]["permissions"] == DEFAULT
     db.session.refresh(lapsed)
@@ -307,3 +309,37 @@ def test_the_on_screen_notice_shows_the_full_renewal_link(server, jellyfin):
 
     text = jellyfin.end_sessions_with_notice.call_args.args[2]
     assert RENEWAL_URL in text
+
+
+# ── Not failing open ────────────────────────────────────────────────────────
+
+
+def test_a_member_past_the_first_page_of_seerr_users_is_found(
+    server, connection, monkeypatch
+):
+    monkeypatch.setattr(seerr_access, "PAGE_SIZE", 2)
+    others = [
+        {"id": n, "jellyfinUserId": f"other{n}", "permissions": DEFAULT}
+        for n in range(1, 6)
+    ]
+    fake = _seerr(
+        monkeypatch,
+        [*others, {"id": 26, "jellyfinUserId": "ab12cd34", "permissions": DEFAULT}],
+    )
+    user = _member(server)
+
+    assert seerr_access.suspend_requests(user) is True
+
+    assert fake.users[26]["permissions"] == 0
+
+
+def test_restricted_members_without_a_seerr_connection_are_reported(
+    server, monkeypatch
+):
+    """Configuring Seerr is a manual step; forgetting it must not be silent."""
+    _seerr(monkeypatch, [])
+    _member(server)
+
+    summary = seerr_access.sync_seerr_access()
+
+    assert summary["unconfigured"] == 1
