@@ -14,6 +14,7 @@ time) is a different design.
 """
 
 import datetime
+from pathlib import Path
 
 import pytest
 
@@ -517,9 +518,23 @@ def test_phone_path_shows_the_setup_gif_above_the_checkbox(
     assert gif in other
     assert gif not in tv
     assert other.index(gif) < other.index('type="checkbox"')
+    # Versioned: sw.js would otherwise keep serving a replaced GIF once more.
+    assert f"{gif}?v=" in other
+    # Titled like the TV path's video, so it does not float in on its own.
+    assert other.index("What it looks like in Moonfin") < other.index(gif)
     # Hidden until the buyer picks this path, so a TV buyer never downloads it.
     assert 'loading="lazy"' in other
-    assert 'width="700"' in other and 'height="650"' in other
+    # promo/phone-setup/build.py output: 700x650 frames under a 104px step strip.
+    assert 'width="700"' in other and 'height="754"' in other
+
+    # Rebuilding the GIF at another size must update the template too, or the
+    # reserved box no longer matches and the checkbox jumps as it loads.
+    # Bytes 6-9 of a GIF are its logical screen width and height.
+    gif_file = Path(app.static_folder, "img/neexy-moonfin-phone-setup.gif")
+    header = gif_file.read_bytes()[:10]
+    assert header[:6] == b"GIF89a"
+    assert int.from_bytes(header[6:8], "little") == 700
+    assert int.from_bytes(header[8:10], "little") == 754
 
 
 def test_widget_opts_out_of_prose_typography(app, jellyfin_server, monkeypatch):

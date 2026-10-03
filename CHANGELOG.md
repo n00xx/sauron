@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.30] (2026-10-03)
+
+### Changed
+
+- **Wizard, GIF de la ruta de celular:** lleva el titulo "Asi se ve en
+  Moonfin" y cada cuadro tiene una franja con el numero y el nombre del paso,
+  mas una barra de 6 segmentos que avanza; 3 s por cuadro en vez de 2 (451K,
+  700x754). En computadora los pasos y el GIF van lado a lado; en celular
+  siguen en una columna. La URL del GIF lleva `?v=<version>` para que el
+  service worker no muestre el anterior.
+- La franja es parte de la imagen: `promo/phone-setup/build.py` la regenera a
+  partir de `promo/phone-setup/setup.gif`.
+
 ## [2026.10.29] (2026-10-03)
 
 ### Changed

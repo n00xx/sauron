@@ -273,6 +273,9 @@ msgstr "Selecciona Contraseña"
 msgid "Enter your username and password and choose Sign in."
 msgstr "Ingresa tu usuario y contraseña y selecciona Iniciar sesión."
 
+msgid "What it looks like in Moonfin"
+msgstr "Así se ve en Moonfin"
+
 msgid "Moonfin on a phone, screen by screen"
 msgstr "Moonfin en el celular, pantalla por pantalla"
 
