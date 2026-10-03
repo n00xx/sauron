@@ -309,6 +309,9 @@ msgstr "Tu membresía no está activa"
 msgid "Renew it and you can connect your devices again right away."
 msgstr "Renuévala y vas a poder conectar tus dispositivos de inmediato."
 
+msgid "Renew my membership"
+msgstr "Renovar mi membresía"
+
 msgid "Your session expired"
 msgstr "Tu sesión expiró"
 

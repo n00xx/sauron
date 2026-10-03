@@ -6,6 +6,10 @@ from app.extensions import db
 from app.models import ExpiredUser, Invitation, User, invitation_servers
 from app.services.media.service import delete_user, disable_user
 
+# The storefront page that renews a lapsed or expiring membership. Every notice
+# that tells a member to renew links here, so it lives in one place.
+RENEWAL_URL = "https://neexy.net/pay?renovar=1"
+
 
 def calculate_user_expiry(
     invitation: Invitation, server_id: int | None = None

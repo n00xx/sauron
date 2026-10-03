@@ -19,6 +19,7 @@ import pytest
 
 from app.extensions import db
 from app.models import MediaServer, User
+from app.services.expiry import RENEWAL_URL
 from app.services.media.jellyfin import JellyfinClient
 from app.services.wizard_identity import (
     WIZARD_USER_IDS_KEY,
@@ -745,6 +746,30 @@ def test_an_expired_membership_cannot_connect_a_new_device(
     assert sent == [], "must not spend the admin key on a lapsed membership"
     assert "Tu membres\u00eda no est\u00e1 activa".encode() in response.data
     assert "\u00a1Conectado!".encode() not in response.data
+
+
+def test_a_lapsed_membership_is_shown_where_to_renew(
+    client, provisioned_user, jellyfin_server, monkeypatch
+):
+    """A bare "not active" leaves the buyer stuck on their couch. The refusal
+    carries the renewal button, in Spanish, opening outside the wizard."""
+    _client_stub(monkeypatch, [])
+    _expire(provisioned_user, disabled=True)
+
+    with client.session_transaction() as sess:
+        sess["wizard_access"] = "INVITE1"
+        sess[WIZARD_USER_IDS_KEY] = {str(jellyfin_server.id): provisioned_user.id}
+
+    html = client.post("/wizard/quick-connect", data={"code": "734108"}).data.decode()
+
+    assert f'href="{RENEWAL_URL}"' in html
+    assert 'target="_blank"' in html
+    assert "Renovar mi membresía" in html
+    assert "Renew my membership" not in html
+
+
+def test_the_renewal_link_is_the_storefront_renewal_page():
+    assert RENEWAL_URL == "https://neexy.net/pay?renovar=1"
 
 
 def test_a_disabled_account_cannot_connect_a_new_device(

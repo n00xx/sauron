@@ -3610,6 +3610,10 @@ msgstr ""
 msgid "Renew it and you can connect your devices again right away."
 msgstr ""
 
+#: app/templates/wizard/widgets/quick_connect_result.html:52
+msgid "Renew my membership"
+msgstr ""
+
 #: app/templates/wizard/widgets/quick_connect_result.html:55
 msgid "Your session expired"
 msgstr ""

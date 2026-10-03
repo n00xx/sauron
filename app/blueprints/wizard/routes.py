@@ -27,7 +27,7 @@ from app.models import (
     WizardBundleStep,
     WizardStep,
 )
-from app.services.expiry import get_expiry_status
+from app.services.expiry import RENEWAL_URL, get_expiry_status
 from app.services.invite_code_manager import InviteCodeManager
 from app.services.media.service import get_client_for_media_server
 from app.services.ombi_client import run_all_importers
@@ -939,7 +939,9 @@ def quick_connect():
     if user.is_disabled or get_expiry_status(user.expires) == "expired":
         return (
             render_template(
-                "wizard/widgets/quick_connect_result.html", state="expired_membership"
+                "wizard/widgets/quick_connect_result.html",
+                state="expired_membership",
+                renewal_url=RENEWAL_URL,
             ),
             403,
         )

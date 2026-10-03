@@ -152,7 +152,12 @@
           </div>
         </form>
 
-        <div id="qc-result" class="mt-3" aria-live="polite"></div>
+        {# The route answers a lapsed membership or a lost session with 403 and
+           a fragment the buyer must read, but htmx 2 drops 4xx responses by
+           default. beforeSwap fires on the target, not on the form, so the
+           opt-in lives here. #}
+        <div id="qc-result" class="mt-3" aria-live="polite"
+             hx-on::before-swap="if (event.detail.xhr.status === 403) { event.detail.shouldSwap = true; event.detail.isError = false; }"></div>
       </li>
       {% else %}
       {# Quick Connect is off on the server, or we could not reach it. Offering

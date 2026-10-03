@@ -24,6 +24,7 @@ import logging
 
 from app.extensions import db
 from app.models import User
+from app.services.expiry import RENEWAL_URL
 from app.services.media.service import get_client_for_media_server
 
 # Only the Jellyfin build of Moonbase has been verified against a live server.
@@ -49,7 +50,7 @@ NOTICE_BODY = (
 )
 # A button under the message; on a TV the app shows the link as a QR code.
 NOTICE_ACTION_LABEL = "Renovar mi membresía"
-NOTICE_ACTION_URL = "https://neexy.net/pay?renovar=1"
+NOTICE_ACTION_URL = RENEWAL_URL
 # "inbox": the message does not open by itself, and the Messages button carries
 # an unread badge until the member reads it. "popup" was tried first and lost on
 # the TV: Moonfin 2.5.1 marks a popup read as soon as it tries to open it, and at
