@@ -199,6 +199,9 @@ msgstr "Smart TV, Fire TV, Roku, proyector"
 msgid "Phone, tablet or computer"
 msgstr "Celular, tablet o computadora"
 
+msgid "Instant access from your browser"
+msgstr "Acceso instantáneo desde tu navegador"
+
 # Smart TV path
 msgid "Install Moonfin from your Smart TV app store."
 msgstr "Instala Moonfin desde la tienda de aplicaciones de tu Smart TV."
@@ -301,6 +304,49 @@ msgstr "Descargar Moonfin"
 
 msgid "Tick the box above to turn on the button."
 msgstr "Marca la casilla de arriba para activar el botón."
+
+# Browser path: no app, Jellyfin's web client at the server address
+msgid "No need to install any app."
+msgstr "No necesitas instalar ninguna aplicación."
+
+msgid "This mode is only available on:"
+msgstr "Este modo está disponible únicamente para:"
+
+msgid "Phones"
+msgstr "Celulares"
+
+msgid "Tablets"
+msgstr "Tablets"
+
+msgid "Laptops and computers"
+msgstr "Laptops y computadoras"
+
+msgid "Ideal if you just want to get in, see what is available and start enjoying without installing anything."
+msgstr "Ideal si solo quieres entrar, revisar qué hay disponible y comenzar a disfrutar sin instalar nada."
+
+msgid "Even so, we recommend Moonfin for the best experience of the service: it plays more titles in their original quality, with better picture and sound and fewer pauses than the browser."
+msgstr "Aun así, te recomendamos usar Moonfin para obtener la mejor experiencia del servicio: reproduce más títulos en su calidad original, con mejor imagen y sonido y menos pausas que el navegador."
+
+msgid "Open this address in your browser:"
+msgstr "Abre esta dirección en tu navegador:"
+
+# Jellyfin's sign-in page follows the browser's language, so the button may
+# read either way; the screenshot shows it in English.
+msgid "That is all: enter your username and password and press Sign In."
+msgstr "Solo tienes que ingresar tu usuario y contraseña y presionar Iniciar sesión (Sign In)."
+
+msgid "What it looks like in your browser"
+msgstr "Así se ve en tu navegador"
+
+msgid "Sign-in screen in the browser"
+msgstr "Pantalla de inicio de sesión en el navegador"
+
+msgid "Get your popcorn ready and that is it!"
+msgstr "¡Prepara tus palomitas y listo!"
+
+#, python-format
+msgid "Go to %(server)s"
+msgstr "Ir a %(server)s"
 
 # ─── Quick Connect result messages ──────────────────────────────────────────
 msgid "Connected!"

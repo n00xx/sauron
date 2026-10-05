@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.10.33] (2026-10-04)
+
+### Added
+
+- **Wizard, tercer modo "🚀 Acceso instantáneo desde tu navegador":** sin
+  instalar nada. Dice que no hace falta ninguna aplicación, avisa que solo
+  sirve en celulares, tablets, laptops y computadoras, y aun así recomienda
+  Moonfin por la calidad de reproducción. Dos pasos: abrir la dirección del
+  servidor (con botón Copiar) e ingresar usuario y contraseña, con una
+  captura de la pantalla de inicio de sesión. Cierra con "¡Prepara tus
+  palomitas y listo!" y un botón "Ir a <servidor>" que abre la dirección en
+  una pestaña nueva; si la dirección no trae `https://`, se lo agrega. En el
+  celular la opción ocupa la fila completa bajo las otras dos; en
+  computadora van las tres en una fila. Las instalaciones existentes lo ven
+  sin migrar nada: el paso solo inserta `{{ widget:quick_connect }}`.
+
 ## [2026.10.32] (2026-10-03)
 
 ### Changed

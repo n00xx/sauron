@@ -260,6 +260,25 @@ def test_device_setup_renders_in_spanish_for_the_buyer(client, session, monkeypa
         'alt="Moonfin en el celular, pantalla por pantalla"',
         "Ya leí las instrucciones → descargar Moonfin",
         "Descargar Moonfin",
+        # Browser path: no app at all
+        "Acceso instantáneo desde tu navegador",
+        "No necesitas instalar ninguna aplicación.",
+        "Este modo está disponible únicamente para:",
+        "Celulares",
+        "Tablets",
+        "Laptops y computadoras",
+        "Ideal si solo quieres entrar, revisar qué hay disponible y comenzar a "
+        "disfrutar sin instalar nada.",
+        "Aun así, te recomendamos usar Moonfin para obtener la mejor "
+        "experiencia del servicio: reproduce más títulos en su calidad "
+        "original, con mejor imagen y sonido y menos pausas que el navegador.",
+        "Abre esta dirección en tu navegador:",
+        "Solo tienes que ingresar tu usuario y contraseña y presionar Iniciar "
+        "sesión (Sign In).",
+        "Así se ve en tu navegador",
+        'alt="Pantalla de inicio de sesión en el navegador"',
+        "¡Prepara tus palomitas y listo!",
+        "Ir a Test Jellyfin",
     ):
         assert spanish in body, spanish
 
@@ -280,6 +299,18 @@ def test_device_setup_renders_in_spanish_for_the_buyer(client, session, monkeypa
         "I have read the instructions",
         "Get Moonfin",
         "Apple TV",
+        "Instant access from your browser",
+        "No need to install any app.",
+        "This mode is only available on:",
+        "Laptops and computers",
+        "Ideal if you just want to get in",
+        "Even so, we recommend Moonfin",
+        "Open this address in your browser:",
+        "That is all: enter your username and password",
+        "What it looks like in your browser",
+        "Sign-in screen in the browser",
+        "Get your popcorn ready",
+        "Go to Test Jellyfin",
     ):
         assert english not in body, english
 

@@ -6,11 +6,12 @@
    module are silently never generated — `dark:` variants included, since each
    variant is generated separately from its base. #}
 
-{# The two paths really differ now. On a TV, typing a password with the remote
-   is the pain Quick Connect removes. On a phone, tablet or computer the buyer
-   reads this page on the same device they install Moonfin on, so there is no
-   second screen to type a code into: they sign in with the username and
-   password they just created. #}
+{# The paths really differ. On a TV, typing a password with the remote is the
+   pain Quick Connect removes. On a phone, tablet or computer the buyer reads
+   this page on the same device they install Moonfin on, so there is no second
+   screen to type a code into: they sign in with the username and password they
+   just created. The browser path skips the app altogether, for a buyer who
+   wants to look around first. #}
 
 {# `not-prose` is load-bearing. Wizard content renders inside
    `prose prose-slate` (wizard/_content.html), and @tailwindcss/typography then
@@ -77,14 +78,17 @@
     {{ _('Where are you setting up %(server)s?', server=server_name) }}
   </p>
 
-  <div class="grid grid-cols-2 gap-2">
+  {# Three options: on a phone two share a row and the last one takes the full
+     row under them rather than sitting alone in half of it; from `sm` up all
+     three fit on one row. #}
+  <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
     {% for opt in device_options %}
     <button type="button"
             @click="device = '{{ opt.key }}'"
             :class="device === '{{ opt.key }}'
                     ? 'border-primary bg-primary/5 dark:bg-primary/20 ring-2 ring-primary'
                     : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'"
-            class="flex flex-col items-center gap-1 rounded-xl border p-3 text-center transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-primary">
+            class="flex flex-col items-center gap-1 rounded-xl border p-3 text-center transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-primary odd:last:col-span-2 sm:odd:last:col-span-1">
       <span class="text-2xl leading-none">{{ opt.icon }}</span>
       <span class="text-xs font-medium text-gray-900 dark:text-gray-100">{{ opt.label }}</span>
     </button>
@@ -298,5 +302,77 @@
     <p x-show="!ready" class="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
       {{ _('Tick the box above to turn on the button.') }}
     </p>
+  </div>
+
+  {# ── Path C: any browser — no app at all ─────────────────────────────── #}
+  {# Jellyfin's own web client is the app here: open the address, sign in.
+     Moonfin is still recommended because a browser cannot play every file
+     as it is, and then the server has to convert it on the fly. The warning
+     lists where this works; a Smart TV browser is not on it. #}
+  <div x-show="device === 'browser'" x-cloak x-transition.opacity class="mt-6" data-path="browser">
+
+    <p class="text-base font-semibold text-gray-900 dark:text-gray-100">
+      ✨ {{ _('No need to install any app.') }}
+    </p>
+
+    <div role="note"
+         class="mt-4 rounded-xl border-2 border-amber-300 bg-amber-50 p-4 dark:border-amber-600/60 dark:bg-amber-900/20">
+      <p class="text-sm font-bold text-amber-900 dark:text-amber-100">
+        ⚠️ {{ _('This mode is only available on:') }}
+      </p>
+      <ul class="mt-2 space-y-1 text-sm text-amber-900 dark:text-amber-100">
+        <li>📱 {{ _('Phones') }}</li>
+        <li>📲 {{ _('Tablets') }}</li>
+        <li>💻 {{ _('Laptops and computers') }}</li>
+      </ul>
+    </div>
+
+    <p class="mt-4 text-sm text-gray-700 dark:text-gray-300">
+      {{ _('Ideal if you just want to get in, see what is available and start enjoying without installing anything.') }}
+    </p>
+
+    {# Green, not primary: the primary tint is red in this theme and made the
+       recommendation read as an error. #}
+    <div class="mt-4 rounded-xl border border-green-200 bg-green-50 p-4 dark:border-green-800 dark:bg-green-900/20">
+      <p class="text-sm leading-relaxed text-green-900 dark:text-green-200">
+        ⭐ {{ _('Even so, we recommend Moonfin for the best experience of the service: it plays more titles in their original quality, with better picture and sound and fewer pauses than the browser.') }}
+      </p>
+    </div>
+
+    <ol class="relative mt-8 space-y-5 border-l-2 border-gray-200 pl-6 dark:border-gray-700">
+      <li>
+        {{ step_badge(1) }}
+        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('Open this address in your browser:') }}</p>
+        {{ address_row(server_address) }}
+      </li>
+
+      <li>
+        {{ step_badge(2) }}
+        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ _('That is all: enter your username and password and press Sign In.') }}</p>
+
+        {# A screenshot of Jellyfin's sign-in page, cropped. Same rules as the
+           phone path's GIF: lazy because this path is hidden until picked,
+           width/height so nothing below jumps, `v=` for sw.js. #}
+        <h3 class="mt-5 text-sm font-semibold text-gray-900 dark:text-gray-100">
+          👀 {{ _('What it looks like in your browser') }}
+        </h3>
+        <img src="{{ url_for('static', filename='img/neexy-browser-sign-in.png', v=app_version) }}"
+             alt="{{ _('Sign-in screen in the browser') }}"
+             width="768" height="352"
+             loading="lazy" decoding="async"
+             class="mt-2 h-auto w-full max-w-md rounded-xl border border-gray-200 shadow-lg dark:border-gray-700">
+      </li>
+    </ol>
+
+    <p class="mt-8 text-center text-lg font-extrabold text-gray-900 dark:text-gray-100">
+      🍿 {{ _('Get your popcorn ready and that is it!') }}
+    </p>
+
+    <a href="{{ browser_url }}"
+       target="_blank"
+       rel="noopener noreferrer"
+       class="mt-4 flex w-full items-center justify-center rounded-lg bg-primary px-6 py-3 text-base font-semibold text-white shadow-lg transition-colors hover:bg-primary_hover focus:outline-none focus:ring-4 focus:ring-primary/40">
+      {{ _('Go to %(server)s', server=server_name) }}
+    </a>
   </div>
 </div>

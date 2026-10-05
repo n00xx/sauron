@@ -41,6 +41,18 @@ PUBLIC_SERVER_ADDRESS = "tv.neexy.net"
 MOONFIN_DOWNLOAD_URL = "https://neexy.net/descargar"
 
 
+def _absolute_url(address: str) -> str:
+    """The server address as a link the browser path can open.
+
+    The address is shown as written ("tv.neexy.net"), but as an href a bare
+    hostname resolves relative to the wizard page. Jellyfin behind the proxy
+    answers on HTTPS, so that is the scheme added.
+    """
+    if re.match(r"https?://", address, re.IGNORECASE):
+        return address
+    return f"https://{address}"
+
+
 class WizardWidget:
     """Base class for wizard widgets."""
 
@@ -317,19 +329,22 @@ class QuickConnectWidget(WizardWidget):
     doubly so, because each variant is its own candidate.
     """
 
-    # (key, emoji, label). The two options take different paths:
+    # (key, emoji, label). Each option takes its own path:
     #
-    #   tv    → Quick Connect. Typing a password with a remote is the problem
-    #           the code box exists to solve.
-    #   other → username and password. On a phone, tablet or computer the
-    #           buyer is already holding a keyboard, and Quick Connect would need
-    #           a second screen showing this page.
+    #   tv      → Quick Connect. Typing a password with a remote is the problem
+    #             the code box exists to solve.
+    #   other   → Moonfin with username and password. On a phone, tablet or
+    #             computer the buyer is already holding a keyboard, and Quick
+    #             Connect would need a second screen showing this page.
+    #   browser → no app: open the server address in a browser and sign in.
+    #             Moonfin is still recommended there, for playback quality.
     #
     # An "Apple TV, Xbox" option and, before it, a Samsung one used to sit here.
     # Both were removed on request.
     DEVICE_OPTIONS: ClassVar[list[tuple[str, str, Any]]] = [
         ("tv", "📺", _l("Smart TV, Fire TV, Roku, projector")),
         ("other", "📱", _l("Phone, tablet or computer")),
+        ("browser", "🚀", _l("Instant access from your browser")),
     ]
 
     def __init__(self):
@@ -337,14 +352,16 @@ class QuickConnectWidget(WizardWidget):
 
     def render(self, server_type: str, _context: dict | None = None, **kwargs) -> str:
         context = _context or kwargs.pop("context", {}) or {}
+        # Never fall back to context["server_url"]: that is the LAN address,
+        # and handing it to a buyer sends them somewhere they cannot reach from
+        # outside the house.
+        server_address = context.get("external_url") or PUBLIC_SERVER_ADDRESS
 
         try:
             html_content = render_template(
                 "wizard/widgets/quick_connect.html",
-                # Never fall back to context["server_url"]: that is the LAN
-                # address, and handing it to a buyer sends them somewhere they
-                # cannot reach from outside the house.
-                server_address=context.get("external_url") or PUBLIC_SERVER_ADDRESS,
+                server_address=server_address,
+                browser_url=_absolute_url(server_address),
                 server_name=context.get("server_name") or "Jellyfin",
                 download_url=MOONFIN_DOWNLOAD_URL,
                 quick_connect_available=self._quick_connect_available(

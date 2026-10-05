@@ -388,22 +388,32 @@ def test_widget_falls_back_to_credentials_when_quick_connect_is_off(
 def _paths(html):
     """Split the widget into its Smart TV and phone/computer sections.
 
-    The template renders the TV path first, then the phone path, each opening
-    on a ``data-path`` attribute.
+    The template renders the TV path first, then the phone path, then the
+    browser path, each opening on a ``data-path`` attribute. The phone slice
+    stops where the browser one starts, so nothing the browser path says can
+    satisfy or break an assertion about the phone path.
     """
     tv_start = html.index('data-path="tv"')
     other_start = html.index('data-path="other"')
-    assert tv_start < other_start
-    return html[tv_start:other_start], html[other_start:]
+    browser_start = html.index('data-path="browser"')
+    assert tv_start < other_start < browser_start
+    return html[tv_start:other_start], html[other_start:browser_start]
 
 
-def test_widget_offers_two_device_paths(app, jellyfin_server, monkeypatch):
-    """Smart TV and phone/tablet/computer. "Apple TV, Xbox" was dropped."""
+def _browser_path(html):
+    return html[html.index('data-path="browser"') :]
+
+
+def test_widget_offers_three_device_paths(app, jellyfin_server, monkeypatch):
+    """Smart TV, phone/tablet/computer, and the browser with no app at all.
+    "Apple TV, Xbox" was dropped."""
     with app.test_request_context():
         html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
 
     assert "device = 'tv'" in html
     assert "device = 'other'" in html
+    assert "device = 'browser'" in html
+    assert "Instant access from your browser" in html
     assert "'console'" not in html
     assert "Apple TV" not in html
     assert "'samsung'" not in html
@@ -555,6 +565,127 @@ def test_phone_path_shows_the_setup_gif_above_the_checkbox(
     assert header[:6] == b"GIF89a"
     assert int.from_bytes(header[6:8], "little") == 700
     assert int.from_bytes(header[8:10], "little") == 754
+
+
+def test_browser_path_needs_no_app(app, jellyfin_server, monkeypatch):
+    """No install, said up front, along with where it works and who it is for.
+    Moonfin is still recommended, for playback quality."""
+    from app.services.wizard_widgets import MOONFIN_DOWNLOAD_URL
+
+    with app.test_request_context():
+        html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
+
+    browser = _browser_path(html)
+    in_order = [
+        "No need to install any app.",
+        "This mode is only available on:",
+        "Phones",
+        "Tablets",
+        "Laptops and computers",
+        "Ideal if you just want to get in, see what is available and start "
+        "enjoying without installing anything.",
+        "Even so, we recommend Moonfin for the best experience of the service: "
+        "it plays more titles in their original quality, with better picture "
+        "and sound and fewer pauses than the browser.",
+    ]
+    positions = [browser.index(text) for text in in_order]
+    assert positions == sorted(positions)
+
+    # Nothing to install, nothing to type a code into.
+    for absent in (
+        'name="code"',
+        "Quick Connect",
+        "<video",
+        'type="checkbox"',
+        MOONFIN_DOWNLOAD_URL,
+        "neexy-moonfin-phone-setup.gif",
+    ):
+        assert absent not in browser, absent
+
+
+def test_browser_path_only_asks_for_the_address_and_credentials(
+    app, jellyfin_server, monkeypatch
+):
+    with app.test_request_context():
+        html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
+
+    browser = _browser_path(html)
+    open_step = browser.index("Open this address in your browser:")
+    address = browser.index('data-copy="https://tv.example.net"')
+    sign_in = browser.index(
+        "That is all: enter your username and password and press Sign In."
+    )
+    assert open_step < address < sign_in
+
+
+def test_browser_path_shows_the_sign_in_screen(app, jellyfin_server, monkeypatch):
+    with app.test_request_context():
+        html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
+
+    tv, other = _paths(html)
+    browser = _browser_path(html)
+    image = "/static/img/neexy-browser-sign-in.png"
+    assert image not in tv and image not in other
+    assert f"{image}?v=" in browser
+    assert 'loading="lazy"' in browser
+    sign_in = browser.index("enter your username and password and press Sign In.")
+    title = browser.index("What it looks like in your browser")
+    assert sign_in < title < browser.index(image)
+    assert 'width="768"' in browser and 'height="352"' in browser
+
+    # Same contract as the GIF: the reserved box must match the file.
+    # A PNG stores its width and height big-endian at bytes 16-23 (IHDR).
+    header = Path(app.static_folder, "img/neexy-browser-sign-in.png").read_bytes()[:24]
+    assert header[:8] == b"\x89PNG\r\n\x1a\n"
+    assert int.from_bytes(header[16:20], "big") == 768
+    assert int.from_bytes(header[20:24], "big") == 352
+
+
+def test_browser_path_ends_with_popcorn_and_a_button_to_the_server(
+    app, jellyfin_server, monkeypatch
+):
+    with app.test_request_context():
+        html = _render_widget(monkeypatch, jellyfin_server, enabled=True)
+
+    browser = _browser_path(html)
+    image = browser.index("neexy-browser-sign-in.png")
+    popcorn = browser.index("Get your popcorn ready and that is it!")
+    button = browser.index('href="https://tv.example.net"')
+    assert image < popcorn < button
+    assert "Go to Neexy" in browser[button:]
+    assert 'target="_blank"' in browser[button:]
+    assert 'rel="noopener noreferrer"' in browser[button:]
+
+
+@pytest.mark.parametrize(
+    ("external_url", "href"),
+    [
+        (None, "https://tv.neexy.net"),
+        ("tv.neexy.net", "https://tv.neexy.net"),
+        ("https://tv.example.net", "https://tv.example.net"),
+        ("http://tv.example.net", "http://tv.example.net"),
+    ],
+)
+def test_browser_button_always_links_to_a_full_url(
+    app, monkeypatch, external_url, href
+):
+    """The address is shown as the admin wrote it, but a bare hostname as an
+    href would resolve relative to this page."""
+    from app.services.wizard_widgets import QuickConnectWidget
+
+    monkeypatch.setattr(
+        QuickConnectWidget, "_quick_connect_available", lambda *a, **k: True
+    )
+    context = {"server_name": "Neexy"}
+    if external_url:
+        context["external_url"] = external_url
+
+    with app.test_request_context():
+        html = QuickConnectWidget().render("jellyfin", _context=context)
+
+    browser = _browser_path(html)
+    assert f'href="{href}"' in browser
+    assert 'href="tv.' not in browser
 
 
 def test_widget_opts_out_of_prose_typography(app, jellyfin_server, monkeypatch):
