@@ -85,7 +85,7 @@ Two Jellyfin behaviours this has to work around, both read from
 - **Failed logins lock the account out.** Jellyfin disables an account once
   `InvalidLoginAttemptCount` reaches `LoginAttemptsBeforeLockout`, so a public
   form in front of it is a remote account-disabling weapon. The endpoint detects
-  a lockout it caused and reverses it, and is rate limited to 3/hour and 10/day
+  a lockout it caused and reverses it, and is rate limited to 7/hour and 10/day
   per username plus 20/hour per IP. Note the counter itself has **no reset API**
   and only zeroes on a successful login — the rate limits bound how fast it can
   climb, and a successful check is what actually heals a probed account.

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.11.2] (2026-11-05)
+
+### Changed
+
+- **"Validar cuenta" admite 7 intentos por hora por usuario** (antes 3). Con 3,
+  quien se equivoca al teclear su contraseña quedaba fuera una hora. Es seguro
+  porque toda cuenta se crea con `LoginAttemptsBeforeLockout = -1` (sin
+  bloqueo; medido en las 16 cuentas el 2026-11-05). El tope diario de 10 y el de
+  20 por hora por IP no cambian. La tienda sube su tope de 2 a 7 en el mismo
+  cambio, que nunca puede pasar del de sauron.
+
 ## [2026.11.1] (2026-11-05)
 
 ### Fixed

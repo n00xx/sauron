@@ -806,6 +806,16 @@ class UserUpdateExpiryResource(Resource):
             return {"error": "Internal server error"}, 500
 
 
+# Attempts per username per hour on verify-credentials. 7 since 2026.11.2: 3
+# left a customer retyping a password stuck for an hour. Safe only while every
+# account has LoginAttemptsBeforeLockout = -1 (sauron writes it at signup;
+# measured on all 16 accounts on 2026-11-05). Each attempt is a real Jellyfin
+# login, so a positive lockout below this number would let the public renewal
+# form disable an account. The storefront's own per-username cap must not exceed
+# this one (neexy lib/renewal.ts).
+VERIFY_CREDENTIALS_PER_USERNAME_PER_HOUR = "7 per hour"
+
+
 def _verify_credentials_rate_key() -> str:
     """Rate-limit key for the credential check: the submitted username.
 
@@ -859,7 +869,8 @@ class UserVerifyCredentialsResource(Resource):
     decorators: ClassVar[list] = [
         limiter.limit(scaled_limit("20 per hour")),
         limiter.limit(
-            scaled_limit("3 per hour"), key_func=_verify_credentials_rate_key
+            scaled_limit(VERIFY_CREDENTIALS_PER_USERNAME_PER_HOUR),
+            key_func=_verify_credentials_rate_key,
         ),
         limiter.limit(
             scaled_limit("10 per day"), key_func=_verify_credentials_rate_key

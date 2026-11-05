@@ -1078,14 +1078,17 @@ class TestAPIVerifyCredentials:
             limiter.reset()
             codes = [
                 self._post(client, api_key, "capprobe", "wrong").status_code
-                for _ in range(4)
+                for _ in range(8)
             ]
         finally:
             limiter.reset()
             limiter.enabled = False
 
-        assert codes[:3] == [200, 200, 200], codes
-        assert codes[3] == 429, f"4th attempt was not rate limited: {codes}"
+        # 7 per hour since 2026.11.2 (3 was too few for a customer retyping a
+        # password). Safe because every account is created with
+        # LoginAttemptsBeforeLockout = -1, measured on all 16 on 2026-11-05.
+        assert codes[:7] == [200] * 7, codes
+        assert codes[7] == 429, f"8th attempt was not rate limited: {codes}"
 
     def test_non_jellyfin_server_is_rejected_generically(
         self, client, api_key, sample_data
