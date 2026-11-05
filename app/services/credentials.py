@@ -21,6 +21,17 @@ reason this file is not a three-line wrapper:
    InvalidLoginAttemptCount itself has no reset API — it only zeroes on a
    successful login.
 
+3. The check is a REAL sign-in, so it needs one of the member's device seats.
+   Jellyfin checks the password first and the session limit second: with a
+   1-device plan and the TV signed in, the right password gets 403 "User is at
+   their maximum number of sessions", and nothing reaches /System/ActivityLog.
+   The renewal screen keeps the TV's session alive on purpose, so that was
+   almost every lapsed member (incident FamSoria404, 2026-11-04). Handled like
+   (1), but only after Jellyfin has accepted the password: on that 403 the
+   limit is raised by one seat, the check is retried, and the limit goes back.
+   Measured on Jellyfin 12.4.0: changing it through the Policy endpoint does not
+   end the TV's session, and the restored limit applies to the next sign-in.
+
 Callers get a user id or None. They must never surface anything finer: the
 distinction between "no such user", "wrong password" and "account disabled" is a
 user-enumeration oracle.
@@ -127,6 +138,7 @@ def verify_media_credentials(username: str, password: str) -> int | None:
         # sign in as it is. Opening the door would hand it the catalogue for a
         # moment, and closing it again would stop whatever is on its screen.
         original_disabled = bool(user.is_disabled) and user.restricted_policy is None
+        widened: tuple[int, int] | None = None
         ok = False
         status: int | None = None
 
@@ -139,6 +151,16 @@ def verify_media_credentials(username: str, password: str) -> int | None:
                 client.enable_user(jf_id)
 
             ok, status, token = client.authenticate_user(user.username, password)
+            if status == 403:
+                # Jellyfin checks the password BEFORE the device limit, so this
+                # 403 is either a refused account or a correct password with no
+                # free seat. Only then is a seat made — never for a caller who
+                # has not got past the password.
+                widened = _widen_session_limit(client, user, jf_id)
+                if widened is not None:
+                    ok, status, token = client.authenticate_user(
+                        user.username, password
+                    )
             if token:
                 client.logout_token(token)
         except Exception:
@@ -146,9 +168,81 @@ def verify_media_credentials(username: str, password: str) -> int | None:
             # a local, and nothing here formats it into a message.
             logging.exception("Credential check failed unexpectedly")
         finally:
+            # Limit first: _restore_account_state may disable the account, and
+            # neither step may be skipped because the other one failed.
+            _restore_session_limit(client, user, jf_id, widened)
             _restore_account_state(client, user, jf_id, original_disabled, ok, status)
 
+    if status == 403:
+        # Jellyfin logs nothing about this in its ActivityLog, so say it here.
+        # Never in the API answer: it would tell an attacker the account exists.
+        logging.warning(
+            "Credential check for user %s refused by Jellyfin with 403 "
+            "(disabled, outside its access schedule, or no free device seat).",
+            user.id,
+        )
     return user.id if ok else None
+
+
+def _widen_session_limit(client, user: User, jf_id: str) -> tuple[int, int] | None:
+    """Make room for exactly one more device. Returns (original, widened) or None.
+
+    One seat, not "unlimited": while the window is open another of the member's
+    devices could take it, and this caps that at a single extra session. None
+    means nothing was changed — the account is unlimited (so the 403 was not
+    about seats), the limit could not be read (never restore a value we
+    guessed), or the write failed. Runs under the per-account lock, so no other
+    check interleaves.
+    """
+    reader = getattr(client, "get_max_active_sessions", None)
+    if reader is None:
+        return None
+    limit = reader(jf_id)
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+        return None
+    widened = limit + 1
+    if client.set_max_active_sessions(jf_id, widened) is not True:
+        logging.warning(
+            "Credential check could not make room for user %s; a member whose "
+            "devices are all signed in will be refused.",
+            user.id,
+        )
+        return None
+    return limit, widened
+
+
+def _restore_session_limit(
+    client, user: User, jf_id: str, widened: tuple[int, int] | None
+) -> None:
+    """Put the member's device limit back. Never raises.
+
+    Only if it still holds the value we wrote: anything else means someone (an
+    admin, a plan change) set it meanwhile, and theirs wins. Left widened, the
+    account keeps one unpaid device, so that is logged as CRITICAL.
+    """
+    if widened is None:
+        return
+    original, ours = widened
+    try:
+        live = client.get_max_active_sessions(jf_id)
+        if live is not None and live != ours:
+            logging.warning(
+                "Device limit of user %s changed during a credential check "
+                "(now %s); leaving it as it is.",
+                user.id,
+                live,
+            )
+            return
+        if client.set_max_active_sessions(jf_id, original) is True:
+            return
+    except Exception:
+        logging.exception("Restoring the device limit raised")
+    logging.error(
+        "CRITICAL: could not restore MaxActiveSessions=%s for user %s after a "
+        "credential check; it allows one extra device until it is fixed.",
+        original,
+        user.id,
+    )
 
 
 def _restore_account_state(
@@ -174,15 +268,22 @@ def _restore_account_state(
 
         if ok or status == 403:
             # ok            → Jellyfin also reset InvalidLoginAttemptCount for us.
-            # status == 403 → the account was ALREADY disabled before we knocked,
-            #                 so our column was stale and this attempt never
-            #                 reached the password check. Enabling here would
-            #                 hand an attacker a way to switch on any account
-            #                 that an admin disabled directly in Jellyfin. Leave
-            #                 it alone and correct our own record instead —
-            #                 marked as learned, so a password reset can still
-            #                 tell a lockout from a disable sauron made itself.
-            if status == 403 and not user.is_disabled:
+            # status == 403 → Jellyfin refused the account itself. Enabling here
+            #                 would hand an attacker a way to switch on any
+            #                 account an admin disabled directly in Jellyfin, so
+            #                 leave it alone. If it really is disabled our column
+            #                 was stale: correct it, marked as learned so a
+            #                 password reset can still tell a lockout from a
+            #                 disable sauron made itself.
+            #
+            #                 A 403 alone is NOT that proof — an access schedule
+            #                 or a full device limit answer the same — so only
+            #                 the live IsDisabled flag may change our record.
+            if (
+                status == 403
+                and not user.is_disabled
+                and client.is_user_disabled(jf_id) is True
+            ):
                 user.is_disabled = True
                 user.disabled_externally = True
                 db.session.commit()

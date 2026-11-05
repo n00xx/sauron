@@ -743,6 +743,23 @@ class JellyfinClient(RestApiMixin):
                 )
         return told
 
+    def get_max_active_sessions(self, user_id: str) -> int | None:
+        """Read the LIVE `MaxActiveSessions` (0 = unlimited) from Jellyfin.
+
+        Returns None when it can't be established, so the credential check
+        can tell "no limit" apart from "don't know" and never restore a value
+        it guessed.
+        """
+        try:
+            raw_user = self.get(f"/Users/{user_id}").json()
+            if not raw_user:
+                return None
+            value = raw_user.get("Policy", {}).get("MaxActiveSessions", 0)
+            return value if isinstance(value, int) else None
+        except Exception as e:
+            structlog.get_logger().error(f"Failed to read Jellyfin session limit: {e}")
+            return None
+
     def is_user_disabled(self, user_id: str) -> bool | None:
         """Read the LIVE `IsDisabled` flag from Jellyfin.
 

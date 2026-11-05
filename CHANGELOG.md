@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
+## [2026.11.1] (2026-11-05)
+
+### Fixed
+
+- **"Validar cuenta" rechazaba la contraseña correcta de quien tenía la TV
+  encendida.** La comprobación de la tienda es un inicio de sesión real en
+  Jellyfin y necesita un lugar de dispositivo. Con el plan de 1 dispositivo y la
+  TV conectada, Jellyfin respondía 403 ("User is at their maximum number of
+  sessions") aunque la contraseña fuera correcta, y no lo registra en su
+  ActivityLog. La pantalla de renovación mantiene viva la sesión de la TV a
+  propósito, así que le pasaba a casi todos los vencidos (12 de 13 con límite 1
+  el 2026-11-05; incidente FamSoria404 del 2026-11-04). Ahora, solo cuando
+  Jellyfin ya aceptó la contraseña y responde 403, la comprobación amplía el
+  límite en **un** lugar, reintenta y lo restaura siempre, dentro del candado
+  por cuenta. Quien no sabe la contraseña nunca abre esa ventana, y si alguien
+  cambió el límite mientras tanto (un plan nuevo, el admin) se respeta el suyo.
+  Medido en Jellyfin 12.4.0: cambiar el límite no cierra la sesión de la TV y
+  el límite restaurado vuelve a aplicarse al siguiente inicio de sesión. Si no
+  se puede restaurar, queda un `CRITICAL` en el log.
+- **Un 403 ya no marca como desactivado a un socio activo.** sauron leía todo 403
+  de la comprobación como "la cuenta ya estaba desactivada" y escribía
+  `is_disabled` y `disabled_externally`. Un límite de dispositivos lleno o un
+  horario de acceso responden igual, así que ahora solo cuenta el `IsDisabled`
+  que Jellyfin reporta en ese momento.
+- Un rechazo con 403 deja un aviso en el log de sauron, porque Jellyfin no lo
+  muestra en su panel.
+
 ## [2026.10.33] (2026-10-04)
 
 ### Added
